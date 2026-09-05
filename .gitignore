@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# local state — the journal, market-data caches and results are runtime data,
+# not source; the shipped code recreates them on first boot
+data/trading.db*
+data/bot.db
+data/cache/
+data/results/
+data/kronos_ic.json
+
+# safety-net snapshots and OS clutter
+.backup/
+.DS_Store
+.ruff_cache/
+data/watchlist.json

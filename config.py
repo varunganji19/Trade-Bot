@@ -107,6 +107,14 @@ class StrategyParams:
     scalper_time_stop_bars: int = 12    # matches the measured 12-bar edge horizon
     scalper_range_period: int = 12      # rolling "opening range" analog
     scalper_vol_ratio_min: float = 1.15
+    # Time-of-day RVOL gate (Zarattini-Barbon-Aziz 2024 "Stocks in Play": on
+    # US-equity OPENING RANGES the same ORB rules went from Sharpe 0.48 to 2.81
+    # trading only names unusually active vs their own time-of-day norm).
+    # Our every-bar 24/7-crypto adaptation measured NEUTRAL-to-slightly-
+    # negative across 60/90/180d and walk-forward (BACKTESTS.md), so it ships
+    # OFF: 0.0 auto-passes. Raise it (e.g. 1.10) to experiment; NaN (no volume
+    # data / fresh slots) always passes either way — forex stays ungated.
+    scalper_rvol_min: float = 0.0
     scalper_break_even_rr: float = 1.0  # move stop to breakeven after 1R
     scalper_min_confidence: float = 0.62    # low-conf entries measured as noise
     scalper_short_min_confidence: float = 1.01  # shorts disabled: every short bucket lost money in testing (BACKTESTS.md)

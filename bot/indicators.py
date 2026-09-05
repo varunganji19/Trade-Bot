@@ -91,6 +91,28 @@ def volume_ratio(df: pd.DataFrame, period: int = 20) -> pd.Series:
     return df["volume"] / avg
 
 
+def seasonal_rvol(df: pd.DataFrame, days: int = 14, min_obs: int = 2) -> pd.Series:
+    """Time-of-day-matched relative volume (RVOL): this bar's volume vs the
+    mean volume of the `days` PRIOR bars in the same time-of-day slot (same
+    hour:minute of UTC). NaN when a slot has fewer than `min_obs` priors
+    (strategy gates auto-pass on NaN), 1.0 when the feed has no volume.
+
+    This is the RVOL definition from Zarattini-Barbon-Aziz (2024), where
+    trading only unusually-active names (RVOL >= their own time-of-day norm)
+    was the difference between Sharpe 0.48 and 2.81 — a plain rolling-average
+    volume ratio mis-grades crypto's strong hour-of-day seasonality: a normal
+    US-hours bar looks like a burst and a normal Asia-hours bar looks dead.
+    Baseline uses only PRIOR slots (shift by one within the slot), so the
+    current bar never pollutes its own norm — no lookahead by construction."""
+    if "volume" not in df or df["volume"].fillna(0).sum() <= 0:
+        return pd.Series(1.0, index=df.index)
+    slot = df.index.hour * 60 + df.index.minute
+    baseline = (df.groupby(slot)["volume"]
+                  .transform(lambda s: s.rolling(days, min_periods=min_obs)
+                                       .mean().shift(1)))
+    return df["volume"] / baseline.replace(0.0, np.nan)
+
+
 def add_all_indicators(df: pd.DataFrame, params=None) -> pd.DataFrame:
     """Compute every indicator column the strategies need. Idempotent."""
     from config import StrategyParams  # local import to avoid cycle
@@ -110,4 +132,5 @@ def add_all_indicators(df: pd.DataFrame, params=None) -> pd.DataFrame:
     out["don_exit_up"], out["don_exit_low"] = donchian(out, p.turtle_exit_period)
     out["vwap_roll"] = rolling_vwap(out, 96)
     out["vol_ratio"] = volume_ratio(out, 20)
+    out["rvol"] = seasonal_rvol(out, days=14)
     return out

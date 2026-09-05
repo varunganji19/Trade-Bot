@@ -120,6 +120,89 @@ def test_vwap_rolling_and_no_volume():
     assert not ind["vwap_roll"].iloc[-5:].isna().any()
 
 
+def test_seasonal_rvol():
+    """Time-of-day RVOL (Zarattini-Barbon-Aziz): this bar's volume vs the
+    symbol's own average at the same hour:minute. A plain rolling ratio
+    mis-grades crypto's hour-of-day seasonality; the seasonal baseline must
+    grade a normal US-hours bar as normal, a burst as a burst, and stay
+    causal (truncating the frame never changes past values)."""
+    from bot.indicators import seasonal_rvol
+    n = 3 * 96
+    idx = pd.date_range("2026-01-01", periods=n, freq="15min", tz="UTC")
+    df = make_df(np.full(n, 100.0), start="2026-01-01", freq="15min")
+    df.index = idx
+    df["volume"] = np.array([5.0 if 14 <= t.hour <= 16 else 1.0 for t in idx])
+
+    r = seasonal_rvol(df)
+    assert r.iloc[:96].isna().all()          # < 2 prior same-slot bars -> NaN (auto-pass)
+    tail = r.iloc[2 * 96:]
+    # both US-hours and Asia-hours bars sit at ~1.0 (their own norms) even
+    # though the plain ratio reads the US-hours bars as 5x bursts
+    assert 0.7 < tail.mean() < 1.3
+    us = r[[i for i in r.index if 14 <= i.hour <= 16]].dropna()
+    assert (us > 0.7).all() and (us < 1.4).all()
+
+    # burst bar: 3x its own same-slot norm
+    burst = df.copy()
+    burst.iloc[-1, burst.columns.get_loc("volume")] *= 3.0
+    assert seasonal_rvol(burst).iloc[-1] > 2.5
+    # quiet bar: 0.3x norm
+    quiet = df.copy()
+    quiet.iloc[-1, quiet.columns.get_loc("volume")] *= 0.3
+    assert seasonal_rvol(quiet).iloc[-1] < 0.5
+    # no-volume feed -> 1.0 auto-pass
+    assert seasonal_rvol(df.drop(columns=["volume"])).iloc[-1] == 1.0
+    # causality: truncating the frame never changes any PAST bar's RVOL
+    r_trunc = seasonal_rvol(df.iloc[:-5])
+    mask = r.iloc[:-5].notna()
+    assert (r.iloc[:-5][mask] == r_trunc[mask]).all()
+
+
+def test_scalper_rvol_gate():
+    """The scalper must refuse an otherwise-perfect reclaim bar whose volume
+    is below the symbol's own norm for that time of day, and take it when the
+    same setup arrives with unusual same-slot volume (the Stocks-in-Play
+    RVOL filter: same rules went from Sharpe 0.48 to 2.81). The knob ships
+    OFF (measured neutral on 24/7 crypto bars — BACKTESTS.md) so the test
+    raises it explicitly; 0.0 must auto-pass everything."""
+    n = 4 * 96
+    prices = list(np.linspace(120, 100, n - 4)) + [100.5, 101.5, 103.2, 105.0]
+    df = make_df(prices, start="2026-01-01", freq="15min")
+    df["volume"] = 100.0
+    df = add_all_indicators(df)
+    i = len(df) - 1
+    p = CONFIG.params
+    old_rvol_min = p.scalper_rvol_min
+    p.scalper_rvol_min = 1.10          # experiment mode: gate active
+    try:
+        sc = VWAPScalper()
+
+        # the final bar's volume is 5x its own same-slot norm -> gate passes
+        hot = df.copy()
+        hot.loc[hot.index[-1], "volume"] = 500.0
+        hot = add_all_indicators(hot)
+        assert hot["rvol"].iloc[i] > 2.5
+        sig_hot = sc.evaluate(hot, i)
+
+        # identical price setup but volume at 20% of its own norm -> refused
+        cold = df.copy()
+        cold.loc[cold.index[-1], "volume"] = 20.0
+        cold = add_all_indicators(cold)
+        assert cold["rvol"].iloc[i] < 0.5
+        sig_cold = sc.evaluate(cold, i)
+        if sig_hot.action in ("LONG", "SHORT"):
+            assert sig_cold.action == "FLAT" or \
+                "conviction" in (sig_cold.rationale or "")
+    finally:
+        p.scalper_rvol_min = old_rvol_min
+
+    # shipped default (0.0) auto-passes: quiet bar trades identically to hot
+    p.scalper_rvol_min = 0.0
+    base_sig = VWAPScalper().evaluate(cold, i)
+    assert base_sig.action == sig_hot.action
+    p.scalper_rvol_min = old_rvol_min
+
+
 def test_adx_trending_vs_ranging():
     tr = add_all_indicators(trending_df(600, drift=0.002))
     rg = add_all_indicators(range_df(600))

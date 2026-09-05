@@ -6,13 +6,20 @@ Combines three evidenced intraday ideas:
    reclaiming (or losing) VWAP with momentum is a structurally-supported entry.
 2. Rolling range breakout/breakdown — the 24/7-market analogue of the Opening
    Range Breakout quantified by Zarattini & Aziz (2023).
-3. Volume confirmation (multiple of average volume), from the team's earlier
-   VWAP-intraday prototype (since retired).
+3. Volume confirmation, TWO layers:
+   - plain burst ratio (current bar vs rolling mean), from the team's earlier
+     VWAP-intraday prototype (since retired);
+   - time-of-day RVOL (Zarattini-Barbon-Aziz 2024 "Stocks in Play": on US
+     equity opening ranges, trading only names unusually active vs their own
+     time-of-day norm took identical ORB rules from Sharpe 0.48 to 2.81).
+     Our every-bar 24/7-crypto adaptation measured neutral-to-slightly-
+     negative (BACKTESTS.md), so it is OFF by default (scalper_rvol_min=0)
+     and kept as tested, causal machinery for future research.
 
 Exits: VWAP cross-down, breakeven trail after +1R, time stop (scalps should
 not turn into swing trades), hard stop 1.2 x ATR, target 1.8R.
 
-On volume-less feeds (forex from Yahoo) the volume gate auto-passes.
+On volume-less feeds (forex from Yahoo) the volume gates auto-pass.
 """
 from __future__ import annotations
 
@@ -39,6 +46,7 @@ class VWAPScalper(BaseStrategy):
             "ema_f": self._at(df, "ema9", i),
             "ema_s": self._at(df, "ema21", i),
             "vol_r": self._at(df, "vol_ratio", i),
+            "rvol": self._at(df, "rvol", i),
             "rsi3": self._at(df, "rsi3", i),
             "adx": self._at(df, "adx", i),
         }
@@ -71,8 +79,21 @@ class VWAPScalper(BaseStrategy):
             bump += min(max(ctx["vol_r"] - p.scalper_vol_ratio_min, 0.0) * 0.5, 0.15)
         return self._clip_conf(base + bump + extra)
 
+    def _vol_ok(self, ctx: dict) -> bool:
+        """Time-of-day RVOL gate (Zarattini-Barbon-Aziz 2024: on US-equity
+        opening ranges, trading only unusually-active names moved their ORB
+        from Sharpe 0.48 to 2.81). 0 disables (shipped default — measured
+        neutral on 24/7 crypto bars, BACKTESTS.md). NaN auto-passes:
+        no-volume feeds (forex) and slots without enough same-time history
+        stay ungated rather than frozen."""
+        if self.p.scalper_rvol_min <= 0:
+            return True
+        return (not self._ok(ctx["rvol"])) or ctx["rvol"] >= self.p.scalper_rvol_min
+
     def _vol_note(self, ctx: dict) -> str:
-        return (f"volume x{ctx['vol_r']:.2f}"
+        rvol = (f", rvol x{ctx['rvol']:.2f}"
+                if ctx["rvol"] and not math.isnan(ctx["rvol"]) else "")
+        return (f"volume x{ctx['vol_r']:.2f}{rvol}"
                 if ctx["vol_r"] and not math.isnan(ctx["vol_r"]) else "volume n/a")
 
     # ------------------------------------------------------------- entries
@@ -85,6 +106,7 @@ class VWAPScalper(BaseStrategy):
 
         momentum = ctx["ema_f"] > ctx["ema_s"]
         vol_ok = (not self._ok(ctx["vol_r"])) or ctx["vol_r"] >= p.scalper_vol_ratio_min
+        rvol_ok = self._vol_ok(ctx)
         reclaim = ctx["close"] > ctx["vwap"] and self._reclaimed_2bars(df, i, "long")
         breakout = (self._ok(ctx["range_high"]) and ctx["close"] > ctx["range_high"])
         trend_ok = (not p.scalper_trend_filter) or (
@@ -92,7 +114,7 @@ class VWAPScalper(BaseStrategy):
         adx_ok = (not self._ok(ctx["adx"])) or ctx["adx"] >= p.scalper_adx_min
 
         base_conf = 0.0
-        if trend_ok and vol_ok and adx_ok:
+        if trend_ok and vol_ok and rvol_ok and adx_ok:
             if reclaim and momentum and self._ok(ctx["rsi3"]) and ctx["rsi3"] >= 45:
                 base_conf = 0.55
             if breakout and momentum:
@@ -118,7 +140,8 @@ class VWAPScalper(BaseStrategy):
             rationale=(f"{mode} long: close {ctx['close']:.6g} {detail}, "
                        f"EMA9>EMA21 momentum, {self._vol_note(ctx)}"),
             meta={"mode": mode, "vwap": ctx["vwap"],
-                  "vol_ratio": ctx["vol_r"] if self._ok(ctx["vol_r"]) else None},
+                  "vol_ratio": ctx["vol_r"] if self._ok(ctx["vol_r"]) else None,
+                  "rvol": ctx["rvol"] if self._ok(ctx["rvol"]) else None},
         )
 
     def _short_signal(self, df, i: int) -> Signal:
@@ -130,6 +153,7 @@ class VWAPScalper(BaseStrategy):
 
         momentum = ctx["ema_f"] < ctx["ema_s"]
         vol_ok = (not self._ok(ctx["vol_r"])) or ctx["vol_r"] >= p.scalper_vol_ratio_min
+        rvol_ok = self._vol_ok(ctx)
         loss = ctx["close"] < ctx["vwap"] and self._reclaimed_2bars(df, i, "short")
         breakdown = (self._ok(ctx["range_low"]) and ctx["close"] < ctx["range_low"])
         trend_ok = (not p.scalper_trend_filter) or (
@@ -137,7 +161,7 @@ class VWAPScalper(BaseStrategy):
         adx_ok = (not self._ok(ctx["adx"])) or ctx["adx"] >= p.scalper_adx_min
 
         base_conf = 0.0
-        if trend_ok and vol_ok and adx_ok:
+        if trend_ok and vol_ok and rvol_ok and adx_ok:
             if loss and momentum and self._ok(ctx["rsi3"]) and ctx["rsi3"] <= 55:
                 base_conf = 0.55
             if breakdown and momentum:
@@ -165,7 +189,8 @@ class VWAPScalper(BaseStrategy):
             rationale=(f"{mode} short: close {ctx['close']:.6g} {detail}, "
                        f"EMA9<EMA21 momentum, {self._vol_note(ctx)}"),
             meta={"mode": mode, "vwap": ctx["vwap"],
-                  "vol_ratio": ctx["vol_r"] if self._ok(ctx["vol_r"]) else None},
+                  "vol_ratio": ctx["vol_r"] if self._ok(ctx["vol_r"]) else None,
+                  "rvol": ctx["rvol"] if self._ok(ctx["rvol"]) else None},
         )
 
     # ------------------------------------------------------------- interface

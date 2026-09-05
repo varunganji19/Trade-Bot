@@ -241,6 +241,45 @@ unchanged; only the live engine was corrected. Four regression tests added
 (53 total): cross-timeframe isolation, restart cash/position restore,
 bars-held-in-bars, journal migration.
 
+## Round 5 (v5) — the RVOL filter: an honest negative result
+
+The elite-scalper research pass surfaced one filter with unusually strong
+published evidence: **RVOL (time-of-day relative volume)**. Zarattini, Barbon
+& Aziz (2024, "Stocks in Play") ran *identical* opening-range-breakout rules
+with and without trading only unusually-active names — Sharpe **0.48 → 2.81**,
+PnL/trade −0.02R below RVOL 100% vs +0.38R above 30×. We implemented the
+causal, time-of-day-matched version (this bar's volume vs the mean of the 14
+prior bars at the same UTC hour:minute — a plain rolling ratio mis-grades
+crypto's hour-of-day seasonality) and measured it on our own structure.
+
+**Verdict: the equity-market edge did not transfer. OFF by default
+(`scalper_rvol_min = 0.0`), machinery and tests kept.**
+
+| Window / protocol | BTC 15m scalper (off → RVOL ≥ 1.10) | ETH 15m scalper (off → 1.10) |
+|---|---|---|
+| 60d in-sample | −0.58% → −0.44% | −1.58% → −1.84% |
+| 90d in-sample | −4.16% → −4.48% | — |
+| 180d in-sample | −10.93% → −11.02% | — |
+| Walk-forward 4 folds | +0.46% → +0.39% | — |
+
+Reading: neutral-to-slightly-negative everywhere it was measured, and the
+isolated "improvements" (BTC 60d, +0.14pp) are within noise. Why the edge
+didn't transfer is not mysterious: the published result is on **US-equity
+opening ranges** — a market that opens once a day, where RVOL separates
+names the crowd is piling into *today* from ones nobody is watching. Our
+scanning environment is **24/7 crypto, every-bar entries on 15m bars** —
+a volume burst on a perpetual market is at least as often a liquidation
+cascade (mean-reverting, adversarial to a momentum entry) as a sustainable
+drift. The filter's premise — "active = trendable" — does not hold here.
+
+What shipped: `seasonal_rvol()` in `bot/indicators.py` (causal by
+construction — baseline uses only prior same-slot bars), the
+`scalper_rvol_min` knob (default 0 = off), scalper gate wiring with NaN
+auto-pass (forex feeds without volume stay ungated), and two tests
+(`test_seasonal_rvol`, `test_scalper_rvol_gate`). Raising the knob to e.g.
+1.10 re-enables the experiment in one config line; the honest default is
+what the measurement says it should be.
+
 ## Standing caveats
 
 1. All results above are from a single historical window per symbol. Walk-forward

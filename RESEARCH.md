@@ -109,7 +109,7 @@ Convergent wisdom from the traders above:
 |---|---|---|---|---|---|
 | **Turtle Trend** | Donchian/Dennis breakout + ATR regime filter | 1h | Close breaks prior 20-bar high/low, ADX > 20 | Opposite 10-bar channel | 2 × ATR(14) |
 | **Connors Mean Reversion** | Connors RSI-2 | 4h / 1d (evidence is daily bars) | RSI(2) < 5 long ( > 95 short) with EMA(200) trend filter | RSI(2) > 65 or cross of EMA(5); time stop | 3 × ATR(14) |
-| **VWAP Scalper** | Zarattini/Aziz ORB + VWAP institutional flow + our VWAP prototype | 15m (5m enabled but measured cost-negative) | VWAP reclaim with EMA(9)>EMA(21) momentum + volume confirmation, or N-bar range breakout | VWAP cross-down, breakeven trail after 1R, time stop | 2 × ATR(14) |
+| **VWAP Scalper** | Zarattini/Aziz ORB + VWAP institutional flow + our VWAP prototype | 15m (5m enabled but measured cost-negative) | VWAP reclaim with EMA(9)>EMA(21) momentum + volume confirmation, or N-bar range breakout; optional time-of-day RVOL gate (measured neutral on 24/7 crypto — off by default, BACKTESTS.md Round 5) | VWAP cross-down, breakeven trail after 1R, time stop | 2 × ATR(14) |
 | **Sentiment Overlay** | LLM headline scoring (Lopez-Lira & Tang 2023) | live only | — (never initiates) | can veto/shrink entries | — |
 
 **Orchestrator:** ADX + EMA structure classifies the regime (trending vs. ranging). Trending →

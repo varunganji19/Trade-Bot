@@ -31,7 +31,7 @@ import traceback
 from urllib.parse import unquote
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response as FastAPIResponse, FileResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
@@ -56,7 +56,8 @@ def _check_token(auth_header: str, token: str) -> bool:
     """Pure predicate for the optional bearer guard (unit-tested)."""
     if not token:
         return True
-    return auth_header == f"Bearer {token}"
+    import hmac
+    return hmac.compare_digest(auth_header, f"Bearer {token}")
 
 
 class _TokenGuard:   # pure ASGI middleware — no BaseHTTPMiddleware overhead
@@ -160,9 +161,12 @@ def _write_engine_state(running: bool, interval: int):
     auto-resume it (a stop must win over a stale 'running' file). A failed
     write degrades to no-auto-resume; it must never break the endpoint."""
     try:
-        with open(_engine_state_path(), "w") as f:
+        # atomic: a torn state file would silently disable auto-resume
+        tmp = _engine_state_path() + ".tmp"
+        with open(tmp, "w") as f:
             json.dump({"desired": "running" if running else "stopped",
                        "interval": interval}, f)
+        os.replace(tmp, _engine_state_path())
     except OSError:
         pass
 
@@ -313,6 +317,17 @@ def _journal_position_dict(t: dict) -> dict:
 @app.get("/", response_class=HTMLResponse)
 def index():
     return DASHBOARD_HTML
+
+
+@app.get("/chart.umd.min.js",
+         include_in_schema=False,
+         response_class=FastAPIResponse)
+def chart_js():
+    """Vendored Chart.js 4.4.3 (MIT, see bot/chart.LICENSE) — served locally
+    instead of from a CDN: no third-party same-origin script execution, and
+    the dashboard works fully offline."""
+    return FileResponse(os.path.join(os.path.dirname(__file__), "chart.umd.min.js"),
+                        media_type="application/javascript")
 
 
 # ---------------------------------------------------------------------------
@@ -610,10 +625,12 @@ def _auto_resume_engine():
     try:
         with open(_engine_state_path()) as f:
             state = json.load(f)
+        if not isinstance(state, dict):
+            return
         if state.get("desired") != "running":
             return
         interval = int(state.get("interval", CONFIG.live_interval_seconds))
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, OverflowError):
         return
     interval = max(5, min(3600, interval))
     result = _spawn_engine(interval)
@@ -649,7 +666,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Algo Trading Bot — Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="/chart.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 

@@ -96,6 +96,17 @@ class StrategyParams:
     mr_exit_ema: int = 5
     mr_stop_atr: float = 3.0
     mr_time_stop_bars: int = 12       # 12 x 4h = 2 days; edge decays fast
+    # Chan half-life gate (AR(1)/OU time scale of mean reversion — the one
+    # ARIMA-family tool that survived measurement). The deviation
+    # log(close/EMA20) is fit to x_t = c + phi*x_{t-1} + e_t over a rolling 100
+    # bars; half-life = -ln(2)/(phi-1) bars = how fast pullbacks have actually
+    # been reverting. Entries are refused when that half-life exceeds the
+    # strategy's own 12-bar time-stop horizon (NaN auto-passes like every
+    # gate; the threshold does the refusing — finite windows bias a true
+    # random walk to ~window/5 bars, so inf/explosive is rare). Measured
+    # A/B + walk-forward in BACKTESTS.md Round 6: 3 of 4 cells positive,
+    # walk-forward positive on BOTH symbols; binds rarely (~2 entries/yr).
+    mr_halflife_max: float = 12.0
 
     # VWAP scalper (ORB-inspired + volume confirmation)
     # Cost study on real data (BACKTESTS.md): 5m crypto taker-fee round trip

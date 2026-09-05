@@ -113,6 +113,52 @@ def seasonal_rvol(df: pd.DataFrame, days: int = 14, min_obs: int = 2) -> pd.Seri
     return df["volume"] / baseline.replace(0.0, np.nan)
 
 
+def halflife_ar1(series: pd.Series, window: int = 100) -> pd.Series:
+    """Chan's half-life of mean reversion, in bars (Algorithmic Trading, ch.2).
+
+    Fits the discrete OU / ARIMA(1,0,0) process x_t = c + phi*x_{t-1} + e_t by
+    OLS over a rolling `window`, then half-life = -ln(2)/lambda with
+    lambda = phi - 1 (Chan's ADF-regression form; equals -ln(2)/ln(phi) near
+    the unit root, where it matters). This is the natural time scale of mean
+    reversion in `series` — Chan's rule: set lookbacks/holding periods as a
+    small multiple of the half-life, and don't trade reversion at all when
+    the half-life is longer than your horizon.
+
+    Policies (matching the NaN-auto-pass convention of every other gate):
+    - window incomplete or degenerate (zero variance) -> NaN (gates auto-pass)
+    - phi >= 1 (explosive — deviation diverging, not reverting) -> inf, which
+      gates can veto explicitly
+    - phi < 1 -> positive half-life; phi <= 0 collapses to fast (<1 bar)
+      reversion, which simply passes a "short enough" gate.
+
+    Finite-window honesty: OLS on a near-unit-root series is biased downward
+    (the Dickey-Fuller bias, ~-3.5/window bars), so a TRUE random walk reads
+    a finite half-life of roughly window/5 bars rather than inf — the "inf"
+    label only fires on genuinely explosive windows. Gate thresholds must
+    therefore sit well below window/5 to filter non-reverting regimes; the
+    threshold, not the inf label, does the refusing.
+
+    `series` should be a STATIONARY quantity (a deviation/spread, e.g.
+    log(close/EMA)) — on raw prices the AR(1) sits at the unit root by
+    construction and every window reads a huge half-life, which is the model
+    correctly telling you a price level is not mean-reverting."""
+    x = series.astype(float)
+    b = x.shift(1)
+    mean_a = x.rolling(window, min_periods=window).mean()
+    mean_b = b.rolling(window, min_periods=window).mean()
+    # OLS slope of x_t on x_{t-1} within each window, vectorized:
+    # phi = E[x*b] - E[x]E[b]) / Var[b]
+    cov = (x * b).rolling(window, min_periods=window).mean() - mean_a * mean_b
+    var_b = (b * b).rolling(window, min_periods=window).mean() - mean_b * mean_b
+    phi = cov / var_b.where(var_b > 0.0)   # also kills tiny-negative FP-cancellation variance
+    lam = phi - 1.0
+    hl = -np.log(2.0) / lam                      # NaN-safe elementwise
+    hl = pd.Series(hl, index=series.index)
+    hl[lam.notna() & (lam >= 0)] = np.inf        # phi >= 1: no mean reversion
+    hl[lam.isna()] = np.nan                      # warmup / degenerate window
+    return hl
+
+
 def add_all_indicators(df: pd.DataFrame, params=None) -> pd.DataFrame:
     """Compute every indicator column the strategies need. Idempotent."""
     from config import StrategyParams  # local import to avoid cycle
@@ -126,6 +172,7 @@ def add_all_indicators(df: pd.DataFrame, params=None) -> pd.DataFrame:
     out["ema21"] = ema(out["close"], p.scalper_ema_slow)
     out["ema50"] = ema(out["close"], 50)
     out["ema200"] = ema(out["close"], p.mr_trend_ema)
+    out["ema20"] = ema(out["close"], 20)
     out["atr"] = atr(out, p.turtle_atr_period)
     out["adx"] = adx(out, 14)
     out["don_up20"], out["don_low20"] = donchian(out, p.turtle_entry_period)
@@ -133,4 +180,10 @@ def add_all_indicators(df: pd.DataFrame, params=None) -> pd.DataFrame:
     out["vwap_roll"] = rolling_vwap(out, 96)
     out["vol_ratio"] = volume_ratio(out, 20)
     out["rvol"] = seasonal_rvol(out, days=14)
+    # Chan half-life of the swing deviation (EMA20 on the strategy's own bars):
+    # how fast pullbacks have historically reverted. EMA20 on 4h bars (~3 days)
+    # matches the horizon connors' 12-bar time stop protects; on raw price the
+    # AR(1) sits at its unit root and every window reads inf — which is the
+    # model correctly reporting "price levels are not mean-reverting".
+    out["halflife"] = halflife_ar1(np.log(out["close"] / out["ema20"]), window=100)
     return out

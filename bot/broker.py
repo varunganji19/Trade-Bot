@@ -63,7 +63,9 @@ class PaperBroker:
     # ------------------------------------------------------------------ info
     def equity(self, price_map: dict[str, float] | None = None) -> float:
         eq = self.cash
-        for pos in self.positions.values():
+        # iterate a snapshot: API threads call this while the engine cycle
+        # mutates the positions dict (same race positions_snapshot() covers)
+        for pos in self.positions_snapshot():
             price = (price_map or {}).get(pos.symbol, pos.entry_price)
             eq += self.unrealized(pos, price)
         return eq

@@ -280,6 +280,50 @@ auto-pass (forex feeds without volume stay ungated), and two tests
 1.10 re-enables the experiment in one config line; the honest default is
 what the measurement says it should be.
 
+## Round 6 (v6) — Chan half-life gate: the ARIMA-family tool that survived
+
+From the ARIMA research pass, the one implementation candidate with clean
+theory behind it: **the AR(1)/OU half-life of mean reversion** (Chan,
+*Algorithmic Trading* ch. 2). The deviation `log(close/EMA20)` is fit to
+`x_t = c + phi·x_{t-1} + e_t` by OLS over a rolling 100 bars;
+half-life = `−ln(2)/(phi−1)` bars is how fast pullbacks have *actually* been
+reverting. Entries are refused when that half-life exceeds the strategy's own
+12-bar time-stop horizon — a pullback that historically takes longer than the
+holding horizon to revert is a time-stop loser in waiting. (Everything else
+ARIMA promised — price-direction forecasting, ARIMA+GARCH signals — failed
+measurement in the literature: Meese-Rogoff, Goyal-Welch; see RESEARCH.md.)
+
+**Verdict: shipped ON (`mr_halflife_max = 12.0`).** 3 of 4 in-sample cells
+positive, walk-forward positive on BOTH symbols:
+
+| Protocol | BTC 4h connors | ETH 4h connors |
+|---|---|---|
+| 180d in-sample | +0.56% → **+0.77%** (26→6* trades, PF 3.07→14.93) | +0.22% → −0.23% (6→4 trades) |
+| 365d in-sample | +2.68% → **+2.93%** (26→24 trades, PF 2.68→3.17) | +0.32% → −0.14% (20→18 trades) |
+| Walk-forward 4×90d | −0.11% → **+0.03%** (16→14 trades, PF 1.75→2.37) | −0.16% → **+0.05%** (11→10 trades) |
+
+*the 180d baseline was 7 trades.
+
+**Honest caveats, stated plainly:**
+- Trade counts are small (10–26/year per symbol) and the walk-forward gains
+  come from the gate skipping exactly one losing trade per symbol. This is
+  directional evidence, not proof. We ship it because it is theory-aligned
+  (Chan's own rule: don't trade reversion when the half-life exceeds your
+  horizon), binds rarely (~2 vetoes/year), is byte-identical to baseline when
+  it doesn't bind, and measures neutral-to-positive everywhere — the gate
+  cannot help but prune reversion entries in regimes with no reversion.
+- A second idea from the same tool — an *adaptive* time stop frozen at entry
+  (`ceil(2 × half-life)` bars in position meta) — was built, plumbed, and
+  **measured completely inert: zero of 26 real trades exited via time stop**
+  (all exits are RSI(2) snapback/reset or stop-loss). Per the no-dead-code
+  rule it was removed rather than shipped as decoration.
+- The `inf` label (phi ≥ 1) almost never fires: finite-window OLS is biased
+  below the unit root (Dickey-Fuller bias), so a true random-walk deviation
+  reads ~window/5 bars, not inf. The threshold does the refusing. The
+  `inf` policy matters only for genuinely explosive windows — and for tests:
+  a pure linear ramp makes the deviation trend and the gate (correctly)
+  vetoes everything, which is why the test frames wiggle.
+
 ## Standing caveats
 
 1. All results above are from a single historical window per symbol. Walk-forward

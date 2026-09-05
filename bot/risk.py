@@ -20,6 +20,7 @@ simulates identically in backtest and paper — no calendar divergence.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -161,6 +162,11 @@ class RiskManager:
             return RiskDecision(False, reason=f"confidence {decision.confidence:.2f} < floor {r.min_confidence:.2f}")
         if decision.stop_distance is None or decision.stop_distance <= 0:
             return RiskDecision(False, reason="no valid stop distance")
+        # NaN slips past every <= comparison: a NaN price or stop would size a
+        # NaN qty and poison cash/equity permanently (defense-in-depth — the
+        # strategies NaN-guard ATR today, but this must not depend on that)
+        if not (math.isfinite(decision.price) and math.isfinite(decision.stop_distance)):
+            return RiskDecision(False, reason="non-finite price or stop distance")
         # R-distance sanity: a stop far beyond the norm means ATR exploded; the
         # trade would be sized to a vol regime the exit rules can't manage
         if decision.price > 0 and decision.stop_distance > decision.price * r.max_r_per_trade:

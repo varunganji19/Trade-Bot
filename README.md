@@ -68,7 +68,7 @@ python3 main.py dashboard           # → http://127.0.0.1:8000
 python3 main.py status              # journal summary
 python3 main.py chat "explain the connors strategy"
 python3 main.py seed-demo           # fill journal with real backtest history for the demo
-python3 tests/test_bot.py           # 88 tests
+python3 tests/test_bot.py           # 92 tests
 ```
 
 ## The strategies (each mapped to evidence — see RESEARCH.md)
@@ -76,7 +76,7 @@ python3 tests/test_bot.py           # 88 tests
 | Strategy | Lineage | Style | Timeframe |
 |---|---|---|---|
 | **Turtle Trend** | Donchian / Richard Dennis's Turtles + ADX regime filter (SSRN 6272239) | trend-following breakout, 2×ATR stop, opposite-channel exit | 1h |
-| **Connors Mean Reversion** | Larry Connors RSI(2) + EMA(200) trend filter (documented ~75% win rate on indices) | buy deep pullbacks in uptrends, snapback exits, 3×ATR stop + time stop | 4h / 1d |
+| **Connors Mean Reversion** | Larry Connors RSI(2) + EMA(200) trend filter (documented ~75% win rate on indices) + Chan AR(1)/OU half-life gate | buy deep pullbacks in uptrends *while pullbacks are actually reverting* (measured half-life ≤ 12 bars), snapback exits, 3×ATR stop + time stop | 4h / 1d |
 | **VWAP Scalper** | Opening Range Breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP institutional benchmark + team's earlier VWAP prototype | VWAP reclaim/loss with momentum + volume confirmation, rolling-range breakout, breakeven trail, time stop; optional time-of-day RVOL filter (tested, off by default — measured neutral on 24/7 crypto, BACKTESTS.md) | 5m / 15m |
 
 **Orchestrator**: classifies each market's regime (ADX + EMA structure) and
@@ -197,7 +197,7 @@ bot/
   dashboard.py       FastAPI + Chart.js single-page dashboard
   seed_demo.py       fill the journal from real backtests for the demo
 models/kronos/       vendored Kronos model source (MIT; weights via HF Hub)
-tests/test_bot.py    88 tests: indicators, strategies, causality, determinism,
+tests/test_bot.py    92 tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,
                      shadow, journal, backtest, live-engine regressions
                      (cross-timeframe isolation, restart cash, bars_held)

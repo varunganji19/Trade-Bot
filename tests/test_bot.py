@@ -203,6 +203,102 @@ def test_scalper_rvol_gate():
     p.scalper_rvol_min = old_rvol_min
 
 
+def test_halflife_ar1_math():
+    """Chan's AR(1)/OU half-life: a known phi recovers ln(2)/(1-phi) bars; a
+    true random walk reads a HUGE (not infinite) half-life because finite-
+    window OLS is biased below the unit root (Dickey-Fuller bias — the gate
+    threshold, not the inf label, does the refusing); an explosive window
+    reads inf; the warmup reads NaN (auto-pass); and the statistic is causal
+    (truncating the frame never changes past values)."""
+    from bot.indicators import halflife_ar1
+    rng = np.random.default_rng(7)
+    n = 3000
+    e = rng.normal(0, 0.01, n)
+
+    def ar1(phi):
+        x = np.empty(n)
+        x[0] = 0.0
+        for t in range(1, n):
+            x[t] = phi * x[t - 1] + e[t]
+        return pd.Series(x)
+
+    hl = halflife_ar1(ar1(0.9), window=200)          # ln(2)/0.1 = 6.93
+    med = hl.iloc[-500:].median()
+    assert 4.0 < med < 11.0, med
+    hl_fast = halflife_ar1(ar1(0.5), window=200)     # ln(2)/0.5 = 1.39
+    assert 0.7 < hl_fast.iloc[-500:].median() < 2.5
+    hl_rw = halflife_ar1(pd.Series(np.cumsum(e)), window=200)
+    assert hl_rw.iloc[-500:].median() > 20.0          # random walk: huge, finite
+    assert np.isinf(halflife_ar1(ar1(1.05), window=200).iloc[-1])   # explosive
+    assert halflife_ar1(ar1(0.9), window=200).iloc[:199].isna().all()  # warmup
+    # degenerate window (constant series): variance 0 -> NaN, never garbage/inf
+    const = pd.Series(np.full(400, 3.0))
+    assert halflife_ar1(const, window=200).isna().all()
+    s = ar1(0.9)
+    full = halflife_ar1(s, window=200)
+    trunc = halflife_ar1(s.iloc[:-5], window=200)
+    mask = full.iloc[:-5].notna()
+    assert (full.iloc[:-5][mask] == trunc[mask]).all()
+
+
+def test_connors_halflife_gate():
+    """The half-life gate refuses a Connors entry whose measured reversion
+    half-life exceeds the strategy's own horizon, passes it when short, and
+    auto-passes NaN (warmup). Ships ON at 12 bars (BACKTESTS.md Round 6:
+    walk-forward positive on both symbols, 3 of 4 cells positive)."""
+    from config import StrategyParams
+    from bot.indicators import add_all_indicators as aai
+    assert StrategyParams().mr_halflife_max == 12.0    # shipped default
+
+    # wiggled deep bull (see test_connors_pullback_entry: a pure ramp makes
+    # the deviation trend and the gate correctly reads half-life inf)
+    t = np.arange(404)
+    prices = list(np.linspace(100, 190, 400) + 2.0 * np.sin(t[:400] * 0.7))
+    prices += [190, 187, 182.5, 180.5]
+    df = aai(make_df(prices))
+    mr = ConnorsMeanReversion()
+
+    p = mr.p                        # strategies own a fresh StrategyParams
+    old_max = p.mr_halflife_max
+    p.mr_halflife_max = 0.0         # locate the raw entry bar, gate disabled
+    i = next(j for j in range(len(df) - 6, len(df))
+             if mr.evaluate(df, j).action == "LONG")
+    p.mr_halflife_max = 12.0
+    try:
+        slow = df.copy()
+        slow["halflife"] = 40.0                        # slower than the horizon
+        sig = mr.evaluate(slow, i)
+        assert sig.action == "FLAT" and "half-life" in (sig.rationale or "")
+
+        explosive = df.copy()
+        explosive["halflife"] = float("inf")           # AR(1) at/above unit root
+        sig = mr.evaluate(explosive, i)
+        assert sig.action == "FLAT" and "mean reversion" in (sig.rationale or "")
+
+        fast = df.copy()
+        fast["halflife"] = 5.0                         # fast reversion: trades
+        sig = mr.evaluate(fast, i)
+        assert sig.action == "LONG"
+        assert sig.meta["halflife"] == 5.0             # journaled for attribution
+
+        warm = df.copy()
+        warm["halflife"] = float("nan")                # warmup: auto-pass
+        assert mr.evaluate(warm, i).action == "LONG"
+
+        edge = df.copy()
+        edge["halflife"] = 12.0                        # exactly the horizon: passes (strict >)
+        assert mr.evaluate(edge, i).action == "LONG"
+    finally:
+        p.mr_halflife_max = old_max
+
+    # knob off (0.0): the slow regime trades identically to fast
+    p.mr_halflife_max = 0.0
+    try:
+        assert mr.evaluate(slow, i).action == "LONG"
+    finally:
+        p.mr_halflife_max = old_max
+
+
 def test_adx_trending_vs_ranging():
     tr = add_all_indicators(trending_df(600, drift=0.002))
     rg = add_all_indicators(range_df(600))
@@ -257,8 +353,13 @@ def test_turtle_survives_a_range_market():
 
 
 def test_connors_pullback_entry():
-    # deep bull (well above EMA200) + sharp 2-bar pullback -> RSI(2) < 5 long
-    prices = list(np.linspace(100, 190, 400))       # steep climb: deep bull regime
+    # deep bull (well above EMA200) + sharp 2-bar pullback -> RSI(2) < 5 long.
+    # The wiggle matters: the Chan half-life gate ships ON, and a pure linear
+    # ramp makes the deviation trend (AR(1) reads explosive, half-life inf) —
+    # which the gate CORRECTLY refuses. A real deep bull oscillates around its
+    # EMA, so the frame does too; its measured half-life (~3-9 bars) trades.
+    t = np.arange(404)
+    prices = list(np.linspace(100, 190, 400) + 2.0 * np.sin(t[:400] * 0.7))
     prices += [190, 187, 182.5, 180.5]               # sharp dip
     df = add_all_indicators(make_df(prices))
     mr = ConnorsMeanReversion()

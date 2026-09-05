@@ -19,10 +19,6 @@ def _rma(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
 
 
-def sma(series: pd.Series, period: int) -> pd.Series:
-    return series.rolling(period, min_periods=period).mean()
-
-
 def ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, min_periods=period, adjust=False).mean()
 

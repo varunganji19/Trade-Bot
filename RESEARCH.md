@@ -53,7 +53,7 @@ captures big trends. Works best when a market is *trending*; bleeds in chop.
     blindly to trending markets. Sources:
     [TopTradingStrategy RSI-2 backtest](https://www.reddit.com/r/algotrading/comments/1fm5lfj/backtest_results_for_connors_rsi2_strategy/),
     QuantifiedStrategies RSI-2 analysis (75% win rate confirmation), Trade2Win/EliteTrader variant threads.
-- **Our adaptation:** 200-period EMA trend filter, RSI(2) < 10 entries (long side), exit on RSI(2)
+- **Our adaptation:** 200-period EMA trend filter, RSI(2) < 5 entries (long side; tightened from Connors' 10 — fewer, deeper pullbacks only), exit on RSI(2)
   > 65 or close above EMA(5), mandatory ATR stop (Connors used none — we refuse unbounded risk),
   and a time stop.
 
@@ -70,8 +70,9 @@ captures big trends. Works best when a market is *trending*; bleeds in chop.
   [Edgeful 5-minute ORB on ES](https://www.edgeful.com/blog/posts/5-minute-opening-range-breakout-es-strategy).
 - **VWAP** is the institutional execution benchmark: reclaiming/holding VWAP with volume
   confirmation is one of the few intraday setups with a structural reason to work (institutional
-  order flow is benchmarked to VWAP). Crypto trades 24/7, so we use a **rolling/session-anchored
-  VWAP** and a **rolling N-bar range breakout** (the 24/7 analogue of the opening range).
+  order flow is benchmarked to VWAP). Crypto trades 24/7 — there are no sessions to anchor to —
+  so we use a **rolling VWAP** and a **rolling N-bar range breakout** (the 24/7 analogue of the
+  opening range).
 - **Honest caveat:** scalping is the most cost-sensitive style — fees and slippage eat the edge.
   That's why our scalper runs on 5m/15m candles (not seconds), uses ATR-proportional stops, and why
   the backtester charges full taker fees + slippage.
@@ -106,9 +107,9 @@ Convergent wisdom from the traders above:
 
 | Strategy in bot | Source trader/idea | Timeframe | Entry | Exit | Stop |
 |---|---|---|---|---|---|
-| **Turtle Trend** | Donchian/Dennis breakout + ATR regime filter | 1h / 4h | Close breaks prior 20-bar high/low, ADX > 20 | Opposite 10-bar channel | 2 × ATR(14) |
-| **Connors Mean Reversion** | Connors RSI-2 | 1h | RSI(2) < 10 long ( > 90 short) with EMA(200) trend filter | RSI(2) > 65 or cross of EMA(5); time stop | 3 × ATR(14) |
-| **VWAP Scalper** | Zarattini/Aziz ORB + VWAP institutional flow + our VWAP prototype | 5m / 15m | VWAP reclaim with EMA(9)>EMA(21) momentum + volume confirmation, or N-bar range breakout | VWAP cross-down, breakeven trail after 1R, time stop | 1.2 × ATR(14) |
+| **Turtle Trend** | Donchian/Dennis breakout + ATR regime filter | 1h | Close breaks prior 20-bar high/low, ADX > 20 | Opposite 10-bar channel | 2 × ATR(14) |
+| **Connors Mean Reversion** | Connors RSI-2 | 4h / 1d (evidence is daily bars) | RSI(2) < 5 long ( > 95 short) with EMA(200) trend filter | RSI(2) > 65 or cross of EMA(5); time stop | 3 × ATR(14) |
+| **VWAP Scalper** | Zarattini/Aziz ORB + VWAP institutional flow + our VWAP prototype | 15m (5m enabled but measured cost-negative) | VWAP reclaim with EMA(9)>EMA(21) momentum + volume confirmation, or N-bar range breakout | VWAP cross-down, breakeven trail after 1R, time stop | 2 × ATR(14) |
 | **Sentiment Overlay** | LLM headline scoring (Lopez-Lira & Tang 2023) | live only | — (never initiates) | can veto/shrink entries | — |
 
 **Orchestrator:** ADX + EMA structure classifies the regime (trending vs. ranging). Trending →

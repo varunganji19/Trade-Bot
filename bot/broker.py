@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from config import CONFIG, MarketSpec, CostConfig
+from config import CONFIG, MarketSpec, CostConfig, parse_utc
 
 
 @dataclass
@@ -175,17 +175,12 @@ class PaperBroker:
         opened = row["opened_ts"]
         bars = 0
         entry_bar_ts = 0.0
-        if opened:
-            try:
-                dt = datetime.fromisoformat(opened)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                entry_bar_ts = dt.timestamp()
-                bar_seconds = TIMEFRAME_SECONDS.get(timeframe, 3600)
-                bars = max(0, int((datetime.now(timezone.utc).timestamp() - entry_bar_ts)
-                                  / bar_seconds))
-            except Exception:
-                bars = 0
+        dt = parse_utc(opened)
+        if dt is not None:
+            entry_bar_ts = dt.timestamp()
+            bar_seconds = TIMEFRAME_SECONDS.get(timeframe, 3600)
+            bars = max(0, int((datetime.now(timezone.utc).timestamp() - entry_bar_ts)
+                              / bar_seconds))
         stop = row["stop_price"]
         risk = abs(row["entry_price"] - stop) if stop else 0.0
         pos = Position(

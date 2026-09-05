@@ -84,8 +84,7 @@ def trade_bar_index(trade: dict, df: pd.DataFrame) -> int | None:
 # ------------------------------------------------------------- trade paths
 def oos_trade_distribution(trades: list[dict], df: pd.DataFrame,
                            n_folds: int = 8, n_test_folds: int = 2,
-                           purge_bars: int = 24,
-                           n_paths: int | None = None) -> dict:
+                           purge_bars: int = 24) -> dict:
     """Partition a backtest's trades across purged-CV paths and report the
     distribution of per-path results."""
     scored = []
@@ -97,8 +96,6 @@ def oos_trade_distribution(trades: list[dict], df: pd.DataFrame,
         raise ValueError("no trades with entry timestamps inside the frame")
 
     paths = purged_cv_paths(len(df), n_folds=n_folds, n_test_folds=n_test_folds)
-    if n_paths:
-        paths = paths[:n_paths]
 
     per_path = []
     assigned: set[int] = set()
@@ -242,8 +239,7 @@ def _norm_sf(x: float) -> float:
     return 0.5 * math.erfc(x / math.sqrt(2.0))
 
 
-def deflated_sharpe(sharpes: list[float], n_obs: int,
-                    var_across: float | None = None) -> dict:
+def deflated_sharpe(sharpes: list[float], n_obs: int) -> dict:
     """Deflated Sharpe Ratio (Bailey & Lopez de Prado 2014).
 
     We tried many configurations before shipping one; the DSR asks: given the
@@ -261,7 +257,7 @@ def deflated_sharpe(sharpes: list[float], n_obs: int,
         return {"deflated_sharpe": None, "reason": "need >=2 trial Sharpes and >=10 obs"}
     best = max(sr)
     n_trials = len(sr)
-    var = var_across if (var_across is not None and var_across > 0) else float(np.var(sr, ddof=1))
+    var = float(np.var(sr, ddof=1))
     if var <= 0:
         return {"deflated_sharpe": None, "reason": "zero variance across trials"}
     # E[max] of n iid N(0, var): gamma-based expectation (Bailey/LdP eq.)

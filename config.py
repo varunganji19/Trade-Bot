@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 
 def _env_float(name: str, default: float) -> float:
@@ -143,6 +144,22 @@ def infer_kind(symbol: str) -> str:
     One shared inference — call sites used to disagree on the fallback for
     malformed symbols, and kind drives a 5x fee/slippage difference."""
     return "forex" if "=" in symbol else "crypto"
+
+
+def parse_utc(ts: str | None) -> "datetime | None":
+    """ISO journal timestamp -> timezone-aware UTC datetime; naive rows read as
+    UTC (the journal only ever writes UTC), blank/unparseable input -> None.
+    One shared parser: risk and broker each used to hand-roll this with
+    different fallbacks."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ts))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 DEFAULT_WATCHLIST: list[MarketSpec] = [

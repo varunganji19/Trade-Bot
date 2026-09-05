@@ -27,7 +27,7 @@ Weights download once into the HF cache (~100MB).
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -53,13 +53,11 @@ class KronosConfig:
 class KronosSignal:
     direction: str          # LONG | SHORT | FLAT
     p_up: float             # share of sampled paths closing above spot
-    p_target_before_stop: float | None  # path share touching +1R stop-dist before -1R
     dispersion_pct: float | None        # std of path endpoints (%)
     expected_return_pct: float | None   # mean path endpoint (%)
     horizon_bars: int = 0
     bar_ts: str = ""        # decision bar the forecast was computed on (IC anchor)
     rationale: str = ""
-    meta: dict = field(default_factory=dict)
 
 
 class KronosICTracker:
@@ -98,10 +96,10 @@ class KronosICTracker:
         except Exception:
             pass
 
-    def log_forecast(self, score: float, ts, horizon: int, expected_price: float | None = None):
+    def log_forecast(self, score: float, ts, horizon: int):
         """Record a pending forecast; resolved when its horizon bar arrives."""
         self._pending.append({"score": float(score), "ts": str(ts),
-                              "horizon": int(horizon), "expected": expected_price})
+                              "horizon": int(horizon)})
 
     def resolve(self, closes: pd.Series):
         """Match pending forecasts to their realized forward returns."""
@@ -208,8 +206,7 @@ class KronosSignalEngine:
         self.tracker = KronosICTracker(self.cfg.track_file, half_life=self.cfg.ic_half_life)
 
     # ------------------------------------------------------------- forecast
-    def evaluate(self, df: pd.DataFrame, horizon: int = 24,
-                stop_distance: float | None = None) -> KronosSignal | None:
+    def evaluate(self, df: pd.DataFrame, horizon: int = 24) -> KronosSignal | None:
         p = self.predictor._ensure()
         if p is None or df is None or len(df) < 30:
             return None
@@ -242,27 +239,6 @@ class KronosSignalEngine:
             exp_ret = (sum(ends) / len(ends) / spot - 1.0) * 100.0
             disp = float(pd.Series(ends).std(ddof=0) if len(ends) > 1 else 0.0) / spot * 100.0
 
-            # P(touch +1R before -1R) across paths (for TP/SL bracket quality)
-            p_tbs = None
-            if stop_distance and stop_distance > 0:
-                hits_up = 0
-                for pr in preds:
-                    path = pr["close"] if "close" in pr else None
-                    if path is None:
-                        continue
-                    up, dn = spot + stop_distance, spot - stop_distance
-                    hit_up = hit_dn = False
-                    for v in path:
-                        if v >= up:
-                            hit_up = True
-                            break
-                        if v <= dn:
-                            hit_dn = True
-                            break
-                    if hit_up and not hit_dn:
-                        hits_up += 1
-                p_tbs = hits_up / len(preds)
-
             direction = "FLAT"
             if p_up >= 0.60:
                 direction = "LONG"
@@ -270,14 +246,12 @@ class KronosSignalEngine:
                 direction = "SHORT"
 
             sig = KronosSignal(
-                direction=direction, p_up=round(p_up, 3), p_target_before_stop=(
-                    round(p_tbs, 3) if p_tbs is not None else None),
+                direction=direction, p_up=round(p_up, 3),
                 dispersion_pct=round(disp, 3), expected_return_pct=round(exp_ret, 3),
                 horizon_bars=horizon, bar_ts=str(df.index[-1]),
                 rationale=(f"Kronos {self.cfg.model_name.split('/')[-1]}: {len(ends)} sampled "
                            f"{horizon}-bar paths, P(up)={p_up:.0%}, E[ret]={exp_ret:+.2f}%, "
                            f"dispersion {disp:.2f}%"),
-                meta={"n_paths": len(ends), "model": self.cfg.model_name},
             )
             return sig
         except Exception:

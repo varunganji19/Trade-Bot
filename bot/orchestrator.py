@@ -91,14 +91,12 @@ class Orchestrator:
         if kronos_signal is not None:
             ks = kronos_signal
             kronos_meta = {"action": ks.direction, "confidence": round(ks.p_up, 3),
-                           "p_up": ks.p_up, "p_target_before_stop": ks.p_target_before_stop,
+                           "p_up": ks.p_up,
                            "expected_return_pct": ks.expected_return_pct,
                            "dispersion_pct": ks.dispersion_pct,
                            "horizon_bars": ks.horizon_bars, "voting": kronos_promoted}
             kronos_note = (f"Kronos{' [VOTING]' if kronos_promoted else ' [tracked, no vote]'}: "
-                           f"P(up) {ks.p_up:.0%} over {ks.horizon_bars} bars"
-                           + (f", P(+1R before -1R) {ks.p_target_before_stop:.0%}"
-                              if ks.p_target_before_stop is not None else ""))
+                           f"P(up) {ks.p_up:.0%} over {ks.horizon_bars} bars")
             if kronos_promoted and ks.direction in ("LONG", "SHORT"):
                 weights["kronos"] = KRONOS_VOTE_WEIGHT
                 conf = float(min(0.90, max(0.30, ks.p_up if ks.direction == "LONG" else 1.0 - ks.p_up)))

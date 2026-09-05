@@ -217,20 +217,18 @@ def _rows_to_df(rows) -> pd.DataFrame:
     return df
 
 
-def fetch_history(spec: MarketSpec, days: int, use_cache: bool = True) -> pd.DataFrame:
+def fetch_history(spec: MarketSpec, days: int) -> pd.DataFrame:
     """History for backtests. Same-day results are served from disk cache so
     repeated research runs are byte-identical and don't hammer public APIs."""
-    if use_cache:
-        cached = _load_cached(spec, days)
-        if cached is not None:
-            return cached
+    cached = _load_cached(spec, days)
+    if cached is not None:
+        return cached
     if spec.kind == "crypto":
         df = fetch_crypto_history(spec.symbol, spec.timeframe, days)
         df = _drop_forming_bar(df, spec.timeframe)
     else:
         df = fetch_forex_ohlcv(spec.symbol, spec.timeframe)
-    if use_cache:
-        _store_cached(spec, days, df)
+    _store_cached(spec, days, df)
     return df
 
 
@@ -291,9 +289,9 @@ def _parse_rss(xml_text: str, source: str) -> list:
     return items
 
 
-def fetch_news(max_items: int | None = None) -> list:
+def fetch_news() -> list:
     """Fetch RSS headlines from the configured feeds. Cached, failure-tolerant."""
-    max_items = max_items or CONFIG.news_max_items
+    max_items = CONFIG.news_max_items
     now = time.time()
     if now - _NEWS_CACHE["ts"] < CONFIG.news_ttl_seconds and _NEWS_CACHE["items"]:
         return _NEWS_CACHE["items"][:max_items]

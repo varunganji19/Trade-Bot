@@ -54,6 +54,8 @@ python3 main.py run                 # loops every 60s, journals everything
 # 2b. honesty tooling
 python3 main.py backtest --symbol BTC/USDT --timeframe 1h --days 365 \
   --strategy turtle_trend --purged-cv      # OOS path distribution + signal IC
+python3 main.py validate --symbol BTC/USDT --timeframe 1h --days 365 \
+  --strategy turtle_trend                  # purged-CV, PBO, Deflated Sharpe, Monte Carlo
 python3 main.py kronos --symbol BTC/USDT --days 60  # Kronos IC verdict (earned vote?)
 python3 main.py shadow                     # journal vs its own rules
 
@@ -66,7 +68,7 @@ python3 main.py dashboard           # → http://127.0.0.1:8000
 python3 main.py status              # journal summary
 python3 main.py chat "explain the connors strategy"
 python3 main.py seed-demo           # fill journal with real backtest history for the demo
-python3 tests/test_bot.py           # 53 tests
+python3 tests/test_bot.py           # 88 tests
 ```
 
 ## The strategies (each mapped to evidence — see RESEARCH.md)
@@ -141,8 +143,7 @@ chatbot answers from the journal with template logic.
 `bot/kronos_signal.py` wraps [Kronos](https://github.com/shiyu-coder/Kronos)
 (AAAI 2026, MIT): a foundation model pre-trained on K-lines from 45+
 exchanges. Every cycle it samples ~30 forecast paths and reports P(up),
-P(touch +1R before −1R), and dispersion — but it **starts as a tracked
-non-voter**. A rolling rank-IC ledger scores its forecasts against what
+expected return, and dispersion — but it **starts as a tracked non-voter**. A rolling rank-IC ledger scores its forecasts against what
 actually happened; it joins the orchestrator vote (weight 0.20) only after
 60+ resolved forecasts with IC ≥ 0.02, and loses the vote if IC decays.
 First measured verdict on BTC 1h: IC −0.06 over 115 forecasts → **not
@@ -196,7 +197,7 @@ bot/
   dashboard.py       FastAPI + Chart.js single-page dashboard
   seed_demo.py       fill the journal from real backtests for the demo
 models/kronos/       vendored Kronos model source (MIT; weights via HF Hub)
-tests/test_bot.py    53 tests: indicators, strategies, causality, determinism,
+tests/test_bot.py    88 tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,
                      shadow, journal, backtest, live-engine regressions
                      (cross-timeframe isolation, restart cash, bars_held)
@@ -211,7 +212,12 @@ run_battery.py       full backtest battery across symbols/strategies
 - Vendor the Kronos model source once: `git clone https://github.com/shiyu-coder/Kronos models/kronos`
 - Network access for market data + RSS (no API keys required for data)
 - Optional: `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` (LLM mode), `OPENAI_BASE_URL`
-- `PAPER_CAPITAL`, `LIVE_INTERVAL`, `BOT_DB_PATH`, `PORTFOLIO_METHOD` env overrides
+- `PAPER_CAPITAL`, `LIVE_INTERVAL`, `BOT_DB_PATH`, `PORTFOLIO_METHOD`,
+  `PORTFOLIO_ALLOC`, `MAKER_PRICING` env overrides
+- `DASHBOARD_TOKEN` — optional: set it to require `Authorization: Bearer <token>`
+  on every dashboard request (default off; the dashboard binds to 127.0.0.1 only).
+  The engine auto-resumes on dashboard restart if it was running when the last
+  session ended (a manual stop stays stopped).
 - Without torch or the vendored model, the bot runs normally — Kronos reports
   "unavailable" and never touches the vote
 

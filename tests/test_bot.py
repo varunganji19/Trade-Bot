@@ -1679,7 +1679,7 @@ def test_orchestrator_kronos_vote_only_when_promoted():
     o = Orchestrator()
     df = add_all_indicators(trending_df(500, seed=21))
     i = len(df) - 2
-    ks = KronosSignal(direction="LONG", p_up=0.78, p_target_before_stop=0.61,
+    ks = KronosSignal(direction="LONG", p_up=0.78,
                       dispersion_pct=1.2, expected_return_pct=0.9, horizon_bars=24,
                       rationale="kronos test signal")
 
@@ -1700,7 +1700,7 @@ def test_orchestrator_kronos_vote_only_when_promoted():
     assert d1.strategy_signals["kronos"]["voting"] is True
     assert "[VOTING]" in d1.rationale
     # conflict guard ignores kronos: it can't manufacture a hold by disagreeing
-    ks_short = KronosSignal(direction="SHORT", p_up=0.2, p_target_before_stop=None,
+    ks_short = KronosSignal(direction="SHORT", p_up=0.2,
                             dispersion_pct=1.0, expected_return_pct=-0.8, horizon_bars=24,
                             rationale="kronos short")
     d2 = o.decide(df, i, CRYPTO_1H, include_sentiment=False,

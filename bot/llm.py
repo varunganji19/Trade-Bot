@@ -33,7 +33,7 @@ class LLMClient:
                 f"{base}/chat/completions",
                 headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
                          "Content-Type": "application/json"},
-                json={"model": self.model, "temperature": CONFIG.llm.temperature,
+                json={"model": self.model, "temperature": self.cfg.temperature,
                       "max_tokens": max_tokens,
                       "messages": [{"role": "system", "content": system},
                                    {"role": "user", "content": user}]},

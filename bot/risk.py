@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from config import CONFIG, MarketSpec, TIMEFRAME_SECONDS
+from config import CONFIG, MarketSpec, TIMEFRAME_SECONDS, parse_utc
 
 
 @dataclass
@@ -89,13 +89,9 @@ class RiskManager:
         the wall clock.
         """
         if ts:
-            try:
-                dt = datetime.fromisoformat(ts)
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                today = dt.astimezone(timezone.utc).strftime("%Y-%m-%d")
-            except ValueError:
-                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            dt = parse_utc(ts)
+            today = dt.strftime("%Y-%m-%d") if dt \
+                else datetime.now(timezone.utc).strftime("%Y-%m-%d")
         else:
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if self.daily_day != today:

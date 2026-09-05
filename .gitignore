@@ -16,3 +16,4 @@ data/kronos_ic.json
 .DS_Store
 .ruff_cache/
 data/watchlist.json
+data/engine_state.json

@@ -21,6 +21,7 @@ API: GET /  /api/stats /api/equity /api/trades /api/decisions /api/watchlist
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -33,6 +34,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.responses import JSONResponse
 
 from bot.chatbot import ChatBot
 from bot.engine import TradingEngine
@@ -49,6 +51,37 @@ app = FastAPI(title="AI Trading Bot Dashboard", version="2.1")
 app.add_middleware(TrustedHostMiddleware,
                   allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
+
+def _check_token(auth_header: str, token: str) -> bool:
+    """Pure predicate for the optional bearer guard (unit-tested)."""
+    if not token:
+        return True
+    return auth_header == f"Bearer {token}"
+
+
+class _TokenGuard:   # pure ASGI middleware — no BaseHTTPMiddleware overhead
+    """Optional shared-token auth, OFF by default. Set DASHBOARD_TOKEN to
+    require `Authorization: Bearer <token>` on every request (page + API) —
+    the belt-and-suspenders layer if the dashboard is ever deliberately
+    exposed beyond loopback."""
+    def __init__(self, asgi_app, token: str):
+        self.app = asgi_app
+        self.token = token
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and not _check_token(
+                next((v.decode() for k, v in scope.get("headers", [])
+                      if k == b"authorization"), ""), self.token):
+            resp = JSONResponse({"detail": "unauthorized"}, status_code=401)
+            await resp(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+_DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN", "")
+if _DASHBOARD_TOKEN:
+    app.add_middleware(_TokenGuard, token=_DASHBOARD_TOKEN)
+
 journal = Journal()
 chatbot = ChatBot(journal)
 
@@ -57,6 +90,7 @@ _wl_lock = threading.RLock()   # reentrant: endpoints hold it while calling _per
 _engine: TradingEngine | None = None
 _engine_thread: threading.Thread | None = None
 _last_engine_error: str | None = None   # survives engine teardown for /api/engine/status
+_engine_interval: int = 60              # the running engine's cycle interval (stop persists it)
 
 FOREX_RE = re.compile(r"^[A-Z]{6}=X$")
 CRYPTO_RE = re.compile(r"^[A-Z]{2,10}/[A-Z]{2,10}$")
@@ -107,6 +141,74 @@ class ResetIn(BaseModel):
 class PositionCloseIn(BaseModel):
     symbol: str
     timeframe: str
+
+
+class EmptyIn(BaseModel):
+    """Body-required marker for POSTs that take no fields: a JSON body forces
+    the CORS preflight that defeats form-encoded CSRF (same rule every other
+    mutating endpoint already follows)."""
+
+
+# --------------------------------------------------------------- engine state
+def _engine_state_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(CONFIG.db_path)),
+                        "engine_state.json")
+
+
+def _write_engine_state(running: bool, interval: int):
+    """Persist the operator's desired engine state so a dashboard restart can
+    auto-resume it (a stop must win over a stale 'running' file). A failed
+    write degrades to no-auto-resume; it must never break the endpoint."""
+    try:
+        with open(_engine_state_path(), "w") as f:
+            json.dump({"desired": "running" if running else "stopped",
+                       "interval": interval}, f)
+    except OSError:
+        pass
+
+
+def _spawn_engine(interval: int) -> dict:
+    """Build + start the engine thread (shared by the API endpoint and the
+    startup auto-resume). Returns the API response dict."""
+    global _engine, _engine_thread, _engine_interval
+    # build OUTSIDE _engine_lock: TradingEngine.__init__ loads the Kronos
+    # model (seconds) and holding the lock froze every stats/status poll
+    eng = TradingEngine(mode="paper", quiet=False, journal=journal)
+    with _engine_lock:
+        if _engine is not None:
+            return {"status": "already_running", "cycles": _engine.cycles}
+        # a previous thread may still be finishing its last cycle (stop only
+        # clears the global); two engines writing one journal fork the account
+        if _engine_thread is not None and _engine_thread.is_alive():
+            return {"status": "stopping", "cycles": 0}
+        _engine = eng
+        _engine_interval = interval
+
+    def _loop(eng_ref, interval):
+        global _engine, _last_engine_error
+        import time as _t
+        while _get_engine() is eng_ref:
+            try:
+                eng_ref.run_cycle()
+            except Exception as exc:
+                # run_cycle already guards its own body, so reaching here means
+                # the engine itself is broken: report it, clear the global so
+                # the UI shows a stopped engine (never a green zombie), and stop
+                eng_ref.last_error = f"{type(exc).__name__}: {exc}"
+                _last_engine_error = eng_ref.last_error
+                traceback.print_exc()
+                eng_ref.cycles += 1        # count the failed cycle so the UI moves
+                with _engine_lock:
+                    if _engine is eng_ref:
+                        _engine = None
+                break
+            _t.sleep(interval)
+            if _get_engine() is not eng_ref:
+                break
+
+    _engine_thread = threading.Thread(target=_loop, args=(eng, interval), daemon=True)
+    _engine_thread.start()
+    return {"status": "started", "interval": interval}
 
 
 def _get_engine() -> TradingEngine | None:
@@ -415,7 +517,7 @@ def api_account_withdraw(body: AmountIn):
 @app.post("/api/account/reset")
 def api_account_reset(body: ResetIn):
     # a reset while the engine trades would fork broker state from the journal
-    api_engine_stop()
+    api_engine_stop(EmptyIn())
     backup = f"{CONFIG.db_path.rsplit('.db', 1)[0]}.backup.{int(time.time())}.db"
     try:
         shutil.copy2(CONFIG.db_path, backup)
@@ -464,54 +566,27 @@ def api_chat(msg: ChatIn):
 # engine control
 @app.post("/api/engine/start")
 def api_engine_start(body: EngineIn):
-    global _engine, _engine_thread
-    # build OUTSIDE _engine_lock: TradingEngine.__init__ loads the Kronos
-    # model (seconds) and holding the lock froze every stats/status poll
-    eng = TradingEngine(mode="paper", quiet=False, journal=journal)
-    with _engine_lock:
-        if _engine is not None:
-            return {"status": "already_running", "cycles": _engine.cycles}
-        # a previous thread may still be finishing its last cycle (stop only
-        # clears the global); two engines writing one journal fork the account
-        if _engine_thread is not None and _engine_thread.is_alive():
-            return {"status": "stopping", "cycles": 0}
-        _engine = eng
-
-    def _loop(eng_ref):
-        global _engine, _last_engine_error
-        import time as _t
-        while _get_engine() is eng_ref:
-            try:
-                eng_ref.run_cycle()
-            except Exception as exc:
-                # run_cycle already guards its own body, so reaching here means
-                # the engine itself is broken: report it, clear the global so
-                # the UI shows a stopped engine (never a green zombie), and stop
-                eng_ref.last_error = f"{type(exc).__name__}: {exc}"
-                _last_engine_error = eng_ref.last_error
-                traceback.print_exc()
-                eng_ref.cycles += 1        # count the failed cycle so the UI moves
-                with _engine_lock:
-                    if _engine is eng_ref:
-                        _engine = None
-                break
-            _t.sleep(body.interval)
-            if _get_engine() is not eng_ref:
-                break
-
-    _engine_thread = threading.Thread(target=_loop, args=(eng,), daemon=True)
-    _engine_thread.start()
-    return {"status": "started", "interval": body.interval}
+    # cheap guard BEFORE any construction: a repeat POST while running used to
+    # pay a full TradingEngine build (torch/Kronos load, position restore) and
+    # throw it away — an impatient double-click was a local CPU/memory spike
+    existing = _get_engine()
+    if existing is not None:
+        return {"status": "already_running", "cycles": existing.cycles}
+    result = _spawn_engine(body.interval)
+    if result["status"] == "started":
+        _write_engine_state(True, body.interval)
+    return result
 
 
 @app.post("/api/engine/stop")
-def api_engine_stop():
+def api_engine_stop(body: EmptyIn):
     """Quiesce: clear the global, then WAIT (bounded) for the in-flight cycle.
     Returning while a cycle still runs let a quick restart run two engines
     against one journal, and let a reset race stray writes into the wiped DB."""
-    global _engine, _engine_thread
+    global _engine, _engine_thread, _engine_interval
     with _engine_lock:
         if _engine is None:
+            _write_engine_state(False, CONFIG.live_interval_seconds)
             return {"status": "not_running"}
         _engine = None
     th = _engine_thread
@@ -519,7 +594,31 @@ def api_engine_stop():
         th.join(timeout=300)
         if th.is_alive():
             return {"status": "stopping"}
+    _write_engine_state(False, _engine_interval)
     return {"status": "stopped"}
+
+
+@app.on_event("startup")
+def _auto_resume_engine():
+    """Restart the engine when the last session left it running (the operator's
+    'the bot trades autonomously' expectation survives a dashboard restart).
+    A manual stop persists desired=stopped, so it always wins. Skipped under
+    pytest: tests swap CONFIG.db_path to temp dirs, but the real state file
+    may exist with desired=running and must never spawn a live engine there."""
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return
+    try:
+        with open(_engine_state_path()) as f:
+            state = json.load(f)
+        if state.get("desired") != "running":
+            return
+        interval = int(state.get("interval", CONFIG.live_interval_seconds))
+    except (OSError, ValueError, TypeError):
+        return
+    interval = max(5, min(3600, interval))
+    result = _spawn_engine(interval)
+    if result["status"] == "started":
+        print(f"[dashboard] engine auto-resumed (interval {interval}s)")
 
 
 @app.get("/api/engine/status")
@@ -530,12 +629,15 @@ def api_engine_status():
         return {"running": False, "cycles": 0, "llm": "quant", "positions": 0,
                 "interval": CONFIG.live_interval_seconds,
                 "alive": bool(th is not None and th.is_alive()),
-                "last_error": _last_engine_error}
+                "last_error": _last_engine_error, "health_note": None}
     return {"running": True, "cycles": eng.cycles,
             "llm": eng.llm.provider if eng.llm.enabled else "quant",
             "positions": len(eng.broker.positions_snapshot()),
             "alive": bool(th is not None and th.is_alive()),
-            "last_error": eng.last_error or _last_engine_error}
+            "last_error": eng.last_error or _last_engine_error,
+            # degraded-but-alive conditions (e.g. a held position behind a dead
+            # feed) ride here — last_error is reserved for fatal engine errors
+            "health_note": getattr(eng, "health_note", None)}
 
 
 # ===========================================================================
@@ -704,8 +806,6 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 .stat .label svg { width:13px; height:13px; }
 .stat .value { font:600 19px/1.3 var(--font-mono); font-variant-numeric:tabular-nums;
                margin-top:3px; word-break:break-all; }
-.stat .value.pos { color:var(--color-pos); }
-.stat .value.neg { color:var(--color-neg); }
 .stat .sub { font-size:10.5px; color:var(--color-muted-foreground); margin-top:1px; }
 
 /* ---------------------------------------------------------------- equity panel */
@@ -1187,11 +1287,12 @@ const fmtPx = (v, s) => (v == null || isNaN(v) || !Number(v)) ? '—'
 const fmtQty = v => (v == null || isNaN(v)) ? '—'
   : Number(v).toLocaleString(undefined, {maximumSignificantDigits: 5});
 const posCls = v => Number(v) > 0 ? 'pos' : Number(v) < 0 ? 'neg' : '';
-const tag = (cls, text) => '<span class="tag ' + cls + '">' + esc(text) + '</span>';
+const tag = (cls, text) => '<span class="tag ' + esc(cls) + '">' + esc(text) + '</span>';
 const sideTag = s => tag((s || '').toLowerCase(), String(s).toUpperCase());
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 /* journal timestamps are ISO-UTC; the UI reads IST (+05:30 fixed, no DST) —
-   shift by 330min and read via getUTC* so the browser's own zone never leaks in */
+   shift by 330min and read via getUTC* so the browser's own zone never leaks in.
+   Keep in sync with _fmt_ts in bot/chatbot.py (same IST display contract). */
 const fmtTs = ts => {
   const d = new Date(ts);
   if (ts == null || isNaN(d.getTime())) return String(ts || '');
@@ -1355,7 +1456,7 @@ async function refreshDecisions() {
     return '<div class="term-row">' +
       '<span class="term-ts">' + esc(fmtTs(d.ts)) + '</span>' +
       '<div class="term-body"><div class="term-line">' +
-      '<span class="tag ' + (a === 'hold' ? 'hold' : a) + '">' + esc(d.action) + '</span>' +
+      '<span class="tag ' + esc(a === 'hold' ? 'hold' : a) + '">' + esc(d.action) + '</span>' +
       '<span class="term-mkt">' + esc(d.symbol) + ' <span class="tag tf">' + esc(d.timeframe) + '</span></span>' +
       '<span class="term-meta">regime ' + esc(d.regime || '—') + ' · conf ' +
         Math.round((d.confidence || 0) * 100) + '% · @ ' + fmtPx(d.price, d.symbol) + '</span>' +
@@ -1371,7 +1472,7 @@ async function startEngine() {
     const r = await jpost('/api/engine/start', {interval});
     toast('Engine ' + (r.status === 'started' ? 'started' : r.status),
           'cycle interval ' + interval + 's', r.status !== 'error');
-    if (typeof addMsg === 'function') addMsg('[engine] started — interval ' + interval + 's', 'bot');
+    addMsg('[engine] started — interval ' + interval + 's', 'bot');
   } catch (e) { toastErr('Could not start engine', e); }
   refreshStats();
 }
@@ -1379,7 +1480,7 @@ async function stopEngine() {
   try {
     const r = await jpost('/api/engine/stop', {});
     toast('Engine stopped', '', true);
-    if (typeof addMsg === 'function') addMsg('[engine] stopped', 'bot');
+    addMsg('[engine] stopped', 'bot');
   } catch (e) { toastErr('Could not stop engine', e); }
   refreshStats();
 }
@@ -1432,7 +1533,7 @@ $('#posTable').addEventListener('click', async e => {
 
 async function refreshTrades() {
   let trades;
-  try { trades = await jget('/api/trades?limit=100'); } catch (e) { return; }
+  try { trades = await jget('/api/trades?limit=1000'); } catch (e) { return; }
   const sel = $('#stratFilter');
   const current = sel.value;
   const strategies = [...new Set(trades.map(t => t.strategy))].sort();

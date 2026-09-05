@@ -50,7 +50,6 @@ def main():
         except Exception as exc:
             print(f"!! {spec.symbol} {spec.timeframe}: data error {exc}")
             continue
-        cache = {}
         for strat in STRATEGIES:
             if (spec.timeframe, strat) in SKIP:
                 continue
@@ -62,7 +61,6 @@ def main():
                 s["runtime_s"] = round(time.time() - t0, 1)
                 s["bars"] = len(df)
                 rows.append(s)
-                cache[key] = s
                 with open(f"data/results/{key}.json", "w") as f:
                     json.dump({"stats": s, "trades": res.trades,
                                "equity_curve": res.equity_curve}, f, indent=1, default=str)

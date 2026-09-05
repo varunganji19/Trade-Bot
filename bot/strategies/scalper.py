@@ -23,7 +23,6 @@ from .base import BaseStrategy, Signal
 
 class VWAPScalper(BaseStrategy):
     name = "vwap_scalper"
-    label = "VWAP Scalper (ORB + volume)"
     # 15m preferred: measured 12-bar forward edge (~+0.1%) vs crypto round-trip
     # costs (~0.3%) makes 5m scalping structurally unprofitable (BACKTESTS.md:
     # -28..-31% over 30 days on majors). 5m stays enabled only by explicit user
@@ -172,7 +171,9 @@ class VWAPScalper(BaseStrategy):
     # ------------------------------------------------------------- interface
     def evaluate(self, df, i: int) -> Signal:
         """Strongest of the two sides at bar i."""
-        if i < max(self.p.scalper_ema_slow, self.p.scalper_range_period, self.p.scalper_atr_period) + 3:
+        # ATR is computed with turtle_atr_period (see indicators.add_all_indicators),
+        # so the warm-up must cover that window too.
+        if i < max(self.p.scalper_ema_slow, self.p.scalper_range_period, self.p.turtle_atr_period) + 3:
             return Signal(self.name, "FLAT", 0.0, rationale="warming up")
         long_sig = self._long_signal(df, i)
         short_sig = self._short_signal(df, i)

@@ -15,7 +15,6 @@ from .base import BaseStrategy, Signal
 
 class ConnorsMeanReversion(BaseStrategy):
     name = "connors_meanrev"
-    label = "Connors RSI-2 Mean Reversion"
     # Connors' RSI-2 evidence is on DAILY bars — 1d is the strategy's home
     # timeframe; 4h was only the closest analogue our infrastructure traded
     # before 1d support was enabled. 1h churn destroyed the edge (BACKTESTS.md).

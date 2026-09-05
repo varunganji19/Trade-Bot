@@ -1,10 +1,11 @@
 """Test suite: indicators, strategies, risk, broker, orchestrator, backtest causality.
 
-Run:  python3 -m pytest tests/ -v     (or: python3 tests/run_tests.py)
+Run:  python3 -m pytest tests/ -v
 Also works without pytest via the __main__ fallback.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -1568,6 +1569,19 @@ def test_dashboard_api_smoke():
             # engine interval bounds
             assert client.post("/api/engine/start",
                                json={"interval": 0}).status_code == 422
+            # engine stop requires a JSON body like every other mutating POST
+            # (a body-less endpoint was form-CSRF-able from any web page)
+            assert client.post("/api/engine/stop").status_code == 422
+            assert client.post("/api/engine/stop", json={}).status_code == 200
+            assert client.post("/api/engine/stop", json={}).json() == {"status": "not_running"}
+            # the start/stop pair persists the operator's desired state so a
+            # dashboard restart can auto-resume the engine
+            dash_mod._write_engine_state(True, 45)
+            state = json.load(open(dash_mod._engine_state_path()))
+            assert state == {"desired": "running", "interval": 45}
+            dash_mod._write_engine_state(False, 45)
+            state = json.load(open(dash_mod._engine_state_path()))
+            assert state["desired"] == "stopped"
             # deposit math (engine off path)
             r = client.post("/api/account/deposit", json={"amount": 250.0})
             assert r.status_code == 200 and r.json()["cash"] == 250.0 \
@@ -1593,6 +1607,19 @@ def test_dashboard_api_smoke():
                 and txs[0]["amount"] == 5000.0
         finally:
             CONFIG.db_path = old_db
+
+
+def test_dashboard_token_guard():
+    """Optional bearer auth (DASHBOARD_TOKEN), default OFF: unset token admits
+    everything; set token admits only the exact header. Pure predicate, so the
+    middleware's decision logic is tested without rebuilding the ASGI app."""
+    from bot.dashboard import _check_token
+    assert _check_token("", "") is True                    # token unset: open
+    assert _check_token("Bearer whatever", "") is True
+    assert _check_token("", "secret") is False             # token set: denied
+    assert _check_token("Bearer wrong", "secret") is False
+    assert _check_token("Bearer secret", "secret") is True
+    assert _check_token("secret", "secret") is False       # header must be Bearer
 
 
 # ------------------------------------------------------------------ kronos
@@ -1755,6 +1782,203 @@ def test_shadow_behavior_profile_math():
     assert p["n_blew_through_stop"] == 1
     # winners 2h vs losers 4h -> disposition gap -2 (cut winners early)
     assert p["disposition_gap_hours"] == pytest_approx(-2.0, 6)
+
+
+# ------------------------------------------------------------------ engine autonomy
+def _engine_with_db(td):
+    """Engine on a temp journal with Kronos skipped (model load is slow and
+    irrelevant here). Returns (engine, old-state tuple for restore)."""
+    import bot.engine as engine_mod
+    old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+    CONFIG.db_path = os.path.join(td, "t.db")
+    engine_mod.TradingEngine._init_kronos = lambda self: None
+    return engine_mod.TradingEngine(mode="paper", quiet=True), (old_db, old_kronos)
+
+
+def test_engine_stop_loss_end_to_end():
+    """The owner's core guarantee at the ENGINE level (all prior stop tests
+    stopped at the broker): a bar through the stop -> run through the engine's
+    manage path -> journal row CLOSED 'stop loss' + cooldown set."""
+    import bot.engine as engine_mod
+
+    df = add_all_indicators(trending_df(260, drift=0.004, seed=13))
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    i = len(df) - 1
+    price = float(df["close"].iloc[i])
+
+    with tempfile.TemporaryDirectory() as td:
+        eng, saved = _engine_with_db(td)
+        try:
+            d = _dec("LONG", 0.9, stop=2.0, price=price)
+            eng.broker.open_position(spec, d, qty=1.0, price=price, trade_id=-1,
+                                     ts=str(df.index[i - 3]),
+                                     decision_bar_ts=float(df.index[i - 3].timestamp()))
+            # journal row mirroring the broker position (the real path writes
+            # it before the fill)
+            trade_id = eng.journal.open_trade(
+                spec.symbol, "long", 1.0, price, price - 2.0, None,
+                "turtle_trend", "r", mode="paper",
+                opened_ts=str(df.index[i - 3]), timeframe="1h")
+            eng.broker.positions[(spec.symbol, "1h")].trade_id = trade_id
+
+            # a closed bar whose low pierces the stop by a wide margin
+            crash = df.copy()
+            crash.iloc[i, crash.columns.get_loc("low")] = price - 5.0
+            summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+            eng._manage_position(spec, eng.broker.positions[(spec.symbol, "1h")],
+                                 crash, i, summary, bar_epoch=float(df.index[i].timestamp()))
+            row = eng.journal.recent_trades()[0]
+            assert row["id"] == trade_id and row["status"] == "CLOSED"
+            assert row["exit_reason"] == "stop loss"
+            assert summary["closed"] and summary["closed"][0]["reason"] == "stop loss"
+            # stop-out cooldown is armed on the owning timeframe's clock
+            assert eng.risk.cooldowns.get(spec.symbol, 0.0) > 0
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+
+
+def test_engine_replays_missed_stop_breach_after_restart():
+    """A stop breached while the engine was OFFLINE must still exit on the
+    first cycle after restart, even though the latest bar's range is back
+    inside the levels (the old code scanned only the last closed bar)."""
+    import bot.engine as engine_mod
+    from bot.journal import Journal
+
+    prices = 100 * np.cumprod(1 + np.full(80, 0.001))
+    df = add_all_indicators(make_df(prices, freq="1h", seed=11))
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    i = len(df) - 1
+    entry_px = float(df["close"].iloc[i - 6])
+    breach_low = entry_px - 5.0          # bar i-4 dipped far through the stop
+    stop = entry_px - 2.0
+
+    with tempfile.TemporaryDirectory() as td:
+        j = Journal(os.path.join(td, "t.db"))
+        j.add_equity(10_000.0, 10_000.0, mode="paper")
+        j.open_trade(spec.symbol, "long", 1.0, entry_px, stop, None,
+                     "turtle_trend", "r", mode="paper",
+                     opened_ts=str(df.index[i - 6]), timeframe="1h")
+        # rewrite the journaled open row? not needed — restore uses opened_ts
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        CONFIG.db_path = os.path.join(td, "t.db")
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            eng = engine_mod.TradingEngine(mode="paper", quiet=True)
+            assert (spec.symbol, "1h") in eng._replay_pending
+            # make the HISTORICAL bar i-4 breach the stop, latest bar clean
+            replay_df = df.copy()
+            replay_df.iloc[i - 4, replay_df.columns.get_loc("low")] = breach_low
+            summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+            eng._process_market(spec, summary, replay_df)
+            assert (spec.symbol, "1h") not in eng.broker.positions, \
+                "breach bar replay must have closed the position"
+            assert summary["closed"] and summary["closed"][0]["reason"] == "stop loss"
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+
+
+def test_engine_no_phantom_stop_on_entry_bar():
+    """The stop is computed FROM the entry bar, so scanning that same bar
+    would instant-stop every trade whose entry bar had a wide range. The
+    manage path must only scan bars strictly AFTER the decision bar."""
+    import bot.engine as engine_mod
+
+    df = add_all_indicators(trending_df(260, drift=0.004, seed=13))
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    i = len(df) - 1
+    price = float(df["close"].iloc[i])
+
+    with tempfile.TemporaryDirectory() as td:
+        eng, saved = _engine_with_db(td)
+        try:
+            # stop INSIDE the entry bar's range (bar low < stop) — a phantom
+            # scan would fire immediately
+            d = _dec("LONG", 0.9, stop=2.0, price=price)
+            pos = eng.broker.open_position(spec, d, qty=1.0, price=price, trade_id=-1,
+                                           ts=str(df.index[i]),
+                                           decision_bar_ts=float(df.index[i].timestamp()))
+            assert float(df.iloc[i]["low"]) <= pos.stop, "fixture must pierce the stop"
+            summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+            eng._manage_position(spec, pos, df, i, summary,
+                                 bar_epoch=float(df.index[i].timestamp()))
+            assert (spec.symbol, "1h") in eng.broker.positions, \
+                "entry-bar scan must be skipped (no phantom stop)"
+            # a LATER bar through the stop still exits
+            later = df.copy()
+            later.iloc[i, later.columns.get_loc("low")] = price - 5.0
+            eng._manage_position(spec, pos, later, i, summary,
+                                 bar_epoch=float(df.index[i + 1].timestamp()) if i + 1 < len(df)
+                                 else float(df.index[i].timestamp()) + 3600.0)
+            assert (spec.symbol, "1h") not in eng.broker.positions
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+
+
+def test_engine_data_outage_surfaces_then_closes():
+    """A held position behind a dead feed is UNGUARDED: after WARN failures the
+    condition must be visible on the engine (health_note, not last_error — the
+    dashboard tears down on last_error), and after CLOSE failures the position
+    is cut at the last known good mark."""
+    import bot.engine as engine_mod
+
+    df = add_all_indicators(trending_df(260, drift=0.004, seed=13))
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    i = len(df) - 1
+    price = float(df["close"].iloc[i])
+
+    with tempfile.TemporaryDirectory() as td:
+        eng, saved = _engine_with_db(td)
+        try:
+            d = _dec("LONG", 0.9, stop=2.0, price=price)
+            eng.broker.open_position(spec, d, qty=1.0, price=price, trade_id=-1,
+                                     ts=str(df.index[i]),
+                                     decision_bar_ts=float(df.index[i].timestamp()))
+            eng._last_good_price[(spec.symbol, "1h")] = price
+            summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+            for n in range(1, engine_mod.TradingEngine.FETCH_FAIL_CLOSE):
+                eng._note_fetch_fail(spec, summary)
+                assert (spec.symbol, "1h") in eng.broker.positions  # not yet closed
+            eng._refresh_health_note()   # the cycle's finally-block does this live
+            assert eng.health_note and "unguarded" in eng.health_note
+            assert eng.last_error is None  # non-fatal channel only
+            eng._note_fetch_fail(spec, summary)   # failure #CLOSE -> forced cut
+            assert (spec.symbol, "1h") not in eng.broker.positions
+            assert summary["closed"] and summary["closed"][0]["reason"] == "data outage"
+            eng._refresh_health_note()
+            assert eng.health_note is None        # position gone, note cleared
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+
+
+def test_engine_closes_null_stop_restored_row():
+    """A legacy/crashed OPEN row without a stop must not trade unguarded: the
+    first cycle closes it at the mark."""
+    import bot.engine as engine_mod
+    from bot.journal import Journal
+
+    df = add_all_indicators(trending_df(260, drift=0.004, seed=13))
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    i = len(df) - 1
+
+    with tempfile.TemporaryDirectory() as td:
+        j = Journal(os.path.join(td, "t.db"))
+        j.add_equity(10_000.0, 10_000.0, mode="paper")
+        j.open_trade(spec.symbol, "long", 1.0, 100.0, None, None,
+                     "turtle_trend", "r", mode="paper",
+                     opened_ts=str(df.index[i - 2]), timeframe="1h")
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        CONFIG.db_path = os.path.join(td, "t.db")
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            eng = engine_mod.TradingEngine(mode="paper", quiet=True)
+            assert (spec.symbol, "1h") in eng._unguarded_pending
+            summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+            eng._process_market(spec, summary, df)
+            assert (spec.symbol, "1h") not in eng.broker.positions
+            assert summary["closed"] and summary["closed"][0]["reason"] == "restored without stop"
+            assert eng.journal.recent_trades()[0]["status"] == "CLOSED"
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
 
 
 # ------------------------------------------------------------------ runner

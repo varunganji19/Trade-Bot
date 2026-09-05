@@ -345,7 +345,6 @@ def cmd_kronos(args):
 
 def cmd_shadow(args):
     """Shadow Account: what the bot did vs what its own rules would have done."""
-    import json
     from bot.journal import Journal
     from bot.shadow import behavior_profile, rule_adherence, shadow_compare
     from bot.data import fetch_history

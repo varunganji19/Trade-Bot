@@ -39,6 +39,12 @@ def utc_now() -> str:
 
 
 class TradingEngine:
+    # data-outage policy for a spec with an OPEN position (the position is
+    # unguarded while its feed is down): warn at N consecutive failed fetches,
+    # force-close at the last known good mark at N2
+    FETCH_FAIL_WARN = 3
+    FETCH_FAIL_CLOSE = 10
+
     def __init__(self, cfg=None, mode: str = "paper", quiet: bool = False,
                  journal=None):
         self.cfg = cfg or CONFIG
@@ -62,6 +68,15 @@ class TradingEngine:
                                           cfg=self.cfg, kronos_engine=None)
         self.market_data = MarketData()
         self.cycles = 0
+        # per-spec health state (see _note_fetch_fail / _refresh_health_note):
+        # a held position whose feed keeps failing is UNGUARDED — visible and
+        # bounded beats green-and-silent
+        self._fetch_fails: dict[tuple[str, str], int] = {}
+        self._last_good_price: dict[tuple[str, str], float] = {}
+        self.health_note: str | None = None
+        # restart recovery work, keyed by (symbol, timeframe)
+        self._replay_pending: set[tuple[str, str]] = set()     # bars missed while offline
+        self._unguarded_pending: set[tuple[str, str]] = set()  # restored rows with no stop
         self.kronos = None
         self._kronos_last_bar: dict[tuple[str, str], int] = {}
         self._kronos_promoted = False
@@ -114,10 +129,17 @@ class TradingEngine:
             spec = self._spec_for(row["symbol"])
             kind = spec.kind if spec else "crypto"
             timeframe = row.get("timeframe") or (spec.timeframe if spec else "1h")
+            key = (row["symbol"], timeframe)
             if not row.get("stop_price"):
                 print(f"[engine] WARNING: restored {row['symbol']} {row['side']} "
                       f"{timeframe} has NO stop on record (legacy/crashed row) — "
-                      f"close it manually or it trades unguarded")
+                      f"closing it at the first mark rather than trading unguarded")
+                self._unguarded_pending.add(key)
+            else:
+                # bars that closed while the engine was offline must be
+                # replayed: a stop breach during downtime is still a breach,
+                # even if price has since recovered above the level
+                self._replay_pending.add(key)
             self.broker.restore_position(row, kind, timeframe=timeframe)
             if not self.quiet:
                 print(f"[engine] restored open {row['side']} {row['symbol']} "
@@ -147,15 +169,23 @@ class TradingEngine:
 
         try:
             for spec in self.cfg.watchlist:
+                key = (spec.symbol, spec.timeframe)
                 try:
                     df = self.market_data.latest(spec)
-                    if df is not None and len(df):
-                        histories[(spec.symbol, spec.timeframe)] = df
-                    self._process_market(spec, summary, df)
                 except Exception as exc:
+                    df = None
                     summary["errors"].append(f"{spec.symbol}: {type(exc).__name__}: {exc}")
                     if not self.quiet:
                         traceback.print_exc()
+                if df is None or not len(df):
+                    # one dead market never aborts the cycle — but a held
+                    # position behind a dead feed must not stay silent
+                    self._note_fetch_fail(spec, summary)
+                    continue
+                self._fetch_fails[key] = 0
+                self._last_good_price[key] = float(df["close"].iloc[-1])
+                histories[key] = df
+                self._process_market(spec, summary, df)
 
             # portfolio allocation: divide the book's risk budget across symbols
             # (skfolio inverse-vol/HRP over the watchlist's realized returns).
@@ -207,9 +237,49 @@ class TradingEngine:
                 traceback.print_exc()
         finally:
             self.cycles += 1
+            self._refresh_health_note()
             if not self.quiet:
                 self._print_summary(summary)
         return summary
+
+    def _note_fetch_fail(self, spec: MarketSpec, summary: dict):
+        """Count consecutive failed fetches per spec. With an OPEN position the
+        spec is unguarded for as long as the outage lasts: warn early (status
+        surface), force-close at the last known good mark once the outage is
+        clearly persistent — cutting a loser on stale data beats holding it
+        blind forever."""
+        key = (spec.symbol, spec.timeframe)
+        n = self._fetch_fails.get(key, 0) + 1
+        self._fetch_fails[key] = n
+        if not self.broker.positions.get(self.broker.position_key(*key)):
+            return
+        if n == self.FETCH_FAIL_WARN:
+            summary["errors"].append(f"{spec.symbol} {spec.timeframe}: {n} consecutive "
+                                     f"fetch failures — open position is unguarded")
+        elif n > self.FETCH_FAIL_WARN and n % 5 == 0:
+            summary["errors"].append(f"{spec.symbol} {spec.timeframe}: still unfetchable "
+                                     f"({n} cycles) — position unguarded")
+        if n >= self.FETCH_FAIL_CLOSE:
+            price = self._last_good_price.get(key)
+            try:
+                self._close(spec, float(price), "data outage", summary)
+            except Exception as exc:
+                summary["errors"].append(f"{spec.symbol} {spec.timeframe}: data-outage "
+                                         f"close failed: {type(exc).__name__}: {exc}")
+            self._fetch_fails[key] = 0
+
+    def _refresh_health_note(self):
+        """/api/engine/status reads `health_note` — the non-fatal companion to
+        last_error (the dashboard tears the engine down on last_error, so
+        degraded-but-alive conditions must NOT land there)."""
+        notes = []
+        for key, n in self._fetch_fails.items():
+            if n < self.FETCH_FAIL_WARN:
+                continue
+            if self.broker.positions.get(self.broker.position_key(*key)):
+                notes.append(f"{key[0]} {key[1]}: {n} consecutive fetch failures "
+                             f"(position unguarded)")
+        self.health_note = "; ".join(notes) or None
 
     def run_forever(self, interval: int | None = None):
         interval = interval or self.cfg.live_interval_seconds
@@ -274,6 +344,18 @@ class TradingEngine:
 
         pos = self.broker.positions.get(self.broker.position_key(spec.symbol, spec.timeframe))
         if pos is not None:
+            key = (spec.symbol, spec.timeframe)
+            if key in self._unguarded_pending:
+                # restored legacy row with no stop: it cannot be managed, so
+                # cut it at the first mark instead of trading unguarded
+                self._unguarded_pending.discard(key)
+                self._close(spec, float(df["close"].iloc[-1]), "restored without stop",
+                            summary, bar_epoch=bar_epoch)
+                return
+            if key in self._replay_pending:
+                self._replay_pending.discard(key)
+                if self._replay_missed_bars(spec, pos, df, summary):
+                    return
             self._manage_position(spec, pos, df, i, summary, bar_epoch=bar_epoch)
             return
         if self.broker.has_position(spec.symbol):
@@ -328,6 +410,25 @@ class TradingEngine:
             print(f"[engine] OPEN {pos.side.upper()} {spec.symbol} qty {pos.qty:.6g} @ "
                   f"{pos.entry_price:.6g} via {pos.strategy} (stop {pos.stop:.6g})")
 
+    def _replay_missed_bars(self, spec: MarketSpec, pos, df, summary: dict) -> bool:
+        """After a restart, scan every closed bar since the position's decision
+        bar — the engine was down for some of them, and a stop breach during
+        downtime must still exit even if the latest bar's range is back inside
+        the levels. Hard stop/target only: strategy check_exit needs the
+        current bar's state and cannot be replayed honestly. Returns True when
+        the replay closed the position."""
+        if not pos.entry_bar_ts:
+            return False
+        for j in range(len(df)):
+            bar_ts = float(df.index[j].timestamp())
+            if bar_ts <= pos.entry_bar_ts:
+                continue
+            reason, exit_price = self.broker.scan_bar_exits(spec, df.iloc[j])
+            if reason:
+                self._close(spec, float(exit_price), reason, summary, bar_epoch=bar_ts)
+                return True
+        return False
+
     def _manage_position(self, spec: MarketSpec, pos, df, i: int, summary: dict,
                          bar_epoch: float | None = None):
         # bars_held counts CLOSED BARS since the decision bar (the strategy's
@@ -338,11 +439,17 @@ class TradingEngine:
             pos.bars_held = max(0, int(round((bar_epoch - pos.entry_bar_ts) / tf_seconds)))
         bar = df.iloc[i]
 
-        # 1) hard stop / target from this bar's range
-        reason, exit_price = self.broker.scan_bar_exits(spec, bar)
-        if reason:
-            self._close(spec, float(exit_price), reason, summary, bar_epoch=bar_epoch)
-            return
+        # 1) hard stop / target from this bar's range — but never on the entry
+        # bar itself: the stop was computed FROM that bar, and scanning it
+        # would phantom-stop a position on a bar that closed before the entry
+        # (the backtester's next-bar rule is the parity reference)
+        entry_bar_scan = (pos.entry_bar_ts and bar_epoch is not None
+                          and bar_epoch <= pos.entry_bar_ts)
+        if not entry_bar_scan:
+            reason, exit_price = self.broker.scan_bar_exits(spec, bar)
+            if reason:
+                self._close(spec, float(exit_price), reason, summary, bar_epoch=bar_epoch)
+                return
 
         # 2) strategy-specific exits and stop updates
         strat = get_strategy(pos.strategy, self.cfg.params)

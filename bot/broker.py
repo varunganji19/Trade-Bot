@@ -97,7 +97,7 @@ class PaperBroker:
     # end-of-data) is a market order: taker fee, adverse slippage. The engine
     # and backtester pass the exit reason verbatim, so the broker can price
     # the leg from the reason with no caller changes.
-    MAKER_EXIT_REASONS = frozenset({"take profit", "take-profit", "limit fill"})
+    MAKER_EXIT_REASONS = frozenset({"take profit"})
 
     def _maker_exit(self, reason: str) -> bool:
         return (self.costs.maker_pricing

@@ -102,7 +102,6 @@ class StrategyParams:
     # 15m, long-biased with the EMA200 trend (shorts need high conviction).
     scalper_ema_fast: int = 9
     scalper_ema_slow: int = 21
-    scalper_atr_period: int = 14
     scalper_stop_atr: float = 2.0      # wide enough that 1-bar noise can't stop the trade
     scalper_time_stop_bars: int = 12    # matches the measured 12-bar edge horizon
     scalper_range_period: int = 12      # rolling "opening range" analog

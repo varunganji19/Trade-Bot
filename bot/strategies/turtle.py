@@ -20,7 +20,6 @@ from .base import BaseStrategy, Signal
 
 class TurtleTrend(BaseStrategy):
     name = "turtle_trend"
-    label = "Turtle Trend (Donchian breakout)"
     # validated on 1h (BACKTESTS.md): on 4h the same rules churn stops in
     # violent chops; mean reversion owns 4h, the scalper owns 15m
     preferred_timeframes = ("1h",)

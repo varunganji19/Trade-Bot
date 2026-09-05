@@ -24,7 +24,6 @@ class Signal:
 
 class BaseStrategy:
     name: str = "base"
-    label: str = "Base"
     preferred_timeframes: tuple = ("1h",)
 
     def __init__(self, params=None):

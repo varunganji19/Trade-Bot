@@ -43,16 +43,6 @@ class Decision:
     price: float = 0.0
     strategy_name: str = ""        # dominant strategy driving the decision (attribution)
 
-    def to_dict(self) -> dict:
-        return {
-            "action": self.action, "confidence": round(self.confidence, 3),
-            "stop_distance": self.stop_distance, "target_rr": self.target_rr,
-            "regime": self.regime, "rationale": self.rationale,
-            "strategy_signals": self.strategy_signals,
-            "sentiment": {k: self.sentiment.get(k) for k in ("score", "method", "summary")},
-            "price": self.price,
-        }
-
 
 def detect_regime(df, i: int) -> tuple[str, dict]:
     adx_ = float(df["adx"].iloc[i]) if df["adx"].iloc[i] is not None else float("nan")

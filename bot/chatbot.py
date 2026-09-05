@@ -22,7 +22,8 @@ IST = ZoneInfo("Asia/Kolkata")
 
 def _fmt_ts(ts: str) -> str:
     """Journal rows are ISO-UTC; the user reads IST — convert for display so
-    chat answers never quote raw UTC times."""
+    chat answers never quote raw UTC times. Keep in sync with fmtTs in
+    bot/dashboard.py DASHBOARD_HTML (same IST display contract)."""
     try:
         return datetime.fromisoformat(ts).astimezone(IST).strftime("%d %b %H:%M")
     except (ValueError, TypeError):

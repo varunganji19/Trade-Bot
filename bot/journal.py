@@ -342,8 +342,12 @@ class Journal:
                 eq_q += " WHERE mode=?"
                 eq_args.append(mode)
             # ORDER BY ts: seeded rows are inserted market-by-market, so id
-            # order scrambles the peak-to-trough walk (drawdown, start/end)
-            eq = [r[0] for r in conn.execute(eq_q + " ORDER BY ts, id", eq_args)]
+            # order scrambles the peak-to-trough walk (drawdown, start/end).
+            # The scan is bounded (stats() runs on every 4s dashboard poll; a
+            # year of sub-minute equity points would otherwise read ~500k rows
+            # each time) — 200k rows covers years of realistic runs identically.
+            eq = [r[0] for r in conn.execute(eq_q + " ORDER BY ts, id LIMIT 200000",
+                                             eq_args)]
 
         n, wins = row["n"], row["wins"]
         losses = n - wins

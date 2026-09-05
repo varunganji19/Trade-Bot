@@ -37,7 +37,7 @@ from bot.broker import PaperBroker
 from bot.indicators import add_all_indicators
 from bot.orchestrator import Orchestrator
 from bot.risk import RiskManager
-from config import CONFIG, MarketSpec, bars_per_year, TIMEFRAME_SECONDS
+from config import CONFIG, MarketSpec, bars_per_year
 from bot.strategies import get_strategy
 
 
@@ -243,7 +243,6 @@ class Backtester:
             if hi - lo < 300:
                 continue
             res = self.run(spec, df.iloc[lo:hi], strategy=strategy, warmup_bars=220)
-            res.strategy = f"{res.strategy}"
             results.append(res)
             if progress:
                 s = res.stats()

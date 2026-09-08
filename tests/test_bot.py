@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from config import CONFIG, MarketSpec
-from bot.indicators import add_all_indicators, adx, atr, ema, rsi
+from bot.indicators import add_all_indicators, ema, rsi
 from bot.strategies import TurtleTrend, ConnorsMeanReversion, VWAPScalper
 from bot.risk import RiskManager
 from bot.broker import PaperBroker
@@ -35,7 +35,8 @@ def make_df(prices, start="2024-01-01", freq="1h", volume_base=100.0, seed=7):
     """
     rng = np.random.default_rng(seed)
     prices = np.asarray(prices, dtype=float)
-    opens = np.roll(prices, 1); opens[0] = prices[0]
+    opens = np.roll(prices, 1)
+    opens[0] = prices[0]
     body_hi = np.maximum(opens, prices)
     body_lo = np.minimum(opens, prices)
     wick = np.abs(rng.normal(0, 0.12, len(prices))) + 0.02
@@ -69,7 +70,8 @@ CRYPTO_1H = MarketSpec("crypto", "TEST/USDT", "1h", "TestCoin")
 def test_rsi_bounds_and_extremes():
     up = make_df(np.linspace(100, 130, 120))          # relentless rally
     down = make_df(np.linspace(130, 100, 120))        # relentless decline
-    up_ind = add_all_indicators(up); down_ind = add_all_indicators(down)
+    up_ind = add_all_indicators(up)
+    down_ind = add_all_indicators(down)
     assert up_ind["rsi14"].iloc[-1] > 90
     assert down_ind["rsi14"].iloc[-1] < 10
     flat = make_df(np.full(120, 100.0))
@@ -80,7 +82,14 @@ def test_rsi2_wilder_smoothing():
     df = add_all_indicators(trending_df())
     r = rsi(df["close"], 2)
     assert not r.iloc[-10:].isna().any()
-    assert ((r >= 0) & (r <= 100)).all()
+    vals = r.dropna()
+    assert len(vals) and ((vals >= 0) & (vals <= 100)).all()
+    # warmup is NaN (comparisons read False -> can never auto-fire a gate),
+    # and a relentless rally reads exactly 100 (all gains), not NaN
+    assert r.head(2).isna().all()
+    up = make_df(np.linspace(100, 130, 40))
+    up_rsi = rsi(up["close"], 2).dropna()
+    assert len(up_rsi) and (up_rsi == 100.0).all()
 
 
 def test_ema_matches_reference():
@@ -958,7 +967,7 @@ def test_journal_migration_is_idempotent_and_races_safe():
     with tempfile.TemporaryDirectory() as td:
         path = os.path.join(td, "t.db")
         j1 = Journal(path)
-        j2 = Journal(path)          # second constructor while first exists
+        Journal(path)          # second constructor while first exists
         # a legacy NULL timeframe row gets healed by the next boot's backfill
         with j1._conn() as conn:
             conn.execute("UPDATE trades SET timeframe=NULL WHERE id=1")
@@ -1180,8 +1189,8 @@ def test_journal_timeframe_migration():
         assert len(rows) == 1
         assert rows[0]["timeframe"] == "1h"          # legacy default
         # writer stores the spec's timeframe for new trades
-        tid = j.open_trade("ETH/USDT", "long", 1.0, 100.0, 95.0, None,
-                           "connors_meanrev", "new row", timeframe="4h")
+        j.open_trade("ETH/USDT", "long", 1.0, 100.0, 95.0, None,
+                     "connors_meanrev", "new row", timeframe="4h")
         assert j.open_trades()[-1]["timeframe"] == "4h"
 
 
@@ -1332,7 +1341,7 @@ def test_allocator_equal_and_missing_history():
     w = allocation_weights(specs, {}, method="inverse_vol")
     assert abs(w["A/USDT"] - 0.5) < 1e-9
     # equal method ignores histories
-    w2 = allocation_weights(specs, {"A/USDT": make_df(base := np.linspace(1, 2, 50))}, method="equal")
+    w2 = allocation_weights(specs, {"A/USDT": make_df(np.linspace(1, 2, 50))}, method="equal")
     assert abs(w2["A/USDT"] - 0.5) < 1e-9
 
 
@@ -1453,21 +1462,30 @@ def test_drawdown_throttle_composes_with_allocation():
 def test_deflated_sharpe_quantifies_selection():
     """A best Sharpe that's barely above what N trials of pure chance produce
     must deflate toward 0.5 (it's selection, not edge); a high Sharpe from few
-    trials on a long sample keeps its confidence."""
+    trials on a long sample keeps its confidence. Trial Sharpes are ANNUALIZED
+    (bars_per_year is the annualization factor) — the old per-period SE mixed
+    with annualized trials read ~1.0 for ANY input and could never reject."""
     from bot.validation import deflated_sharpe
+    APY = 8760.0  # 1h crypto bars/year
     # 100-trial research sweep, best Sharpe 1.3, short 100-bar sample: the
     # null's expected max across that many trials is ~1.28 — no real evidence
     sweep = [1.3] + [round(x, 3) for x in np.linspace(-0.5, 1.2, 100)]
-    dsr = deflated_sharpe(sweep, n_obs=100)
+    dsr = deflated_sharpe(sweep, n_obs=100, bars_per_year=APY)
     assert dsr["deflated_sharpe"] < 0.8
     assert dsr["verdict"] == "Sharpe explained by trial count"
-    # 3 trials, best Sharpe 2.0, 5000 bars -> selection can't explain it
-    dsr2 = deflated_sharpe([2.0, 0.5, 0.2], n_obs=5_000)
+    # 3 trials, best Sharpe 2.0, three years of 1h bars -> selection can't explain it
+    dsr2 = deflated_sharpe([2.0, 0.5, 0.2], n_obs=26_000, bars_per_year=APY)
     assert dsr2["deflated_sharpe"] > 0.95
     assert dsr2["verdict"] == "selection-aware confidence"
+    # pinned reference case (audit 2026-09): Sharpe 1.0 over 5 trials / 26k
+    # 1h bars must be ~0.89 "suggestive" — the unit-buggy version returned 1.0
+    ref = deflated_sharpe([1.0, 0.5, 0.6, 0.4, 0.5], n_obs=26_000, bars_per_year=APY)
+    assert 0.85 <= ref["deflated_sharpe"] <= 0.93
+    assert ref["verdict"] == "suggestive"
     # degenerate inputs are refused, not crashed
-    assert deflated_sharpe([1.0], 100)["deflated_sharpe"] is None
-    assert deflated_sharpe([1.0, 1.0, 1.0], 100)["deflated_sharpe"] is None
+    assert deflated_sharpe([1.0], 100, APY)["deflated_sharpe"] is None
+    assert deflated_sharpe([1.0, 1.0, 1.0], 100, APY)["deflated_sharpe"] is None
+    assert deflated_sharpe([1.0, 0.5], 100, -1.0)["deflated_sharpe"] is None
 
 
 def test_pbo_cscv_over_config_family():
@@ -2165,7 +2183,702 @@ def test_engine_closes_null_stop_restored_row():
             CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
 
 
-# ------------------------------------------------------------------ runner
+# ------------------------------------------------- audit fixes (2026-09-06)
+def test_backtest_scans_fill_bar_for_stop():
+    """Parity: the fill bar (the entry fills at its open) is scanned for
+    stop/target in the backtest exactly like the live engine manages it — a
+    dip through the stop inside the fill bar must stop the trade out AT the
+    fill bar (the old next-bar-only scan never saw that bar at all)."""
+    from bot.backtest import Backtester
+    df = trending_df(800, drift=0.002, seed=31)
+    res = Backtester(CONFIG).run(CRYPTO_1H, df, strategy="turtle_trend")
+    assert res.trades, "seed 31 must yield trades for this test to be meaningful"
+    t0 = res.trades[0]
+    assert t0["exit_ts"] != t0["entry_ts"], \
+        "seed 31 must exit after the fill bar for this test to be meaningful"
+    stop = t0["stop"]
+    j = df.index.searchsorted(pd.Timestamp(t0["entry_ts"]), side="right") - 1
+    assert j >= 0
+    dipped = df.copy()
+    dipped.iloc[j, dipped.columns.get_loc("low")] = stop * 0.90  # breach, fill bar
+    res2 = Backtester(CONFIG).run(CRYPTO_1H, dipped, strategy="turtle_trend")
+    assert res2.trades
+    t = res2.trades[0]
+    assert t["exit_reason"] == "stop loss", \
+        f"fill-bar breach must stop out, got {t['exit_reason']}"
+    assert t["exit_ts"] == t0["entry_ts"]      # exited IN the fill bar
+    assert t["exit_price"] <= stop * 1.0000001  # never better than the level
+
+
+def test_purged_cv_drops_trades_spanning_path_boundaries():
+    """Purge rule: a trade whose HOLDING spans a path block boundary is dropped
+    even when its entry sits far from the edge — entry-proximity purging alone
+    leaked long holds across every split."""
+    from bot.validation import oos_trade_distribution
+    idx = pd.date_range("2024-01-01", periods=400, freq="1h", tz="UTC")
+    df = pd.DataFrame({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
+                       "volume": 1.0}, index=idx)
+    # entry bar 100 -> exit bar 320: 220-bar hold crosses several block
+    # boundaries (blocks are 100 bars here) -> never kept on any path
+    long_hold = [{"entry_ts": str(idx[100]), "exit_ts": str(idx[320]),
+                  "pnl": 5.0, "pnl_pct": 5.0}]
+    out = oos_trade_distribution(long_hold, df, n_folds=4, n_test_folds=2,
+                                 purge_bars=4)
+    assert out["total_trades"] == 1
+    assert out["purged_trades"] == 1
+    assert all(p["trades"] == 0 for p in out["paths"])
+    # positive control: a trade fully inside one block, clear of the edges,
+    # is kept on every path that contains that block (folds 12/23/24)
+    short_trade = [{"entry_ts": str(idx[110]), "exit_ts": str(idx[115]),
+                    "pnl": 1.0, "pnl_pct": 1.0}]
+    out2 = oos_trade_distribution(short_trade, df, n_folds=4, n_test_folds=2,
+                                  purge_bars=4)
+    assert out2["purged_trades"] == 0
+    assert sum(p["trades"] for p in out2["paths"]) == 3
+
+
+def test_journal_mixed_ts_formats_order_correctly():
+    """seed_demo used to write pandas' space-separated ts while the engine
+    wrote 'T' ISO — within a day every space row sorted before every T row
+    regardless of time-of-day, and the restart cash anchor could pick a stale
+    point. Write-time normalization + the boot migration fix the order."""
+    from bot.journal import Journal
+    with tempfile.TemporaryDirectory() as td:
+        j = Journal(os.path.join(td, "t.db"))
+        j.add_equity(10_000.0, 10_000.0, ts="2026-09-05 10:00:00+00:00")  # legacy format
+        j.add_equity(11_000.0, 11_000.0, ts="2026-09-05T09:00:00+00:00")  # earlier, T format
+        j.add_equity(12_000.0, 12_000.0, ts="2026-09-05 11:30:00+00:00")  # latest, legacy format
+        assert [r["equity"] for r in j.equity_curve()] == [11_000.0, 10_000.0, 12_000.0]
+        assert j.last_equity_point()["cash"] == 12_000.0
+
+        # rows already in a legacy DB are normalized by the boot migration:
+        # string-sorting the raw mixed formats would read the 09:00 row
+        # ('T' > ' ') as the LATEST point — the exact stale-anchor bug
+        import sqlite3
+        raw = sqlite3.connect(os.path.join(td, "legacy.db"))
+        raw.execute("CREATE TABLE equity (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    " ts TEXT NOT NULL, equity REAL NOT NULL, cash REAL NOT NULL,"
+                    " mode TEXT NOT NULL DEFAULT 'paper', note TEXT)")
+        raw.execute("INSERT INTO equity (ts, equity, cash) VALUES"
+                    " ('2026-09-05 10:00:00+00:00', 10000, 10000)")
+        raw.execute("INSERT INTO equity (ts, equity, cash) VALUES"
+                    " ('2026-09-05T09:00:00+00:00', 11000, 11000)")
+        raw.commit()
+        raw.close()
+        j2 = Journal(os.path.join(td, "legacy.db"))
+        assert [r["equity"] for r in j2.equity_curve()] == [11000, 10000]
+        assert j2.last_equity_point()["cash"] == 10000.0
+
+
+def test_kronos_ledger_respects_market_isolation():
+    """A pending BTC forecast must NOT resolve against an ETH frame that
+    happens to complete its horizon first — cross-market resolution corrupted
+    the IC and, with it, the promotion gate."""
+    from bot.kronos_signal import KronosICTracker
+    with tempfile.TemporaryDirectory() as td:
+        tr = KronosICTracker(os.path.join(td, "ic.json"))
+        idx = pd.date_range("2024-01-01", periods=60, freq="1h", tz="UTC")
+        btc = pd.Series(np.linspace(100, 200, 60), index=idx)   # strong up
+        eth = pd.Series(np.linspace(100, 40, 60), index=idx)    # strong down
+        tr.log_forecast(0.8, str(idx[0]), horizon=10, market="BTC/USDT|1h")
+        # ETH's frame arrives first and HAS the horizon bars — the BTC
+        # forecast must wait for BTC closes, not score against ETH
+        tr.resolve(eth, market="ETH/USDT|1h")
+        assert tr.n() == 0 and len(tr._pending) == 1
+        tr.resolve(btc, market="BTC/USDT|1h")
+        assert tr.n() == 1 and not tr._pending
+        score, fwd = tr.records[0]
+        assert fwd > 0.1   # BTC's realized up-move, not ETH's down-move
+
+
+def test_data_outage_close_retries_when_no_mark_available():
+    """A position opened DURING the outage has no last-good mark: the forced
+    close must be deferred and retried every cycle, and the failure counter
+    must NOT reset (it used to reset on the failed close, leaving the position
+    unguarded for another FETCH_FAIL_CLOSE failures)."""
+    import bot.engine as engine_mod
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    with tempfile.TemporaryDirectory() as td:
+        eng, saved = _engine_with_db(td)
+        try:
+            d = _dec("LONG", 0.9, stop=2.0, price=100.0)
+            eng.broker.open_position(spec, d, qty=1.0, price=100.0, trade_id=-1,
+                                     ts="2026-09-05T00:00:00+00:00")
+            summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0,
+                             "errors": []}
+            for _ in range(engine_mod.TradingEngine.FETCH_FAIL_CLOSE + 3):
+                eng._note_fetch_fail(spec, summary)
+            assert (spec.symbol, "1h") in eng.broker.positions   # no mark: deferred
+            assert eng._fetch_fails[(spec.symbol, "1h")] == \
+                engine_mod.TradingEngine.FETCH_FAIL_CLOSE + 3    # counter kept growing
+            eng._last_good_price[(spec.symbol, "1h")] = 100.0    # mark appears
+            eng._note_fetch_fail(spec, summary)                  # next attempt closes
+            assert (spec.symbol, "1h") not in eng.broker.positions
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+
+
+def test_chatbot_paper_record_excludes_demo_rows():
+    """seed-demo rows are mode='demo': the chatbot's earnings answer must
+    describe the bot's OWN paper record and say what it excluded."""
+    from bot.chatbot import ChatBot
+    from bot.journal import Journal
+    with tempfile.TemporaryDirectory() as td:
+        j = Journal(os.path.join(td, "t.db"))
+        tid = j.open_trade("BTC/USDT", "long", 1.0, 100.0, 90.0, None,
+                           "turtle_trend", "r", mode="paper")
+        j.close_trade(trade_id=tid, exit_price=110.0, pnl=10.0, pnl_pct=10.0,
+                      fees=0.0, exit_reason="take profit")
+        tid2 = j.open_trade("ETH/USDT", "long", 1.0, 100.0, 90.0, None,
+                            "turtle_trend", "r", mode="demo")
+        j.close_trade(trade_id=tid2, exit_price=200.0, pnl=100.0, pnl_pct=100.0,
+                      fees=0.0, exit_reason="take profit")
+        class _NoLLM:            # enabled is a read-only property on LLMClient
+            enabled = False
+        reply = ChatBot(journal=j, llm=_NoLLM()).answer("how much did you earn?")
+        assert "$10.00" in reply              # the paper record
+        assert "$100.00" not in reply         # the demo replay PnL is not the record
+        assert "demo" in reply                # the exclusion is stated, not silent
+
+
+# ------------------------------------------------- group-4 features (2026-09-06)
+def test_fetch_history_pinned_window_cache_and_manifest():
+    """A pinned --start/--end fetch gets a DATE-STABLE cache path (byte-identical
+    reruns) and records its provenance (bars, sha256) in data/manifest.json."""
+    from bot import data as data_mod
+    from bot.data import fetch_history
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    idx = pd.date_range("2024-01-01", periods=48, freq="1h", tz="UTC")
+    fake = pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0,
+                         "volume": 0.0}, index=idx)
+    calls = []
+    orig = data_mod.fetch_crypto_history
+    data_mod.fetch_crypto_history = lambda *a, **k: calls.append(k) or fake
+    old_dir, old_db = CONFIG.data_cache_dir, CONFIG.db_path
+    with tempfile.TemporaryDirectory() as td:
+        CONFIG.data_cache_dir = td
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            df = fetch_history(spec, start="2024-01-01", end="2024-01-03")
+            assert len(df) == 48
+            assert calls and calls[0].get("start") == "2024-01-01"
+            cache = data_mod._disk_cache_path(spec, None, "2024-01-01", "2024-01-03")
+            assert "2024-01-01" in os.path.basename(cache)   # date-stable name
+            assert os.path.exists(cache)
+            manifest_path = os.path.join(td, "manifest.json")
+            assert os.path.exists(manifest_path)
+            import json as _json
+            entry = _json.load(open(manifest_path))["crypto:TEST/USDT:1h"]
+            assert entry["bars"] == 48 and len(entry["sha256"]) == 64
+            # a second call is served from the pinned cache without a refetch
+            calls.clear()
+            fetch_history(spec, start="2024-01-01", end="2024-01-03")
+            assert not calls
+        finally:
+            CONFIG.data_cache_dir, CONFIG.db_path = old_dir, old_db
+            data_mod.fetch_crypto_history = orig
+
+
+def test_validation_report_renderer():
+    """`validate --report` renders the SAME numbers as markdown: stats, verdicts,
+    paths, and the caveats block."""
+    from bot.report import render_validation_report
+    r = {"symbol": "BTC/USDT", "timeframe": "1h", "strategy": "turtle_trend",
+         "days": 365, "bars": 8760, "generated_at": "2026-09-06T00:00:00+00:00",
+         "backtest": {"return_pct": 1.5, "trades": 11, "win_rate_pct": 9.1,
+                      "profit_factor": 1.5, "max_drawdown_pct": -5.1, "sharpe": 0.26,
+                      "total_pnl": 15.0, "fees": 12.0},
+         "purged_cv": {"n_paths": 6, "n_active_paths": 4, "mean_return_pct": 1.2,
+                       "std_return_pct": 3.4, "t_stat": 0.8, "pct_paths_profitable": 75.0,
+                       "purged_trades": 2, "total_trades": 11,
+                       "paths": [{"trades": 3, "return_pct": 2.0, "win_rate_pct": 33.3,
+                                  "total_pnl": 5.0}]},
+         "pbo": {"pbo": 0.25, "verdict": "selection holds OOS", "n_configs": 2,
+                 "n_paths": 6, "n_sims": 400},
+         "deflated_sharpe": {"best_sharpe": 1.0, "n_trials": 5, "deflated_sharpe": 0.892,
+                             "verdict": "suggestive"},
+         "monte_carlo": {"n_sims": 2000, "terminal_p5": 9100.0, "terminal_p50": 10050.0,
+                         "terminal_p95": 11200.0, "p_lose_money": 40.0,
+                         "p_dd_beyond_10pct": 8.0},
+         "min_trl": {"min_bars": 14000, "min_years": 1.6}}
+    md = render_validation_report(r)
+    assert "# Validation report — BTC/USDT 1h" in md
+    assert "DSR 0.892" in md and "suggestive" in md
+    assert "0.25" in md and "selection holds OOS" in md
+    assert "1.6 years" in md and "Caveats" in md
+    assert "| 1 | 3 | +2.00 | 33.3 |" in md   # path table
+
+
+def test_dashboard_evidence_endpoint_smoke():
+    """/api/evidence serves all four payload sections and tolerates missing
+    artifacts (empty dirs, no ledger file) instead of erroring."""
+    import bot.dashboard as dash
+    from fastapi.testclient import TestClient
+    client = TestClient(dash.app)
+    r = client.get("/api/evidence")
+    assert r.status_code == 200
+    payload = r.json()
+    assert set(payload) == {"kronos", "validations", "shadow", "manifest"}
+    assert isinstance(payload["validations"], list)
+    assert isinstance(payload["manifest"], dict)
+    # the real machine's ledger (if present) either loads or reports why not
+    k = payload["kronos"]
+    assert ("n" in k) or ("error" in k)
+
+
+def test_cli_writers_create_results_dir_on_fresh_machine():
+    """cmd_shadow's default output and run_battery's per-run JSON used to raise
+    FileNotFoundError on a fresh clone (data/ is gitignored, data/results/ was
+    never created) — AFTER the full fetch/backtest work, the worst moment.
+    Pin the makedirs behavior without network: the shadow report path and the
+    battery's write path must both create their parent dir."""
+    import tempfile
+    # (a) the shared _ensure_parent helper semantics the writers now rely on
+    with tempfile.TemporaryDirectory() as td:
+        out = os.path.join(td, "data", "results", "shadow_report.json")
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        with open(out, "w") as fh:
+            json.dump({"profile": {"n_trades": 0}}, fh)
+        assert os.path.exists(out)
+    # (b) run_battery's module-level makedirs call — import must not have
+    # side effects, so simulate main()'s first line exactly as shipped
+    src = open("run_battery.py").read()
+    assert 'os.makedirs("data/results", exist_ok=True)' in src
+    src_m = open("main.py").read()
+    assert 'os.makedirs(os.path.dirname(out) or ".", exist_ok=True)' in src_m
+
+
+def test_reset_backup_is_wal_checkpointed_and_pruned():
+    """The reset backup used to be copy2 of the main db file only — rows still
+    living in the -wal (mid-session writes) were missing from the 'verified'
+    backup. It must checkpoint FIRST, name backups with sub-second precision,
+    and keep only the newest few."""
+    import glob as _glob
+    import tempfile
+    from bot import dashboard as dash
+    from fastapi.testclient import TestClient
+
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            dash.journal.db_path = CONFIG.db_path
+            dash.journal = dash.Journal(CONFIG.db_path)
+            dash.chatbot = dash.ChatBot(dash.journal)
+            client = TestClient(dash.app)
+            j = dash.journal
+            j.add_equity(10_000.0, 10_000.0, mode="paper")
+            j.log_chat("user", "hello during reset window")   # fresh WAL content
+            r = client.post("/api/account/reset", json={"capital": 5000})
+            assert r.status_code == 200
+            backup = r.json()["backup"]
+            assert os.path.exists(backup)
+            # the backup must be a COMPLETE database (schema + the pre-reset
+            # chat row), not just the checkpointed main file
+            import sqlite3
+            bc = sqlite3.connect(backup)
+            rows = bc.execute("SELECT COUNT(*) FROM chat_log").fetchone()[0]
+            assert rows >= 1
+            bc.close()
+            # retention: a second reset prunes to keep_n newest (5), not zero
+            client.post("/api/account/reset", json={"capital": 5000})
+            left = _glob.glob(os.path.join(td, "t.backup.*.db"))
+            assert 1 <= len(left) <= 5
+        finally:
+            # restore the module-level journal too (leaving it pointed at the
+            # deleted tempdir poisons any later test that uses dash.app)
+            CONFIG.db_path = old_db
+            dash.journal.db_path = old_db
+            dash.journal = dash.Journal(old_db)
+            dash.chatbot = dash.ChatBot(dash.journal)
+
+
+def test_seed_demo_idempotent_and_headline_coherent():
+    """Re-seeding must REPLACE the demo rows (it used to stack: 419 → 1,256
+    trades, headline return → 0.0%), and the seeded equity walk must be ONE
+    portfolio-threaded account whose end equals capital + total trade P&L —
+    the old per-spec walks restarted at paper_capital each, so the headline
+    showed '-$1,020 P&L' beside '+3.40% return'."""
+    import tempfile
+    from types import SimpleNamespace
+    from bot import seed_demo
+    from config import MarketSpec
+
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            cfg = SimpleNamespace(
+                watchlist=[MarketSpec("crypto", "TESTA/USDT", "1h"),
+                           MarketSpec("crypto", "TESTB/USDT", "1h")],
+                paper_capital=10_000.0)
+            fake_trades = [
+                {"symbol": "TESTA/USDT", "side": "long", "qty": 1.0, "entry_price": 100.0,
+                 "stop": 95.0, "target": 110.0, "strategy": "turtle_trend",
+                 "rationale": "r", "entry_ts": "2026-01-01T00:00:00+00:00",
+                 "exit_ts": "2026-01-02T00:00:00+00:00", "exit_price": 105.0,
+                 "pnl": 300.0, "pnl_pct": 3.0, "fees": 1.0, "exit_reason": "target"},
+                {"symbol": "TESTB/USDT", "side": "short", "qty": 1.0, "entry_price": 50.0,
+                 "stop": 55.0, "target": 45.0, "strategy": "connors_meanrev",
+                 "rationale": "r", "entry_ts": "2026-01-03T00:00:00+00:00",
+                 "exit_ts": "2026-01-04T00:00:00+00:00", "exit_price": 52.0,
+                 "pnl": -150.0, "pnl_pct": -3.0, "fees": 1.0, "exit_reason": "stop"},
+            ]
+            class _FakeBT:
+                def run(self, spec, df=None, strategy=None):
+                    class _R:
+                        trades = fake_trades
+                        equity_curve = []
+                        def stats(self):
+                            return {"trades": len(fake_trades), "total_pnl": 150.0,
+                                    "win_rate_pct": 50.0}
+                    return _R()
+            old_bt = seed_demo.Backtester
+            old_fetch = seed_demo.fetch_history
+            seed_demo.Backtester = lambda cfg=None: _FakeBT()
+            seed_demo.fetch_history = lambda spec, days=240: pd.DataFrame(
+                {"a": range(300)})
+            try:
+                n1 = seed_demo.seed(cfg)
+                assert n1["trades"] == 4 and n1["equity"] >= 2
+                n2 = seed_demo.seed(cfg)          # RE-SEED: must replace, not stack
+                assert n2["trades"] == 4
+                j = seed_demo.Journal()
+                modes = j.trade_mode_counts()
+                assert modes == {"demo": 4}, modes
+                s = j.stats()                       # demo-only journal: all rows
+                assert s["closed_trades"] == 4
+                # headline coherence: end equity == capital + total trade P&L
+                # (each fake trade is duplicated across both specs: +300×2, −150×2)
+                assert abs(s["current_equity"] - (10_000.0 + 300.0)) < 0.01, s
+                assert abs(s["return_pct"] - 3.0) < 0.01, s
+            finally:
+                seed_demo.Backtester = old_bt
+                seed_demo.fetch_history = old_fetch
+        finally:
+            CONFIG.db_path = old_db
+
+
+def test_decisions_feed_filters_demo_rows():
+    """/api/decisions must read the paper feed first and only fall back to all
+    rows on a demo-only journal (the Overview terminal and the chatbot's 'why'
+    path used to present seeded demo decisions as the bot's own)."""
+    import tempfile
+    from types import SimpleNamespace
+    from bot import dashboard as dash
+    from fastapi.testclient import TestClient
+
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            dash.journal.db_path = CONFIG.db_path
+            dash.journal = dash.Journal(CONFIG.db_path)
+            dash.chatbot = dash.ChatBot(dash.journal)
+            j = dash.journal
+            d = SimpleNamespace(action="LONG", confidence=0.7, price=100.0,
+                                regime="trending", stop_distance=None, target_rr=None,
+                                strategy_signals={}, sentiment={}, rationale="r")
+            j.add_decision("BTC/USDT", "1h", d, mode="demo")
+            j.add_decision("ETH/USDT", "1h", d, mode="paper")
+            client = TestClient(dash.app)
+            r = client.get("/api/decisions").json()
+            assert [x["symbol"] for x in r] == ["ETH/USDT"]      # paper first
+            j2 = dash.Journal(os.path.join(td, "demo_only.db"))
+            CONFIG.db_path = os.path.join(td, "demo_only.db")
+            dash.journal.db_path = CONFIG.db_path
+            dash.journal = j2
+            dash.chatbot = dash.ChatBot(j2)
+            j2.add_decision("GBPUSD=X", "1h", d, mode="demo")
+            r2 = TestClient(dash.app).get("/api/decisions").json()
+            assert [x["symbol"] for x in r2] == ["GBPUSD=X"]     # demo fallback renders
+        finally:
+            CONFIG.db_path = old_db
+            dash.journal.db_path = old_db
+            dash.journal = dash.Journal(old_db)
+            dash.chatbot = dash.ChatBot(dash.journal)
+
+
+def test_chatbot_why_matches_symbol_not_newest():
+    """'why did you buy BTC?' must answer about BTC — it used to return the
+    newest non-HOLD decision of ANY market (a GBPUSD demo row on a fresh
+    clone) and even claimed 'no entries' while 54 demo entries existed."""
+    import tempfile
+    from types import SimpleNamespace
+    from bot.chatbot import ChatBot
+    from bot.journal import Journal
+
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            j = Journal(CONFIG.db_path)
+            d = SimpleNamespace(action="LONG", confidence=0.7, price=1.27,
+                                regime="trending", stop_distance=None, target_rr=None,
+                                strategy_signals={}, sentiment={}, rationale="why-demo")
+            j.add_decision("GBPUSD=X", "1h", d, mode="demo")
+            d2 = SimpleNamespace(action="LONG", confidence=0.8, price=100.0,
+                                 regime="trending", stop_distance=None, target_rr=None,
+                                 strategy_signals={}, sentiment={}, rationale="live-btc")
+            j.add_decision("BTC/USDT", "1h", d2, mode="paper")
+            class _NoLLM:
+                enabled = False
+                provider = "none"
+            bot = ChatBot(j, _NoLLM())
+            # asks about BTC -> must answer BTC, never the GBPUSD demo row
+            assert "BTC/USDT" in bot.answer("why did you buy BTC?")
+            # 'long' must not read as a market: the SOL question targets SOL
+            a_long = bot.answer("why did you open a long on SOL?")
+            assert "SOL" in a_long and "BTC/USDT" not in a_long
+            # asks about a market never traded -> honest 'no decision on X'
+            no = bot.answer("why did you buy DOGE?")
+            assert "DOGE" in no and "No" in no
+            # demo-only journal: honest demo labeling instead of a wrong answer
+            with tempfile.TemporaryDirectory() as td2:
+                CONFIG.db_path = os.path.join(td2, "t2.db")
+                j2 = Journal(CONFIG.db_path)
+                j2.add_decision("GBPUSD=X", "1h", d, mode="demo")
+                bot2 = ChatBot(j2, _NoLLM())
+                a2 = bot2.answer("why did you buy GBPUSD?")
+                assert "GBPUSD=X" in a2 and "demo" in a2
+        finally:
+            CONFIG.db_path = old_db
+
+
+def test_journal_quarantines_corrupt_db():
+    """A torn trading.db used to crash Journal() at import — uvicorn died with
+    a raw traceback and no UI to explain. It must quarantine (like the kronos
+    ledger) and start fresh; a merely-busy db must NOT be quarantined."""
+    import tempfile
+    from bot.journal import Journal, _db_corrupt
+
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, "t.db")
+        with open(p, "wb") as fh:
+            fh.write(b"definitely not a sqlite database" * 50)
+        CONFIG.db_path = p
+        j = Journal()                     # must quarantine, not raise
+        j.add_equity(1.0, 1.0)
+        assert any("corrupt" in f for f in os.listdir(td))
+    # signature check: corruption yes, busy/locked no
+    import sqlite3
+    assert _db_corrupt(sqlite3.DatabaseError("file is not a database"))
+    assert _db_corrupt(sqlite3.DatabaseError("database disk image is malformed"))
+    assert not _db_corrupt(sqlite3.DatabaseError("database is locked"))
+    assert not _db_corrupt(sqlite3.OperationalError("database or disk is full"))
+
+
+def test_ccxt_source_cooldown_benches_dead_exchanges():
+    """Three consecutive failures bench a source for 5 minutes (a geo-blocked
+    Binance used to re-pay its timeout on every fetch, every cycle); a benched
+    source is not even probed; all-benched un-benches so fetches keep trying;
+    success resets strikes."""
+    from bot import data as data_mod
+
+    def fetch_one_ok(src):
+        rows = [[(pd.Timestamp("2024-01-01", tz="UTC") +
+                  pd.Timedelta(hours=i)).timestamp() * 1000, 100, 101, 99, 100.5, 10.0]
+                for i in range(50)]
+        return data_mod._validate_ohlcv(data_mod._rows_to_df(rows), f"crypto:{src}")
+
+    def fetch_one_binance_dead(src):
+        if src == "binance":
+            raise ConnectionError("geo-blocked")
+        return fetch_one_ok(src)
+
+    data_mod._source_fails.clear()
+    for _ in range(3):                    # binance fails 3x consecutively -> benched
+        try:
+            data_mod._fetch_with_fallback("X/USDT", "1h", "auto", fetch_one_binance_dead)
+        except RuntimeError:
+            pass
+    # 4th call: binance is benched, fetch served by bybit WITHOUT probing binance
+    probed = []
+
+    def spy(src):
+        probed.append(src)
+        return fetch_one_binance_dead(src)
+
+    df = data_mod._fetch_with_fallback("X/USDT", "1h", "auto", spy)
+    assert df.attrs["source"] == "bybit"
+    assert "binance" not in probed        # benched: not even probed
+    # success resets strikes: bybit has none now, and a direct binance win clears its bench
+    df2 = data_mod._fetch_with_fallback("X/USDT", "1h", "binance", fetch_one_ok)
+    assert df2.attrs["source"] == "binance"
+    assert data_mod._source_fails.get("binance") is None
+    # all sources benched -> bench dropped so the next call retries (never dead)
+    for s in ("binance", "bybit", "okx"):
+        data_mod._source_fails[s] = (99, time.time() + 9999)
+    try:
+        data_mod._fetch_with_fallback("X/USDT", "1h", "auto", fetch_one_binance_dead)
+    except RuntimeError:
+        pass
+    assert all(v[0] < 99 for v in data_mod._source_fails.values())
+    data_mod._source_fails.clear()
+
+
+# ---------------------------------- verification-gap pass (2026-09-08)
+# Fixes from the JUDGE_REPORT passes shipped with holes in their test cover:
+# these six pin the ones that had NO regression test standing guard.
+
+def test_account_reset_refused_while_engine_stopping():
+    """A reset issued while the engine thread outlived its bounded stop-join
+    (status 'stopping') must 409 and touch NOTHING — the wipe used to proceed
+    and could race the engine's in-flight journal writes. With the thread
+    confirmed down ('not_running'), the same reset proceeds normally."""
+    import glob as _glob
+    import tempfile
+    from bot import dashboard as dash
+    from fastapi.testclient import TestClient
+
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        real_stop = dash.api_engine_stop
+        try:
+            dash.journal.db_path = CONFIG.db_path
+            dash.journal = dash.Journal(CONFIG.db_path)
+            dash.chatbot = dash.ChatBot(dash.journal)
+            client = TestClient(dash.app)
+            tid = dash.journal.open_trade("BTC/USDT", "long", 1.0, 100.0, 90.0,
+                                          None, "turtle_trend", "r", mode="paper")
+            assert tid
+
+            dash.api_engine_stop = lambda body: {"status": "stopping"}
+            r = client.post("/api/account/reset", json={"capital": 5000})
+            assert r.status_code == 409 and "stopping" in r.json()["detail"]
+            # refused means REFUSED: trade survives, no backup, no wipe
+            assert dash.journal.trade_mode_counts() == {"paper": 1}
+            assert not _glob.glob(os.path.join(td, "t.backup.*.db"))
+
+            # control: same request, thread confirmed down -> reset proceeds
+            dash.api_engine_stop = lambda body: {"status": "not_running"}
+            r = client.post("/api/account/reset", json={"capital": 5000})
+            assert r.status_code == 200
+            assert dash.journal.trade_mode_counts() == {}   # wiped
+            assert os.path.exists(r.json()["backup"])
+        finally:
+            dash.api_engine_stop = real_stop
+            CONFIG.db_path = old_db
+            dash.journal.db_path = old_db
+            dash.journal = dash.Journal(old_db)
+            dash.chatbot = dash.ChatBot(dash.journal)
+
+
+def test_kronos_ledger_quarantines_torn_file_and_survives_restart():
+    """A torn kronos_ic.json (crash mid-write) must be quarantined to
+    .corrupt for inspection — NOT silently reset to empty (the ledger is the
+    promotion gate's memory) and NOT deleted (the evidence is needed to see
+    what was lost). A healthy ledger must roundtrip through a restart."""
+    from bot.kronos_signal import KronosICTracker
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "ic.json")
+        with open(path, "w") as fh:
+            fh.write('{"records": [[0.5, 0.01')        # crash mid-write
+        tr = KronosICTracker(path)
+        assert tr.n() == 0 and not tr._pending          # starts fresh, loudly
+        assert not os.path.exists(path)                # ...after moving it aside
+        assert os.path.exists(path + ".corrupt")
+        with open(path + ".corrupt") as fh:
+            assert "records" in fh.read()              # evidence preserved
+
+        # healthy save/load roundtrip across a fresh instance ("restart")
+        idx = pd.date_range("2024-01-01", periods=40, freq="1h", tz="UTC")
+        closes = pd.Series(np.linspace(100, 120, 40), index=idx)
+        tr.log_forecast(0.5, str(idx[0]), horizon=10, market="BTC/USDT|1h")
+        tr.resolve(closes, market="BTC/USDT|1h")
+        assert tr.n() == 1 and not os.path.exists(path + ".tmp")   # no tmp litter
+        tr2 = KronosICTracker(path)
+        assert tr2.n() == 1 and tr2.records == tr.records
+
+
+def test_kronos_horizon_normalized_to_one_day_per_timeframe():
+    """horizon=24 was hardcoded for every book: 24x4h forecast FOUR DAYS out,
+    24x15m forecast four hours. The horizon must be ~one day of bars for
+    whichever timeframe the book trades."""
+    import bot.engine as engine_mod
+    from config import TIMEFRAME_SECONDS
+    h = engine_mod.TradingEngine._kronos_horizon
+    assert h("5m") == 288 and h("15m") == 96 and h("1h") == 24
+    assert h("4h") == 6 and h("1d") == 1
+    for tf in ("5m", "15m", "1h", "4h", "1d"):
+        assert h(tf) * TIMEFRAME_SECONDS[tf] == 86400   # exactly one day ahead
+
+
+def test_bars_per_year_forex_weekday_scaling():
+    """Crypto trades 24/7 but Yahoo forex trades ~24x5 (weekend gaps): the
+    24/7 bar count overstated forex Sharpe magnitudes ~18%
+    (sqrt(8760/6257) = 1.18). kind='forex' scales by 5/7; the default kind
+    stays crypto so no existing call site shifts."""
+    from config import bars_per_year
+    assert bars_per_year("1h") == 8760.0               # 24/7 crypto, default kind
+    assert abs(bars_per_year("1h", "forex") - 8760.0 * 5.0 / 7.0) < 0.01
+    assert abs(bars_per_year("1h", "forex") - 6257.14) < 0.01
+    for tf in ("5m", "15m", "1h", "4h", "1d"):
+        assert bars_per_year(tf) > bars_per_year(tf, "forex")   # scaled, never inflated
+
+
+def test_journal_conn_closes_deterministically():
+    """`with self._conn()` used to commit but never close — every 4s dashboard
+    poll leaked a connection to the GC's discretion. The contextmanager must
+    close on BOTH paths: clean exit and exception mid-block."""
+    import sqlite3
+    from bot.journal import Journal
+    with tempfile.TemporaryDirectory() as td:
+        j = Journal(os.path.join(td, "t.db"))
+        j.add_equity(10.0, 10.0)
+        with j._conn() as conn:
+            n = conn.execute("SELECT COUNT(*) AS n FROM equity").fetchone()["n"]
+            assert n == 1
+        try:
+            conn.execute("SELECT 1")
+            closed_clean = False
+        except sqlite3.ProgrammingError:
+            closed_clean = True
+        assert closed_clean
+        try:
+            with j._conn() as conn2:
+                conn2.execute("SELECT * FROM no_such_table")
+            raised = False
+        except sqlite3.OperationalError:
+            raised = True
+        assert raised
+        try:
+            conn2.execute("SELECT 1")                  # rollback AND close
+            closed_err = False
+        except sqlite3.ProgrammingError:
+            closed_err = True
+        assert closed_err
+        with j._conn() as conn3:                       # db still usable after
+            assert conn3.execute("SELECT COUNT(*) AS n FROM equity").fetchone()["n"] == 1
+
+
+def test_meanrev_never_fires_short_gate_on_warmup_rsi():
+    """RSI(2) warmup used to read 100.0 (blanket fillna), which sits ABOVE the
+    95 short gate — during the rsi2-lead window the gate was genuinely armed,
+    masked only by the unrelated EMA200 warmup veto outlasting it. Warmup is
+    NaN now: NaN fails _ok(), so no gate can fire. The counterfactual (100.0
+    planted at the same bar) shorts, proving the NaN is what disarms it."""
+    t = np.arange(260)
+    prices = np.linspace(210, 100, 260) + 1.5 * np.sin(t * 0.7)
+    df = add_all_indicators(make_df(prices))
+    mr = ConnorsMeanReversion()
+    i = len(df) - 1
+    assert mr.p.mr_rsi_sell_above == 95.0             # the gate in question
+    assert df["ema200"].iloc[i] > df["close"].iloc[i]  # downtrend: short side armed
+
+    warm = df.copy()
+    warm.loc[warm.index[i], "rsi2"] = float("nan")     # the FIXED warmup value
+    warm.loc[warm.index[i], "halflife"] = 5.0         # half-life gate passes
+    sig = mr.evaluate(warm, i)
+    assert sig.action == "FLAT" and "not ready" in (sig.rationale or "")
+
+    old = df.copy()
+    old.loc[old.index[i], "rsi2"] = 100.0             # the OLD warmup value
+    old.loc[old.index[i], "halflife"] = 5.0
+    assert mr.evaluate(old, i).action == "SHORT"
+
+
 if __name__ == "__main__":
     fails = 0
     fns = [(n, f) for n, f in sorted(globals().items())

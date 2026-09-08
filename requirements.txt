@@ -15,14 +15,10 @@ fastapi>=0.110
 scikit-learn>=1.4     # pulled in by skfolio
 skfolio>=1.0          # portfolio allocation + CombinatorialPurgedCV validation
 
-# Kronos foundation-model signal (optional but recommended; MIT, ~100MB weights
-# download on first use). Vendor the model source first:
-#   git clone https://github.com/shiyu-coder/Kronos models/kronos
-torch>=2.2
-transformers>=4.40
-huggingface_hub>=0.23
-einops>=0.7
-tqdm>=4.66
-
 # Dev
 pytest>=8.0
+
+# Kronos foundation-model signal is OPTIONAL (the engine degrades to
+# "no forecast voter" without it) — install with:
+#   pip install -r requirements.txt -r requirements-kronos.txt
+# Vendor the model source first: git clone https://github.com/shiyu-coder/Kronos models/kronos

@@ -40,6 +40,9 @@ SKIP = {("1h", "vwap_scalper"), ("1h", "connors_meanrev"),
 
 
 def main():
+    # data/ is gitignored — a fresh clone has no results dir, and crashing at
+    # the WRITE (after a full hour of fetching/backtesting) is the worst moment
+    os.makedirs("data/results", exist_ok=True)
     bt = Backtester()
     rows = []
     t_start = time.time()
@@ -73,7 +76,8 @@ def main():
 
     print(f"\n{'='*100}\nSUMMARY ({len(rows)} runs, {time.time()-t_start:.0f}s total)\n{'='*100}")
     hdr = f"{'symbol':12s} {'tf':4s} {'strategy':16s} {'ret%':>8s} {'dd%':>7s} {'trades':>6s} {'wr%':>6s} {'pf':>6s} {'sharpe':>7s}"
-    print(hdr); print("-" * len(hdr))
+    print(hdr)
+    print("-" * len(hdr))
     for s in rows:
         print(f"{s['symbol']:12s} {s['timeframe']:4s} {s['strategy']:16s} "
               f"{s['return_pct']:+8.2f} {s['max_drawdown_pct']:7.2f} {s['trades']:6d} "

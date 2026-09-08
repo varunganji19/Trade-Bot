@@ -1,0 +1,11 @@
+# Optional Kronos foundation-model signal (see requirements.txt).
+# Without these the bot runs fully — Kronos is a tracked non-voter that is
+# simply absent (bot/engine.py degrades cleanly). ~100MB weights download on
+# first use into the HF cache.
+# Vendor the model source first:
+#   git clone https://github.com/shiyu-coder/Kronos models/kronos
+torch>=2.2
+transformers>=4.40
+huggingface_hub>=0.23
+einops>=0.7
+tqdm>=4.66

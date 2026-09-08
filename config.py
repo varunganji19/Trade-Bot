@@ -23,6 +23,13 @@ def _env_str(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
+def utc_now() -> str:
+    """Canonical timestamp for journal/engine writes (ISO-UTC, seconds).
+    One shared clock: the engine and the journal used to define identical
+    private copies."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 @dataclass
 class RiskConfig:
     risk_per_trade: float = 0.01        # 1% of equity risked per trade
@@ -320,12 +327,16 @@ def apply_saved_watchlist(path: str | None = None) -> list:
                 os.replace(path, f"{path}.corrupt")
             except OSError:
                 pass
-            print(f"[config] watchlist.json unreadable — moved to .corrupt, "
-                  f"using the default watchlist")
+            print("[config] watchlist.json unreadable — moved to .corrupt, "
+                  "using the default watchlist")
     else:
         save_watchlist(CONFIG.watchlist, path)
     return CONFIG.watchlist
 
 
-def bars_per_year(timeframe: str) -> float:
-    return (365.0 * 86400.0) / TIMEFRAME_SECONDS[timeframe]
+def bars_per_year(timeframe: str, kind: str = "crypto") -> float:
+    """Bars/year for Sharpe annualization. Crypto trades 24/7; Yahoo forex
+    trades ~24x5 (weekend gaps), so the 24/7 count overstated forex Sharpe
+    magnitudes ~18% — kind='forex' scales the count by 5/7."""
+    bars = (365.0 * 86400.0) / TIMEFRAME_SECONDS[timeframe]
+    return bars * (5.0 / 7.0) if kind == "forex" else bars

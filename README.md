@@ -1,16 +1,45 @@
 # AI Trading Bot — Crypto & Forex (Paper Trading)
 
+[![CI](https://github.com/Varunsai1930/Algo/actions/workflows/ci.yml/badge.svg)](https://github.com/Varunsai1930/Algo/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An autonomous trading bot for **crypto and forex** that reads chart data and news,
 decides **buy / sell / hold** with written reasoning, sizes and manages positions
 by itself — plus a live **dashboard** (equity curve, trade history, strategy
-attribution, decision feed) and a **chatbot** that answers questions about its
-own trading record.
+attribution, decision feed, **evidence view**) and a **chatbot** that answers
+questions about its own trading record.
+
+**Why this is different** (each bullet is a measured result, not a claim):
+
+- **Even a foundation model has to earn its vote.** Kronos (AAAI'26) forecasts
+  are scored against reality in a rolling IC ledger; it measured **IC −0.056 →
+  denied a vote**, and the Evidence tab draws that verdict against its own 0.02
+  promotion hurdle.
+- **Negative results ship as results.** The RVOL volume filter (published
+  Sharpe 0.48 → 2.81 on equities) measured **neutral here → shipped OFF**
+  (BACKTESTS.md Round 5); the 5m scalper's −28% cost autopsy is kept, not deleted.
+- **The bot audits itself.** The Shadow Account replays every journaled trade
+  against its own rules — 236/428 trades *blew through their stop* and the bot
+  says so.
+- **Fees on both legs of every trade**, taker + slippage on market fills,
+  maker pricing on bracket take-profits — and purged-CV / PBO / Deflated-Sharpe
+  statistics that quantify how much of the Sharpe is trial-selection.
+- **Causality and determinism are tested**, not assumed: truncating history at
+  bar *i* cannot change the bar-*i* signal; identical inputs produce identical
+  trades. **101 tests**, CI on every push.
 
 Built for a competition with an explicit engineering thesis: **the edge is the
 process** — evidence-based strategies (researched from the most profitable
 traders in history), honest validation with fees and slippage, strict risk
 control, and full attribution of every decision. No strategy here is presented
 as "guaranteed profitable" (see [RESEARCH.md](RESEARCH.md) §4).
+
+| ![Overview — equity curve, live decision terminal, strategy P&L](docs/screenshots/dashboard-overview.png) | ![Evidence — the honesty layer, rendered](docs/screenshots/dashboard-evidence.png) |
+|---|---|
+| **Overview** — live engine, mark-to-market equity, per-strategy P&L, every decision journaled with its reasoning | **Evidence** — Kronos rolling IC vs its own promotion hurdle, purged-CV path distribution, PBO/DSR verdict cards, shadow-account adherence |
+
+![Portfolio — trade history with strategy attribution](docs/screenshots/dashboard-portfolio.png)
+
 
 ```
                     ┌──────────────────────────────────────────┐
@@ -47,6 +76,10 @@ as "guaranteed profitable" (see [RESEARCH.md](RESEARCH.md) §4).
 python3 main.py backtest --symbol BTC/USDT --timeframe 1h --days 365 --strategy turtle_trend
 python3 main.py backtest --symbol ETH/USDT --timeframe 5m --days 30 --strategy ensemble --walk-forward
 
+# 1b. pinned window — byte-identical reruns + a provenance manifest
+python3 main.py backtest --symbol BTC/USDT --timeframe 1h \
+  --start 2025-01-01 --end 2026-01-01 --strategy turtle_trend
+
 # 2. paper trade (one cycle or forever)
 python3 main.py run --once
 python3 main.py run                 # loops every 60s, journals everything
@@ -55,20 +88,22 @@ python3 main.py run                 # loops every 60s, journals everything
 python3 main.py backtest --symbol BTC/USDT --timeframe 1h --days 365 \
   --strategy turtle_trend --purged-cv      # OOS path distribution + signal IC
 python3 main.py validate --symbol BTC/USDT --timeframe 1h --days 365 \
-  --strategy turtle_trend                  # purged-CV, PBO, Deflated Sharpe, Monte Carlo
+  --strategy turtle_trend --report REPORT.md   # purged-CV, PBO, DSR, MC + rendered report
 python3 main.py kronos --symbol BTC/USDT --days 60  # Kronos IC verdict (earned vote?)
 python3 main.py shadow                     # journal vs its own rules
 
 # 3. dashboard + chatbot
 python3 main.py dashboard           # → http://127.0.0.1:8000
 #   (start/stop the engine from the UI; ask "how much did you earn?",
-#    "why did you buy BTC?", "which strategy is best?")
+#    "why did you buy BTC?", "which strategy is best?" — and open the
+#    Evidence tab: the honesty layer, rendered)
 
 # 4. other commands
 python3 main.py status              # journal summary
+make test / make lint / make demo / make battery   # common tasks
 python3 main.py chat "explain the connors strategy"
 python3 main.py seed-demo           # fill journal with real backtest history for the demo
-python3 tests/test_bot.py           # 92 tests
+python3 tests/test_bot.py           # 101 tests
 ```
 
 ## The strategies (each mapped to evidence — see RESEARCH.md)
@@ -79,10 +114,15 @@ python3 tests/test_bot.py           # 92 tests
 | **Connors Mean Reversion** | Larry Connors RSI(2) + EMA(200) trend filter (documented ~75% win rate on indices) + Chan AR(1)/OU half-life gate | buy deep pullbacks in uptrends *while pullbacks are actually reverting* (measured half-life ≤ 12 bars), snapback exits, 3×ATR stop + time stop | 4h / 1d |
 | **VWAP Scalper** | Opening Range Breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP institutional benchmark + team's earlier VWAP prototype | VWAP reclaim/loss with momentum + volume confirmation, rolling-range breakout, breakeven trail, time stop; optional time-of-day RVOL filter (tested, off by default — measured neutral on 24/7 crypto, BACKTESTS.md) | 5m / 15m |
 
-**Orchestrator**: classifies each market's regime (ADX + EMA structure) and
-weight-blends the strategies (trending → breakout-weighted; ranging →
-mean-reversion-weighted). A conflict guard stands down when strategies strongly
-disagree. News sentiment (RSS headlines, LLM-scored if a key is configured,
+**Orchestrator**: classifies each market's regime (ADX + EMA structure) and runs
+the strategy registered for that timeframe. Honest caveat: each strategy ships on
+its own validated timeframe and the three ranges are **disjoint** (turtle 1h,
+Connors 4h/1d, scalper 5m/15m), so every market today has exactly one strategy
+owner — the regime-weight blend and the conflict guard are implemented and
+journaled, but they only engage if strategies ever share a timeframe. The
+orchestration layer's active work today is the Kronos earned-vote gate,
+sentiment veto, confidence floors, the risk veto, and full decision journaling.
+News sentiment (RSS headlines, LLM-scored if a key is configured,
 deterministic lexicon otherwise) can **veto or shrink** a trade but never
 initiate one — per the Lopez-Lira & Tang (2023) finding that headline sentiment
 is predictive but small relative to costs.
@@ -124,8 +164,8 @@ chatbot answers from the journal with template logic.
   (that close was not tradable at decision time)
 - `--walk-forward` reports per-fold out-of-sample stats; **`--purged-cv`**
   (skfolio CombinatorialPurgedCV) produces a *distribution* of OOS paths —
-  trades straddling path boundaries are purged, and only paths that actually
-  traded count toward the stats
+  trades whose label (entry through exit) spans a path boundary are purged,
+  and only paths that actually traded count toward the stats
 - the daily kill switch follows **simulated bar time** in backtests, not the
   wall clock — the same rule runs in backtest and live
 - causality is unit-tested (`test_strategies_never_read_future`): truncating
@@ -162,10 +202,16 @@ strategy's exit rules on the same bars and reports:
 - **shadow comparison** — actual journal PnL vs the pure-strategy backtest
   over the same window (the measured cost/value of orchestration).
 
-On the current journal it surfaced: 57.6% adherence on BTC 1h, 16 lingering
-exits, 236 trades that blew through their initial stop distance, and a +342h
-disposition gap (losers held much longer than winners) — exactly the
-diagnostics the attribution story needs.
+On the seeded demo journal (see the caveat below) it surfaced: 57.6% adherence
+on BTC 1h, 16 lingering exits, 236 trades that blew through their initial stop
+distance, and a +342h disposition gap (losers held much longer than winners) —
+exactly the diagnostics the attribution story needs.
+
+**Journal labeling**: `seed-demo` writes real backtest replays as `mode='demo'`
+rows — badged in the trade history, excluded from the chatbot's paper-record
+answers, and skipped by `shadow` by default (`--include-demo` audits them).
+Those headline shadow numbers were computed on such seeded replays, not on
+trades the live engine took; they demonstrate the tooling, not a live record.
 
 ## Layout
 
@@ -194,14 +240,23 @@ bot/
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
   journal.py         SQLite: decisions / trades / equity / chat_log
   chatbot.py         journal-aware Q&A (LLM or deterministic)
-  dashboard.py       FastAPI + Chart.js single-page dashboard
-  seed_demo.py       fill the journal from real backtests for the demo
-models/kronos/       vendored Kronos model source (MIT; weights via HF Hub)
-tests/test_bot.py    92 tests: indicators, strategies, causality, determinism,
+  dashboard.py       FastAPI + Chart.js single-page dashboard (incl. Evidence
+                     view: Kronos IC ledger, purged-CV paths, PBO/DSR verdicts,
+                     shadow adherence, data manifest)
+  report.py          validate --report renderer (generated REPORT.md)
+  seed_demo.py       fill the journal from real backtests (mode='demo', badged)
+models/kronos/       vendored Kronos model source (upstream MIT license vendored;
+                     weights via HF Hub)
+tests/test_bot.py    101 tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,
                      shadow, journal, backtest, live-engine regressions
                      (cross-timeframe isolation, restart cash, bars_held)
 run_battery.py       full backtest battery across symbols/strategies
+LICENSE              MIT
+pyproject.toml       committed ruff + pytest config (the lint floor CI enforces)
+Makefile             make setup / test / lint / backtest / validate / demo / battery
+DEMO.md              the 90-second demo runbook + panel Q&A
+CHANGELOG.md         rounds 1–6 and the audit hardening, mapped to history
 ```
 
 ## Environment
@@ -215,9 +270,13 @@ run_battery.py       full backtest battery across symbols/strategies
 - `PAPER_CAPITAL`, `LIVE_INTERVAL`, `BOT_DB_PATH`, `PORTFOLIO_METHOD`,
   `PORTFOLIO_ALLOC`, `MAKER_PRICING` env overrides
 - `DASHBOARD_TOKEN` — optional: set it to require `Authorization: Bearer <token>`
-  on every dashboard request (default off; the dashboard binds to 127.0.0.1 only).
+  on every dashboard API request (default off; the dashboard binds to 127.0.0.1
+  only). The page shell itself loads unguarded and the browser UI prompts for
+  the token once, storing it in localStorage.
+- `ALGO_NO_AUTO_RESUME=1` — stop the engine auto-resuming on dashboard boot.
   The engine auto-resumes on dashboard restart if it was running when the last
-  session ended (a manual stop stays stopped).
+  session ended (a manual stop stays stopped); the UI shows a toast the moment
+  a boot-resume happens, so trading never silently begins.
 - Without torch or the vendored model, the bot runs normally — Kronos reports
   "unavailable" and never touches the vote
 

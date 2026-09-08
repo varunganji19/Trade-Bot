@@ -5,6 +5,11 @@ Fidelity rules (see RESEARCH.md §4):
   - Decisions are made on CLOSED bars only (no look-ahead): the indicator frame
     is truncated to `i` before strategies evaluate, then fills happen at bar
     i+1's open with slippage, or stop/target fills inside bar i+1's range.
+  - The FILL bar (bar i+1, where the entry filled at the open) is scanned for
+    stop/target too — its whole range is post-fill there, and skipping it
+    diverged from the live engine, which does manage that bar (parity bug
+    fixed 2026-09: backtest now scans it, so a same-bar stop-out is seen by
+    both paths).
   - Market legs pay taker fees + slippage (crypto 0.10% + 0.05%, forex
     0.02%+0.01%); bracket take-profit exits are resting limits and fill at
     their level with no slippage, paying the maker fee.
@@ -13,7 +18,12 @@ Fidelity rules (see RESEARCH.md §4):
 
 Modes:
   single  — one strategy per spec (pass strategy=name)
-  ensemble — orchestrator-blended decisions across strategies (default)
+  ensemble — orchestrator decision per bar. NOTE: preferred_timeframes are
+             disjoint across strategies (turtle 1h, meanrev 4h/1d, scalper
+             5m/15m), so each spec is evaluated by exactly ONE strategy and
+             the regime blend reduces to that strategy's confidence — the
+             blend/conflict guard only engage if strategies ever share a
+             timeframe (they currently don't).
 
 run_walk_forward() splits history into sequential folds, each traded from a
 fresh engine state (positions, cooldowns, equity reset) — approximating
@@ -71,7 +81,8 @@ class BTResult:
         if len(eq) > 20:
             rets = eq.pct_change().dropna()
             if rets.std() > 0:
-                sharpe = float(rets.mean() / rets.std() * math.sqrt(bars_per_year(self.spec.timeframe)))
+                sharpe = float(rets.mean() / rets.std() * math.sqrt(
+                    bars_per_year(self.spec.timeframe, self.spec.kind)))
 
         start = self.start_equity or (self.equity_curve[0]["equity"] if self.equity_curve else 0)
         end = self.end_equity or (eq.iloc[-1] if len(eq) else start)
@@ -126,6 +137,10 @@ class Backtester:
         ind = add_all_indicators(df, self.cfg.params)
 
         risk.note_equity(self.starting_capital)
+        # set at entry: the NEXT iteration's `cur` bar is the fill bar (the
+        # entry filled at its open), which must be scanned for stop/target —
+        # skipping it was the live/backtest parity bug
+        fill_scan_pending = False
 
         for i in range(warmup_bars, n - 1):
             cur_bar = ind.iloc[i]
@@ -141,8 +156,20 @@ class Backtester:
             pos = broker.positions.get(broker.position_key(spec.symbol, spec.timeframe))
             if pos is not None:
                 pos.bars_held += 1
-                # stop/target inside the NEXT bar range (we act on next bar's data)
-                reason, exit_price = broker.scan_bar_exits(spec, next_bar)
+                # stop/target scans in time order: the fill bar first (whole
+                # range is post-fill — the entry filled at its open), then the
+                # next bar
+                scan_bars: list[tuple[int, object]] = []
+                if fill_scan_pending:
+                    scan_bars.append((i, cur_bar))
+                    fill_scan_pending = False
+                scan_bars.append((i + 1, next_bar))
+                reason, exit_price, exit_idx = None, None, None
+                for idx, bar in scan_bars:
+                    reason, exit_price = broker.scan_bar_exits(spec, bar)
+                    if reason:
+                        exit_idx = idx
+                        break
                 if not reason:
                     exit_reason, new_stop = single.check_exit(ind, i, pos) if single else (
                         orchestrator_strat_exit(orchestrator, ind, i, pos))
@@ -151,7 +178,7 @@ class Backtester:
                     if exit_reason:
                         # the exit signal was computed on bar i's close, which was
                         # not tradable at decision time -> fill at bar i+1's open
-                        reason, exit_price = exit_reason, next_open
+                        reason, exit_price, exit_idx = exit_reason, next_open, i + 1
                 if reason:
                     closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
                         spec, exit_price, reason)
@@ -159,8 +186,8 @@ class Backtester:
                     # must not immediately re-trigger and churn fees — the
                     # shared policy also blocks re-entry inside risk.approve
                     risk.apply_exit_cooldown(spec, closed_pos, reason, bar_epoch)
-                    result.trades.append(_trade_dict(closed_pos, exit_fill, reason, pnl, pnl_pct, fee, ind, i + 1))
-                    result.equity_curve.append({"ts": next_ts,
+                    result.trades.append(_trade_dict(closed_pos, exit_fill, reason, pnl, pnl_pct, fee, ind, exit_idx))
+                    result.equity_curve.append({"ts": str(ind.index[exit_idx]),
                                                 "equity": round(broker.equity({spec.symbol: exit_fill}), 2)})
                     continue
 
@@ -213,15 +240,27 @@ class Backtester:
                                        trade_id=-1, ts=next_ts,
                                        decision_bar_ts=bar_epoch)
             pos.strategy = strategy_name
+            fill_scan_pending = True
 
-        # close any remaining position at the last close
+        # close any remaining position at the last close — but scan the fill
+        # bar first when the position opened on the final iteration (its fill
+        # bar is the last bar and the loop never managed it)
         pos = broker.positions.get(broker.position_key(spec.symbol, spec.timeframe))
         if pos is not None:
-            last_close = float(ind["close"].iloc[-1])
-            closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
-                spec, last_close, "end of backtest")
-            result.trades.append(_trade_dict(closed_pos, exit_fill, "end of backtest",
-                                            pnl, pnl_pct, fee, ind, n - 1))
+            if fill_scan_pending:
+                reason, exit_price = broker.scan_bar_exits(spec, ind.iloc[n - 1])
+                if reason:
+                    closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
+                        spec, exit_price, reason)
+                    result.trades.append(_trade_dict(closed_pos, exit_fill, reason,
+                                                    pnl, pnl_pct, fee, ind, n - 1))
+                    pos = None
+            if pos is not None:
+                last_close = float(ind["close"].iloc[-1])
+                closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
+                    spec, last_close, "end of backtest")
+                result.trades.append(_trade_dict(closed_pos, exit_fill, "end of backtest",
+                                                pnl, pnl_pct, fee, ind, n - 1))
 
         result.start_equity = self.starting_capital
         result.end_equity = round(broker.equity({spec.symbol: float(ind['close'].iloc[-1])}), 2)

@@ -8,8 +8,10 @@ cross-validation (Lopez de Prado 2018; skfolio implementation):
   - history is split into `n_folds` contiguous blocks;
   - every combination of `n_test_folds` blocks is one OOS "path";
   - the strategy's trades are partitioned across paths by ENTRY bar — a trade
-    entering within `purge_bars` of a block boundary is dropped (its outcome
-    depends on bars on both sides of the boundary = overlapping-label leakage);
+    whose LABEL (entry through exit) spans a block boundary is dropped: the
+    entry must sit `purge_bars` inside the block AND the exit must close
+    `purge_bars` inside the SAME block (entry-proximity alone leaked: a
+    long-held trade's outcome straddled the boundary = overlapping labels);
   - we report per-path return / win rate and the cross-path distribution:
     mean, std, the share of profitable paths.
 
@@ -63,11 +65,8 @@ def _path_bounds(path: np.ndarray) -> list[tuple[int, int]]:
     return bounds
 
 
-def trade_bar_index(trade: dict, df: pd.DataFrame) -> int | None:
-    """Positional bar index of a trade's entry (ts -> position). -1 ts = miss."""
-    ts = trade.get("entry_ts") or trade.get("opened_ts")
-    if not ts:
-        return None
+def _ts_to_index(ts, df: pd.DataFrame) -> int | None:
+    """Positional bar index of a timestamp; None when ts is missing/absent."""
     try:
         dt = pd.Timestamp(ts)
         pos = df.index.searchsorted(dt, side="right") - 1
@@ -81,17 +80,36 @@ def trade_bar_index(trade: dict, df: pd.DataFrame) -> int | None:
         return None
 
 
+def trade_bar_index(trade: dict, df: pd.DataFrame) -> int | None:
+    """Positional bar index of a trade's entry (ts -> position). -1 ts = miss."""
+    ts = trade.get("entry_ts") or trade.get("opened_ts")
+    if not ts:
+        return None
+    return _ts_to_index(ts, df)
+
+
 # ------------------------------------------------------------- trade paths
 def oos_trade_distribution(trades: list[dict], df: pd.DataFrame,
                            n_folds: int = 8, n_test_folds: int = 2,
                            purge_bars: int = 24) -> dict:
     """Partition a backtest's trades across purged-CV paths and report the
-    distribution of per-path results."""
+    distribution of per-path results.
+
+    A trade is kept for a path only when its whole LABEL sits inside one test
+    block: entry inside the block, exit inside the SAME block, both clear of
+    the block edges by `purge_bars`. Purging entry proximity alone was not
+    enough — a turtle trade can hold hundreds of bars, and its outcome spanned
+    path boundaries (overlapping-label leakage) no matter where the entry sat.
+    Trades whose exit timestamp can't be resolved fall back to the entry
+    proximity rule."""
     scored = []
     for t in trades:
         i = trade_bar_index(t, df)
-        if i is not None:
-            scored.append((i, t))
+        if i is None:
+            continue
+        exit_ts = t.get("exit_ts") or t.get("closed_ts")
+        j = _ts_to_index(exit_ts, df) if exit_ts else None
+        scored.append((i, j, t))
     if not scored:
         raise ValueError("no trades with entry timestamps inside the frame")
 
@@ -102,18 +120,23 @@ def oos_trade_distribution(trades: list[dict], df: pd.DataFrame,
     for path in paths:
         bounds = _path_bounds(path)
         kept = []
-        for i, t in scored:
-            if not any(lo <= i <= hi for lo, hi in bounds):
-                continue
-            # purge: entry too close to a block boundary spans the border
-            if any((i - lo) < purge_bars or (hi - i) < purge_bars for lo, hi in bounds):
-                continue
-            kept.append(t)
+        for i, j, t in scored:
+            for lo, hi in bounds:
+                if not (lo <= i <= hi):
+                    continue
+                if j is not None:
+                    # label fully inside this block, purge_bars clear of edges
+                    if lo <= j <= hi and (i - lo) >= purge_bars and (hi - j) >= purge_bars:
+                        kept.append(t)
+                        break
+                elif (i - lo) >= purge_bars and (hi - i) >= purge_bars:
+                    kept.append(t)   # exit unresolvable: entry proximity only
+                    break
         if kept:
             assigned.update(id(t) for t in kept)
         pnl_pct = [(t.get("pnl_pct") or 0.0) for t in kept]
         comp = 1.0
-        for p in sorted(pnl_pct):  # sequence within the path by bar order
+        for p in sorted(pnl_pct):  # sorted only for float determinism; product is order-free
             comp *= (1.0 + p / 100.0)
         wins = sum(1 for p in pnl_pct if p > 0)
         per_path.append({
@@ -239,7 +262,7 @@ def _norm_sf(x: float) -> float:
     return 0.5 * math.erfc(x / math.sqrt(2.0))
 
 
-def deflated_sharpe(sharpes: list[float], n_obs: int) -> dict:
+def deflated_sharpe(sharpes: list[float], n_obs: int, bars_per_year: float) -> dict:
     """Deflated Sharpe Ratio (Bailey & Lopez de Prado 2014).
 
     We tried many configurations before shipping one; the DSR asks: given the
@@ -250,11 +273,19 @@ def deflated_sharpe(sharpes: list[float], n_obs: int) -> dict:
             from the trials' cross-sectional variance;
       DSR = P(SR* > SR0 | trials) via the Gaussian approximation.
 
+    UNITS: the trial Sharpes are ANNUALIZED (backtest.stats annualizes by
+    sqrt(bars_per_year)), so the standard error of the estimate is
+    sqrt(bars_per_year / n_obs) — the SE of a per-period Sharpe is 1/sqrt(n)
+    and mixing that with annualized trials inflated DSR to ~1.0 for any sane
+    input (the statistic could essentially never reject).
+
     A DSR >= 0.95 is publishable confidence; below 0.5 the strategy's Sharpe is
     fully explained by selection over trials (p-hacking, quantified)."""
     sr = [s for s in sharpes if s == s]
     if len(sr) < 2 or n_obs < 10:
         return {"deflated_sharpe": None, "reason": "need >=2 trial Sharpes and >=10 obs"}
+    if bars_per_year <= 0:
+        return {"deflated_sharpe": None, "reason": "bars_per_year must be positive"}
     best = max(sr)
     n_trials = len(sr)
     var = float(np.var(sr, ddof=1))
@@ -265,8 +296,9 @@ def deflated_sharpe(sharpes: list[float], n_obs: int) -> dict:
     e_max = (1.0 - gamma) * _norm_inv_cdf(1.0 - 1.0 / n_trials) \
         + gamma * _norm_inv_cdf(1.0 - 1.0 / (n_trials * math.e))
     sr0 = e_max * math.sqrt(var)
-    # SE of the best Sharpe estimate over n_obs bars
-    se = 1.0 / math.sqrt(max(1, n_obs - 1))
+    # SE of the ANNUALIZED Sharpe estimated over n_obs bars: the per-period
+    # SE 1/sqrt(n) scales by sqrt(apy) under annualization
+    se = math.sqrt(bars_per_year / max(1, n_obs))
     dsr = 1.0 - _norm_sf((best - sr0) / se)
     return {
         "best_sharpe": round(best, 3),

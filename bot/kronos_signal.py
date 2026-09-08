@@ -83,26 +83,47 @@ class KronosICTracker:
                 self.records = [tuple(r) for r in data.get("records", [])]
                 self._pending = [dict(p) for p in data.get("pending", [])]
         except Exception:
+            # a torn file must not silently reset the promotion gate's memory:
+            # quarantine it for inspection (the ledger starts empty and says so)
+            try:
+                os.replace(self.path, self.path + ".corrupt")
+            except OSError:
+                pass
             self.records = []
             self._pending = []
 
     def _save(self):
+        """Atomic (tmp + replace): a crash mid-write used to tear the JSON and
+        _load silently reset the whole IC ledger — the promotion gate's memory."""
+        import json
+        tmp = self.path + ".tmp"
         try:
-            import json
             os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)
-            with open(self.path, "w") as f:
+            with open(tmp, "w") as f:
                 json.dump({"records": self.records[-2000:],
                            "pending": self._pending[-500:]}, f)
+            os.replace(tmp, self.path)
         except Exception:
-            pass
+            try:
+                os.path.exists(tmp) and os.remove(tmp)
+            except OSError:
+                pass
 
-    def log_forecast(self, score: float, ts, horizon: int):
-        """Record a pending forecast; resolved when its horizon bar arrives."""
+    def log_forecast(self, score: float, ts, horizon: int, market: str = ""):
+        """Record a pending forecast; resolved when its horizon bar arrives.
+
+        `market` keys the forecast to the frame that produced it — a BTC
+        forecast must never be scored against whichever sibling symbol's
+        closes happened to resolve first."""
         self._pending.append({"score": float(score), "ts": str(ts),
-                              "horizon": int(horizon)})
+                              "horizon": int(horizon), "market": market})
 
-    def resolve(self, closes: pd.Series):
-        """Match pending forecasts to their realized forward returns."""
+    def resolve(self, closes: pd.Series, market: str = ""):
+        """Match pending forecasts to their realized forward returns.
+
+        Only forecasts logged for THIS market resolve here. Legacy pendings
+        saved before market keying carry no market and resolve against
+        whatever calls first (old behavior) — they drain within one horizon."""
         if not self._pending or not len(closes):
             return
         try:
@@ -111,6 +132,9 @@ class KronosICTracker:
             return
         still: list[dict] = []
         for p in self._pending:
+            if p.get("market") and p["market"] != market:
+                still.append(p)
+                continue
             try:
                 t0 = pd.Timestamp(p["ts"])
             except Exception:
@@ -180,6 +204,11 @@ class KronosPredictorLazy:
                     "(git clone https://github.com/shiyu-coder/Kronos -> models/kronos)")
             # pyrefly: ignore [missing-import]
             from model import Kronos, KronosTokenizer, KronosPredictor
+            import model.kronos as _kronos_mod
+            # the vendored model draws a tqdm progress bar per forecast — pure
+            # noise in server logs and on a projector; a plain range is the
+            # identical loop without the terminal churn
+            _kronos_mod.trange = range
             tok = KronosTokenizer.from_pretrained(self.cfg.tokenizer_name)
             model = Kronos.from_pretrained(self.cfg.model_name)
             self._predictor = KronosPredictor(model, tok, max_context=self.cfg.max_context)
@@ -188,9 +217,39 @@ class KronosPredictorLazy:
             return None
         return self._predictor
 
+    def _probe(self) -> bool:
+        """Cheap availability check: vendored source + importable heavy deps.
+        Deliberately does NOT call _ensure() — from_pretrained downloads ~100MB
+        of weights, and `available` runs inside the dashboard's start-HTTP
+        request (TradingEngine.__init__): the request used to hang for the
+        whole download on cold venue WiFi with a dead-looking Start button.
+        The load itself happens on the FIRST evaluate() call, which runs in
+        the engine thread."""
+        if self._failed:
+            return False
+        if self._predictor is not None:
+            return True
+        try:
+            model_root = os.path.join(os.path.dirname(__file__), "..", "models", "kronos")
+            if not os.path.isdir(os.path.join(model_root, "model")):
+                return False
+            # configured model/tokenizer must be a Hub id (org/name, exactly one
+            # slash) or an existing local path — "tests/fixtures/missing_model"
+            # is neither, so the probe rejects it WITHOUT paying a load
+            import re as _re
+            for name in (self.cfg.model_name, self.cfg.tokenizer_name):
+                if not os.path.exists(name) and not _re.fullmatch(
+                        r"[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+", name):
+                    return False
+            import torch            # noqa: F401  (probe only: import, no load)
+            import transformers     # noqa: F401
+            return True
+        except Exception:
+            return False
+
     @property
     def available(self) -> bool:
-        return self._ensure() is not None
+        return self._probe()
 
 
 class KronosSignalEngine:
@@ -204,6 +263,7 @@ class KronosSignalEngine:
         self.cfg = cfg or KronosConfig()
         self.predictor = KronosPredictorLazy(self.cfg)
         self.tracker = KronosICTracker(self.cfg.track_file, half_life=self.cfg.ic_half_life)
+        self.last_error: str | None = None   # set by evaluate(); never silently swallow
 
     # ------------------------------------------------------------- forecast
     def evaluate(self, df: pd.DataFrame, horizon: int = 24) -> KronosSignal | None:
@@ -254,7 +314,8 @@ class KronosSignalEngine:
                            f"dispersion {disp:.2f}%"),
             )
             return sig
-        except Exception:
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
             return None
 
     # ------------------------------------------------------------- promotion
@@ -277,15 +338,18 @@ class KronosSignalEngine:
         return keep
 
     # ------------------------------------------------------------- scoring
-    def log_and_maybe_resolve(self, df: pd.DataFrame, sig: KronosSignal):
+    def log_and_maybe_resolve(self, df: pd.DataFrame, sig: KronosSignal,
+                              market: str = ""):
         """Record the forecast for later IC scoring (anchored to ITS decision
-        bar), and resolve pending forecasts whose horizon bars have since
-        closed. FLAT forecasts carry no information and are not scored."""
+        bar, keyed to ITS market), and resolve pending forecasts of THIS
+        market whose horizon bars have since closed. FLAT forecasts carry no
+        information and are not scored."""
         if sig is None:
             return
-        self.tracker.resolve(df["close"])
+        self.tracker.resolve(df["close"], market=market)
         if sig.direction == "FLAT":
             return
         # signed conviction in [-1, 1]: strong up-read -> +, strong down-read -> -
         score = 2.0 * sig.p_up - 1.0
-        self.tracker.log_forecast(score, sig.bar_ts or str(df.index[-1]), sig.horizon_bars)
+        self.tracker.log_forecast(score, sig.bar_ts or str(df.index[-1]),
+                                  sig.horizon_bars, market=market)

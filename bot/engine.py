@@ -18,7 +18,6 @@ from __future__ import annotations
 import time
 import threading
 import traceback
-from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -31,11 +30,7 @@ from bot.orchestrator import Orchestrator
 from bot.risk import RiskManager
 from bot.sentiment import SentimentOverlay
 from bot.strategies import get_strategy
-from config import CONFIG, TIMEFRAME_SECONDS, MarketSpec, infer_kind
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+from config import CONFIG, TIMEFRAME_SECONDS, MarketSpec, infer_kind, utc_now
 
 
 class TradingEngine:
@@ -80,6 +75,7 @@ class TradingEngine:
         self.kronos = None
         self._kronos_last_bar: dict[tuple[str, str], int] = {}
         self._kronos_promoted = False
+        self._kronos_last_error: str | None = None
         self._init_kronos()
         self._restore_positions()
 
@@ -261,12 +257,21 @@ class TradingEngine:
                                      f"({n} cycles) — position unguarded")
         if n >= self.FETCH_FAIL_CLOSE:
             price = self._last_good_price.get(key)
+            if price is None:
+                # opened during the outage: there IS no last good mark. Keep
+                # the counter growing so the close is retried EVERY cycle —
+                # resetting it here used to leave the position unguarded for
+                # another FETCH_FAIL_CLOSE failures before the next attempt.
+                summary["errors"].append(f"{spec.symbol} {spec.timeframe}: no last-good "
+                                         f"mark — force-close deferred, retrying each cycle")
+                return
             try:
                 self._close(spec, float(price), "data outage", summary)
+                self._fetch_fails[key] = 0   # only a successful close clears the count
             except Exception as exc:
                 summary["errors"].append(f"{spec.symbol} {spec.timeframe}: data-outage "
-                                         f"close failed: {type(exc).__name__}: {exc}")
-            self._fetch_fails[key] = 0
+                                         f"close failed ({type(exc).__name__}: {exc}) — "
+                                         f"retrying next cycle")
 
     def _refresh_health_note(self):
         """/api/engine/status reads `health_note` — the non-fatal companion to
@@ -290,6 +295,13 @@ class TradingEngine:
             time.sleep(interval)
 
     # ------------------------------------------------------------- per market
+    @staticmethod
+    def _kronos_horizon(timeframe: str) -> int:
+        """Forecast horizon in bars, normalized to ~1 day ahead regardless of
+        the book's timeframe — a hardcoded 24 made the 4h book forecast four
+        days out and the 15m book four hours."""
+        return max(1, 86400 // TIMEFRAME_SECONDS[timeframe])
+
     def _kronos_eval(self, spec: MarketSpec, df, i: int):
         """Forecast + IC bookkeeping for Kronos. Returns (signal, promoted).
 
@@ -304,13 +316,25 @@ class TradingEngine:
             every = max(1, self.kronos.cfg.evaluate_every_bars)
             if last is not None and bar_key - last < every:
                 return None, self.kronos.promoted()
-            sig = self.kronos.evaluate(df.iloc[: i + 1], horizon=24)
+            sig = self.kronos.evaluate(df.iloc[: i + 1],
+                                       horizon=self._kronos_horizon(spec.timeframe))
             # ledger key committed only AFTER a successful evaluation: a
             # transient failure used to book the bar and then silently skip
             # Kronos for `every` more bars with no retry
             self._kronos_last_bar[(spec.symbol, spec.timeframe)] = bar_key
-            if sig is not None:
-                self.kronos.log_and_maybe_resolve(df.iloc[: i + 1], sig)
+            if sig is None:
+                err = getattr(self.kronos, "last_error", None)
+                if err and err != self._kronos_last_error and not self.quiet:
+                    # evaluate() swallows exceptions internally; surface a NEW
+                    # failure once instead of silently forecasting nothing
+                    print(f"[engine] kronos forecast failed for {spec.symbol} "
+                          f"{spec.timeframe}: {err}")
+                self._kronos_last_error = err
+            else:
+                # IC ledger is keyed by market: a BTC forecast must never be
+                # scored against whichever sibling symbol's frame resolved first
+                self.kronos.log_and_maybe_resolve(
+                    df.iloc[: i + 1], sig, market=f"{spec.symbol}|{spec.timeframe}")
                 self._kronos_promoted = self.kronos.promoted()
             return sig, self._kronos_promoted
         except Exception as exc:
@@ -350,7 +374,7 @@ class TradingEngine:
                 # cut it at the first mark instead of trading unguarded
                 self._unguarded_pending.discard(key)
                 self._close(spec, float(df["close"].iloc[-1]), "restored without stop",
-                            summary, bar_epoch=bar_epoch)
+                            summary, bar_epoch=bar_epoch, write_equity=False)
                 return
             if key in self._replay_pending:
                 self._replay_pending.discard(key)
@@ -425,7 +449,8 @@ class TradingEngine:
                 continue
             reason, exit_price = self.broker.scan_bar_exits(spec, df.iloc[j])
             if reason:
-                self._close(spec, float(exit_price), reason, summary, bar_epoch=bar_ts)
+                self._close(spec, float(exit_price), reason, summary, bar_epoch=bar_ts,
+                            write_equity=False)
                 return True
         return False
 
@@ -440,15 +465,20 @@ class TradingEngine:
         bar = df.iloc[i]
 
         # 1) hard stop / target from this bar's range — but never on the entry
-        # bar itself: the stop was computed FROM that bar, and scanning it
-        # would phantom-stop a position on a bar that closed before the entry
-        # (the backtester's next-bar rule is the parity reference)
+        # (decision) bar itself: the stop was computed FROM that bar, and scanning
+        # it would phantom-stop a position on a bar that closed before the entry.
+        # The FILL bar (the bar after the decision bar) IS scanned: the
+        # backtester fills at its open, so its whole range is post-fill there.
+        # Live, the fill lands up to one cycle after that open, so this scan
+        # can include a bounded pre-fill sliver — the conservative direction
+        # (live may stop out where the backtest survives, never the reverse).
         entry_bar_scan = (pos.entry_bar_ts and bar_epoch is not None
                           and bar_epoch <= pos.entry_bar_ts)
         if not entry_bar_scan:
             reason, exit_price = self.broker.scan_bar_exits(spec, bar)
             if reason:
-                self._close(spec, float(exit_price), reason, summary, bar_epoch=bar_epoch)
+                self._close(spec, float(exit_price), reason, summary, bar_epoch=bar_epoch,
+                            write_equity=False)
                 return
 
         # 2) strategy-specific exits and stop updates
@@ -460,11 +490,25 @@ class TradingEngine:
             if not self.quiet:
                 print(f"[engine] {spec.symbol}: stop trailed to {new_stop:.6g}")
         if exit_reason:
-            self._close(spec, float(bar["close"]), exit_reason, summary, bar_epoch=bar_epoch)
+            # fills at the last CLOSED bar's close: bounded staleness of one
+            # engine interval (the cycle sees the bar within LIVE_INTERVAL of
+            # its close) — the only closed-bar-honest price available
+            self._close(spec, float(bar["close"]), exit_reason, summary, bar_epoch=bar_epoch,
+                        write_equity=False)
             return
 
     def _close(self, spec: MarketSpec, exit_price: float, reason: str, summary: dict,
-               bar_epoch: float | None = None):
+               bar_epoch: float | None = None, write_equity: bool = True):
+        """Close via the broker + journal. write_equity bundles the cycle-end
+        equity point into the SAME transaction as the close (crash-safety).
+
+        Callers on the normal cycle path pass write_equity=False: the cycle
+        tail always writes one point with REAL marks afterwards, and writing
+        two points per close cycle (the bundled one marks sibling positions
+        at their ENTRY price — stale) distorted the equity curve. The crash
+        window between close and tail-write is covered by the restart's
+        closed_cash_delta_since reconciliation. Manual and data-outage closes
+        keep write_equity=True — they have no cycle tail behind them."""
         closed_pos, pnl, pnl_pct, fees, exit_fill = self.broker.close_position(
             spec, exit_price, reason)
         # close + the cycle's equity point in ONE transaction: a crash between
@@ -474,7 +518,8 @@ class TradingEngine:
             trade_id=closed_pos.trade_id, exit_price=exit_fill, pnl=round(pnl, 2),
             pnl_pct=round(pnl_pct, 3), fees=round(fees, 4),
             exit_reason=reason, rationale_close=closed_pos.rationale,
-            equity=self.broker.equity({}), cash=self.broker.cash, mode=self.mode,
+            equity=self.broker.equity({}) if write_equity else None,
+            cash=self.broker.cash if write_equity else None, mode=self.mode,
         )
         # cooldown after any exit so the next cycle can't instantly re-enter;
         # stored in epoch seconds so every timeframe of the symbol reads the

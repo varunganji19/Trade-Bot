@@ -47,11 +47,46 @@ _CRYPTO_SOURCES = ["binance", "bybit", "okx"]
 
 _ccxt_clients: dict = {}
 
+# consecutive-failure cooldown per source: a geo-blocked/dead exchange re-paid
+# its timeout on EVERY fetch of every symbol, every cycle (27 dead calls in a
+# blackout cycle — enough to outrun the engine's 300s stop-join). After N
+# consecutive failures the source sits out M minutes, then gets one retry.
+_SOURCE_COOLDOWN_S = 300
+_SOURCE_FAIL_STRIKES = 3
+_source_fails: dict[str, tuple[int, float]] = {}   # source -> (strikes, benched_until)
+
+
+def _source_healthy(src: str) -> bool:
+    import time as _time
+    rec = _source_fails.get(src)
+    if rec is None:
+        return True
+    strikes, until = rec
+    if strikes < _SOURCE_FAIL_STRIKES:
+        return True
+    if _time.time() >= until:      # bench expired: allow ONE probe to re-earn
+        return True
+    return False
+
+
+def _note_source_result(src: str, ok: bool):
+    import time as _time
+    if ok:
+        _source_fails.pop(src, None)
+        return
+    strikes = _source_fails.get(src, (0, 0.0))[0] + 1
+    if strikes >= _SOURCE_FAIL_STRIKES:
+        _source_fails[src] = (strikes, _time.time() + _SOURCE_COOLDOWN_S)
+    else:
+        _source_fails[src] = (strikes, 0.0)
+
 
 def _crypto_client(source: str):
     if source not in _ccxt_clients:
         import ccxt
-        cfg = {"enableRateLimit": True}
+        # timeout: ccxt defaults to 10s per request; an explicit 15s bound
+        # (still generous) keeps a hung exchange from stretching a cycle
+        cfg = {"enableRateLimit": True, "timeout": 15000}
         if source == "binance":
             cfg["options"] = {"defaultType": "spot"}
         _ccxt_clients[source] = getattr(ccxt, source)(cfg)
@@ -69,16 +104,31 @@ def _ohlcv_rows_from(source: str, symbol: str, timeframe: str, since_ms: int | N
 
 def _fetch_with_fallback(symbol, timeframe, source, fetch_one):
     """Fallback-chain scaffold shared by the two crypto fetchers (the chain
-    loop and the all-sources-failed error tail used to be copy-pasted)."""
+    loop and the all-sources-failed error tail used to be copy-pasted).
+    Sources sitting out a failure cooldown are skipped in the AUTOMATIC chain
+    (an explicit source= request is a deliberate operator choice and bypasses
+    the bench); one probe re-earns a bench once it expires."""
     chain = _CRYPTO_SOURCES if source == "auto" else [source]
     errors: list[str] = []
+    benched = [s for s in chain if source == "auto" and not _source_healthy(s)]
     for src in chain:
+        if src in benched:
+            errors.append(f"{src}: benched after "
+                          f"{_source_fails.get(src, (0, 0))[0]} consecutive failures")
+            continue
         try:
             df = fetch_one(src)
             df.attrs["source"] = src
+            _note_source_result(src, ok=True)
             return df
         except Exception as exc:
+            _note_source_result(src, ok=False)
             errors.append(f"{src}: {type(exc).__name__}: {exc}")
+    if benched and all(s in benched for s in chain) and len(chain) > 1:
+        # every source benched: drop the bench so the next call retries (a
+        # forever-dead fetch is worse than a throttled one)
+        for s in chain:
+            _note_source_result(s, ok=True)
     raise RuntimeError(f"all crypto sources failed for {symbol} {timeframe}: " + "; ".join(errors))
 
 
@@ -92,13 +142,23 @@ def fetch_crypto_ohlcv(symbol: str, timeframe: str, limit: int = 400,
 
 
 def fetch_crypto_history(symbol: str, timeframe: str, days: int,
-                         source: str = "auto") -> pd.DataFrame:
-    """Paginated fetch of `days` of history for backtesting (with fallback)."""
+                         source: str = "auto", start: str | None = None,
+                         end: str | None = None) -> pd.DataFrame:
+    """Paginated fetch of history for backtesting (with fallback).
+
+    Either `days` (rolling window ending now) or a pinned `start`/`end`
+    (YYYY-MM-DD) — the pinned form fetches the SAME window every run, which is
+    what makes BACKTESTS.md numbers reproducible rather than re-rollable."""
     tf_ms = TIMEFRAME_SECONDS[timeframe] * 1000
+    if start:
+        start_ms = int(pd.Timestamp(start, tz="UTC").timestamp() * 1000)
+    else:
+        start_ms = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+    end_ms = int(pd.Timestamp(end, tz="UTC").timestamp() * 1000) if end else None
 
     def fetch_one(src):
         ex = _crypto_client(src)
-        since = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+        since = start_ms
         all_rows: list = []
         while True:
             rows = ex.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=1000)
@@ -106,10 +166,12 @@ def fetch_crypto_history(symbol: str, timeframe: str, days: int,
                 break
             all_rows.extend(rows)
             last = rows[-1][0]
-            if len(rows) < 1000 or last >= ex.milliseconds() - tf_ms:
+            if len(rows) < 1000 or last >= (end_ms if end_ms else ex.milliseconds() - tf_ms):
                 break
             since = last + tf_ms
             time.sleep(ex.rateLimit / 1000.0)
+        if end_ms:
+            all_rows = [r for r in all_rows if r[0] < end_ms]
         if not all_rows:
             raise RuntimeError(f"{src} returned no data")
         df = _rows_to_df(all_rows)
@@ -119,15 +181,21 @@ def fetch_crypto_history(symbol: str, timeframe: str, days: int,
 
 
 # --------------------------------------------------------------------------- forex
-def fetch_forex_ohlcv(symbol: str, timeframe: str) -> pd.DataFrame:
+def fetch_forex_ohlcv(symbol: str, timeframe: str, start: str | None = None,
+                      end: str | None = None) -> pd.DataFrame:
+    import yfinance as yf
     # no `days` argument: Yahoo's period is fixed per interval (period_map
     # below) — the old days= param was silently ignored, so it's gone
-    import yfinance as yf
-    period_map = {"5m": "60d", "15m": "60d", "1h": "730d", "4h": "730d", "1d": "5y"}
     # Yahoo granularity constraints: 5m/15m max 60d back, 1h max 730d.
     interval = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d"}[timeframe]
-    df = yf.download(symbol, period=period_map[timeframe], interval=interval,
-                     auto_adjust=True, progress=False)
+    if start:
+        # pinned window (reproducible); Yahoo's end is inclusive-exclusive
+        df = yf.download(symbol, start=start, end=end, interval=interval,
+                         auto_adjust=True, progress=False)
+    else:
+        period_map = {"5m": "60d", "15m": "60d", "1h": "730d", "4h": "730d", "1d": "5y"}
+        df = yf.download(symbol, period=period_map[timeframe], interval=interval,
+                         auto_adjust=True, progress=False)
     if df is None or df.empty:
         raise RuntimeError(f"No forex data for {symbol}")
     if isinstance(df.columns, pd.MultiIndex):
@@ -138,7 +206,7 @@ def fetch_forex_ohlcv(symbol: str, timeframe: str) -> pd.DataFrame:
     if timeframe == "4h":  # resample 1h -> 4h
         df = df.resample("4h").agg({"open": "first", "high": "max", "low": "min",
                                     "close": "last", "volume": "sum"}).dropna()
-    df = _validate_ohlcv(df, f"forex:yahoo(auto_adjust=True)")
+    df = _validate_ohlcv(df, "forex:yahoo(auto_adjust=True)")
     df.attrs["caliber"] = "adjusted"
     df.attrs["source"] = "yahoo"
     return df
@@ -184,29 +252,113 @@ def _drop_forming_bar(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     return df
 
 
-def _disk_cache_path(spec: MarketSpec, days: int) -> str:
+def _disk_cache_path(spec: MarketSpec, days: int | None, start: str | None = None,
+                     end: str | None = None) -> str:
     safe = spec.symbol.replace("/", "").replace("=X", "")
+    if start:
+        # normalize to dashed ISO: pd.Timestamp happily accepts '20240601',
+        # and an undashed pinned name would END in 8 digits — the rolling-prune
+        # signature — so a "never pruned" pinned window could silently vanish
+        # after 14 days. Dashed names can never collide with that signature.
+        start = pd.Timestamp(start).strftime("%Y-%m-%d")
+        if end:
+            end = pd.Timestamp(end).strftime("%Y-%m-%d")
+            # pinned window: the cache name is date-stable, so reruns are
+            # byte-identical forever — not just on the same day
+            return os.path.join(CONFIG.data_cache_dir,
+                                f"{safe}_{spec.timeframe}_{start}_{end}.parquet")
+        # start-without-end: the window ROLLS (fetches up to now), so a
+        # constant name would freeze day 1's frame forever and never prune.
+        # Embed the fetch date: each day is its own cache entry, pruned by
+        # the rolling rule like any other.
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        return os.path.join(CONFIG.data_cache_dir,
+                            f"{safe}_{spec.timeframe}_{start}_now_{stamp}.parquet")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     return os.path.join(CONFIG.data_cache_dir, f"{safe}_{spec.timeframe}_{days}d_{stamp}.parquet")
 
 
-def _load_cached(spec: MarketSpec, days: int) -> pd.DataFrame | None:
-    path = _disk_cache_path(spec, days)
+def _load_cached(path: str) -> pd.DataFrame | None:
     if os.path.exists(path):
         try:
-            df = pd.read_parquet(path)
-            return df
+            return pd.read_parquet(path)
         except Exception:
             return None
     return None
 
 
-def _store_cached(spec: MarketSpec, days: int, df: pd.DataFrame):
+def _store_cached(path: str, df: pd.DataFrame):
     try:
         os.makedirs(CONFIG.data_cache_dir, exist_ok=True)
-        df.to_parquet(_disk_cache_path(spec, days))
+        df.to_parquet(path)
     except Exception:
         pass  # caching is best-effort; never block a fetch
+
+
+def _prune_rolling_cache():
+    """Delete ROLLING (date-stamped) parquet entries older than 14 days —
+    they re-fetch on demand. Pinned-window caches are never pruned: they are
+    the reproducibility artifacts."""
+    try:
+        cutoff = time.time() - 14 * 86400
+        for f in os.listdir(CONFIG.data_cache_dir):
+            if not f.endswith(".parquet"):
+                continue
+            stem = f[:-len(".parquet")]
+            if len(stem) >= 8 and stem[-8:].isdigit():        # rolling stamp
+                p = os.path.join(CONFIG.data_cache_dir, f)
+                if os.path.getmtime(p) < cutoff:
+                    os.remove(p)
+    except OSError:
+        pass
+
+
+def _record_manifest(spec: MarketSpec, path: str, df: pd.DataFrame) -> None:
+    """Record the fetch's provenance in data/manifest.json (window, bar count,
+    sha256 of the cached parquet, source, caliber, fetch date) — the artifact
+    that makes 'every number reproducible from this repo' a checkable claim."""
+    import hashlib
+    try:
+        manifest_path = os.path.join(os.path.dirname(CONFIG.db_path), "manifest.json")
+        manifest: dict = {}
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path) as fh:
+                    manifest = json.load(fh)
+            except Exception:
+                manifest = {}
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        manifest[f"{spec.kind}:{spec.symbol}:{spec.timeframe}"] = {
+            "bars": int(len(df)),
+            "first_ts": str(df.index[0]),
+            "last_ts": str(df.index[-1]),
+            "sha256": h.hexdigest(),
+            "source": str(df.attrs.get("source", "unknown")),
+            "caliber": str(df.attrs.get("caliber", "unknown")),
+            "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "cache_file": os.path.basename(path),
+        }
+        # re-read right before the write and merge: two CLI processes fetching
+        # at once used to lose each other's entries (read-modify-write with a
+        # whole manifest in flight). The per-pid tmp also stops both writers
+        # clobbering through one shared .tmp path.
+        try:
+            with open(manifest_path) as fh:
+                fresh = json.load(fh)
+            if isinstance(fresh, dict):
+                fresh.update(manifest)
+                manifest = fresh
+        except Exception:
+            pass
+        tmp = f"{manifest_path}.{os.getpid()}.tmp"
+        with open(tmp, "w") as fh:
+            json.dump(manifest, fh, indent=1, sort_keys=True)
+        os.replace(tmp, manifest_path)
+    except Exception:
+        pass  # provenance is best-effort; never block a fetch
 
 
 # --------------------------------------------------------------------------- unified
@@ -217,18 +369,26 @@ def _rows_to_df(rows) -> pd.DataFrame:
     return df
 
 
-def fetch_history(spec: MarketSpec, days: int) -> pd.DataFrame:
-    """History for backtests. Same-day results are served from disk cache so
-    repeated research runs are byte-identical and don't hammer public APIs."""
-    cached = _load_cached(spec, days)
+def fetch_history(spec: MarketSpec, days: int | None = None,
+                  start: str | None = None, end: str | None = None) -> pd.DataFrame:
+    """History for backtests. Either `days` (rolling window ending now,
+    same-day disk cache) or pinned `start`/`end` (date-stable cache —
+    byte-identical reruns). Every successful fetch is recorded in
+    data/manifest.json (bars, checksum, source) and rolling cache entries
+    older than 14 days are pruned."""
+    path = _disk_cache_path(spec, days, start, end)
+    cached = _load_cached(path)
     if cached is not None:
         return cached
     if spec.kind == "crypto":
-        df = fetch_crypto_history(spec.symbol, spec.timeframe, days)
+        df = fetch_crypto_history(spec.symbol, spec.timeframe, days or 365,
+                                  start=start, end=end)
         df = _drop_forming_bar(df, spec.timeframe)
     else:
-        df = fetch_forex_ohlcv(spec.symbol, spec.timeframe)
-    _store_cached(spec, days, df)
+        df = fetch_forex_ohlcv(spec.symbol, spec.timeframe, start=start, end=end)
+    _store_cached(path, df)
+    _record_manifest(spec, path, df)
+    _prune_rolling_cache()
     return df
 
 

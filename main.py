@@ -10,7 +10,7 @@ Usage:
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
   python3 main.py status                       # journal summary
   python3 main.py chat "question"              # chatbot from the terminal
-  python3 main.py seed-demo                    # generate a demo journal (small synthetic data)
+  python3 main.py seed-demo                    # demo journal: real backtest replay, marked mode='demo'
 """
 from __future__ import annotations
 
@@ -48,10 +48,11 @@ def cmd_backtest(args):
         candidates = [s for s in DEFAULT_WATCHLIST if s.timeframe == args.timeframe]
         spec = candidates[0] if candidates else DEFAULT_WATCHLIST[0]
 
-    print(f"[backtest] {spec.symbol} {spec.timeframe} | last {args.days}d | "
+    window = f"{args.start} → {args.end}" if args.start else f"last {args.days}d"
+    print(f"[backtest] {spec.symbol} {spec.timeframe} | {window} | "
           f"strategy: {args.strategy} | capital: ${CONFIG.paper_capital:,.0f}")
     t0 = _t.time()
-    df = fetch_history(spec, days=args.days)
+    df = fetch_history(spec, days=args.days, start=args.start, end=args.end)
     print(f"[backtest] {len(df)} bars loaded ({df.index[0].date()} → {df.index[-1].date()}) "
           f"in {_t.time() - t0:.1f}s")
 
@@ -119,16 +120,16 @@ def cmd_validate(args):
     from bot.backtest import Backtester
     from bot.data import fetch_history
     from bot.validation import (oos_trade_distribution, print_purged_cv,
-                                pbo_cscv, deflated_sharpe,
+                                deflated_sharpe,
                                 monte_carlo_paths, min_trl)
-    from bot.strategies import get_strategy
     from config import bars_per_year
 
     spec = _spec_from_args(args)
 
-    print(f"[validate] {spec.symbol} {spec.timeframe} | last {args.days}d | "
+    window = (f"{args.start} → {args.end}" if args.start else f"last {args.days}d")
+    print(f"[validate] {spec.symbol} {spec.timeframe} | {window} | "
           f"strategy: {args.strategy}")
-    df = fetch_history(spec, days=args.days)
+    df = fetch_history(spec, days=args.days, start=args.start, end=args.end)
     print(f"[validate] {len(df)} bars ({df.index[0].date()} → {df.index[-1].date()})")
 
     bt = Backtester()
@@ -138,6 +139,7 @@ def cmd_validate(args):
 
     report: dict = {"symbol": spec.symbol, "timeframe": spec.timeframe,
                     "strategy": args.strategy, "days": args.days,
+                    "start": args.start, "end": args.end,
                     "bars": len(df), "backtest": stats}
 
     # 1) purged-CV out-of-sample path distribution
@@ -187,7 +189,8 @@ def cmd_validate(args):
     #    honest as the config history grows.
     sharpes = [s for s in (args.trial_sharpes or [])]
     if sharpes:
-        dsr = deflated_sharpe(sharpes, n_obs=len(df))
+        dsr = deflated_sharpe(sharpes, n_obs=len(df),
+                              bars_per_year=bars_per_year(spec.timeframe, spec.kind))
         print(f"[validate] Deflated Sharpe over {len(sharpes)} documented trial Sharpes: {dsr}")
         report["deflated_sharpe"] = dsr
 
@@ -202,7 +205,7 @@ def cmd_validate(args):
 
     # 5) MinTRL: how much OOS track record the Sharpe needs to be believed
     if stats.get("sharpe") not in (None, 0):
-        mtrl = min_trl(float(stats["sharpe"]), bars_per_year(spec.timeframe))
+        mtrl = min_trl(float(stats["sharpe"]), bars_per_year(spec.timeframe, spec.kind))
         print(f"[validate] MinTRL for sharpe {stats['sharpe']}: "
               f"{mtrl.get('min_years')} years ≈ {mtrl.get('min_bars')} "
               f"{spec.timeframe} bars of OOS record at 95% confidence")
@@ -215,6 +218,14 @@ def cmd_validate(args):
     with open(out, "w") as fh:
         json.dump(report, fh, indent=1, default=str)
     print(f"[validate] wrote {out}")
+
+    if args.report:
+        from bot.report import render_validation_report
+        from config import utc_now
+        report["generated_at"] = utc_now()
+        with open(args.report, "w") as fh:
+            fh.write(render_validation_report(report))
+        print(f"[validate] wrote {args.report}")
 
 
 def cmd_run(args):
@@ -256,7 +267,9 @@ def cmd_dashboard(args):
               f"http://127.0.0.1:{args.port} — open it in your browser\n"
               f"[dashboard]   · or start this one on another port: "
               f"python3 main.py dashboard --port {args.port + 1}")
-        return
+        # non-zero exit: `make demo` used to report success with nothing served
+        # (the operator opens the squatter's page instead of the dashboard)
+        sys.exit(1)
     finally:
         probe.close()
 
@@ -307,7 +320,6 @@ def cmd_kronos(args):
     whether the model has EARNED an orchestrator vote on this data."""
     from bot.data import fetch_history
     from bot.kronos_signal import KronosSignalEngine
-    from config import MarketSpec
 
     spec = _spec_from_args(args)
     eng = KronosSignalEngine()
@@ -326,7 +338,8 @@ def cmd_kronos(args):
     for i in range(240, n - args.horizon, step):
         sig = eng.evaluate(df.iloc[: i + 1], horizon=args.horizon)
         if sig is not None:
-            eng.log_and_maybe_resolve(df, sig)
+            eng.log_and_maybe_resolve(df, sig,
+                                      market=f"{spec.symbol}|{spec.timeframe}")
             n_eval += 1
             if n_eval % 10 == 0:
                 ic = eng.tracker.ic()
@@ -351,7 +364,11 @@ def cmd_shadow(args):
     from config import CONFIG
 
     j = Journal()
-    trades = j.recent_trades(limit=2000)
+    trades = j.recent_trades(limit=2000, mode=None if args.include_demo else "paper")
+    demo = j.trade_mode_counts().get("demo", 0)
+    if demo and not args.include_demo:
+        print(f"[shadow] excluding {demo} mode='demo' (seed-demo backtest-replay) rows — "
+              f"pass --include-demo to audit them too")
     closed = [t for t in trades if t["status"] == "CLOSED"]
     if not closed:
         print("[shadow] journal has no closed trades — run the bot (or seed-demo) first.")
@@ -417,6 +434,7 @@ def cmd_shadow(args):
         }
 
     out = args.json or "data/results/shadow_report.json"
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w") as f:
         json.dump(report, f, indent=1, default=str)
     print(f"\n[shadow] report written to {out}")
@@ -443,7 +461,12 @@ def main():
     bt = sub.add_parser("backtest", help="backtest a strategy on real historical data")
     bt.add_argument("--symbol", default=None, help="e.g. BTC/USDT, ETH/USDT, EURUSD=X (default: watchlist pick)")
     bt.add_argument("--timeframe", default="1h", choices=["5m", "15m", "1h", "4h", "1d"])
-    bt.add_argument("--days", type=int, default=365)
+    bt.add_argument("--days", type=int, default=365,
+                    help="rolling window ending today (use --start/--end to pin)")
+    bt.add_argument("--start", default=None,
+                    help="pinned window start YYYY-MM-DD (byte-identical reruns; overrides --days)")
+    bt.add_argument("--end", default=None,
+                    help="pinned window end YYYY-MM-DD (with --start)")
     bt.add_argument("--strategy", default="ensemble",
                     choices=["ensemble", "turtle_trend", "connors_meanrev", "vwap_scalper"])
     bt.add_argument("--walk-forward", action="store_true")
@@ -471,6 +494,9 @@ def main():
     va.add_argument("--timeframe", default="1h", choices=["5m", "15m", "1h", "4h", "1d"])
     va.add_argument("--days", type=int, default=730,
                     help="history depth; more days = stronger statistics (multi-year where data allows)")
+    va.add_argument("--start", default=None,
+                    help="pinned window start YYYY-MM-DD (byte-identical reruns; overrides --days)")
+    va.add_argument("--end", default=None, help="pinned window end YYYY-MM-DD (with --start)")
     va.add_argument("--strategy", default="turtle_trend",
                     choices=["ensemble", "turtle_trend", "connors_meanrev", "vwap_scalper"])
     va.add_argument("--cv-folds", type=int, default=8)
@@ -478,6 +504,8 @@ def main():
     va.add_argument("--trial-sharpes", type=float, nargs="*", default=None,
                     help="the Sharpes of the documented config trials (BACKTESTS.md) "
                          "for the Deflated Sharpe correction")
+    va.add_argument("--report", default=None,
+                    help="also render the report as Markdown here (e.g. REPORT.md)")
     va.add_argument("--json", default=None)
     va.set_defaults(fn=cmd_validate)
 
@@ -492,7 +520,8 @@ def main():
     ch.add_argument("question")
     ch.set_defaults(fn=cmd_chat)
 
-    sd = sub.add_parser("seed-demo", help="seed the journal with a synthetic demo history")
+    sd = sub.add_parser("seed-demo", help="seed the journal with a demo history "
+                                          "(real backtest replay, mode='demo')")
     sd.set_defaults(fn=cmd_seed_demo)
 
     kr = sub.add_parser("kronos", help="offline Kronos IC evaluation on history")
@@ -506,6 +535,9 @@ def main():
 
     sh = sub.add_parser("shadow", help="Shadow Account: journal vs its own rules")
     sh.add_argument("--json", default=None, help="report path (default data/results/shadow_report.json)")
+    sh.add_argument("--include-demo", action="store_true",
+                    help="audit mode='demo' (seed-demo backtest-replay) rows too; "
+                         "default audits the bot's own paper record only")
     sh.set_defaults(fn=cmd_shadow)
 
     args = p.parse_args()

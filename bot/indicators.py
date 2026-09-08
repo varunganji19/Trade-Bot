@@ -15,7 +15,10 @@ import pandas as pd
 
 
 def _rma(series: pd.Series, period: int) -> pd.Series:
-    """Wilder's smoothing (RMA): alpha = 1/period, seeded with a simple MA."""
+    """Wilder's smoothing (RMA): alpha = 1/period. NOTE: ewm(adjust=False)
+    seeds with the FIRST value of the series, not a simple MA — during the
+    warmup (roughly the first 5*period bars) RSI/ATR deviate from a
+    TradingView-identical RMA. Callers treat warmup NaN as no-signal."""
     return series.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
 
 
@@ -31,8 +34,14 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     avg_loss = _rma(loss, period)
     rs = avg_gain / avg_loss.replace(0.0, np.nan)
     out = 100.0 - 100.0 / (1.0 + rs)
-    # All gains and no losses -> RSI 100; no gains at all -> RSI 0.
-    out = out.fillna(100.0).where(~((avg_gain == 0) & (avg_loss == 0)), 50.0)
+    # All gains (avg_loss==0) -> RSI 100; no gains (avg_gain==0, avg_loss>0)
+    # -> RSI 0; flat (both 0) -> RSI 50. Warmup (avg_* NaN) stays NaN: NaN
+    # comparisons are False in Python, so it can never auto-fire a gate — the
+    # old blanket fillna(100.0) turned warmup into RSI 100, which would have
+    # fired every >=95 short gate (it only looked harmless because an
+    # unrelated trend guard masked it).
+    out = out.mask((avg_gain > 0) & (avg_loss == 0), 100.0)
+    out = out.where(~((avg_gain == 0) & (avg_loss == 0)), 50.0)
     return out
 
 

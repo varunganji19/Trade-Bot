@@ -22,7 +22,7 @@ range), and fills account for gaps through the level:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from config import CONFIG, MarketSpec, CostConfig, parse_utc
@@ -45,7 +45,6 @@ class Position:
     bars_held: int = 0
     entry_fee: float | None = None  # entry-leg fee, deferred into close_position pnl
     entry_bar_ts: float = 0.0   # epoch of the DECISION bar (bar-time clock for bars_held)
-    meta: dict = field(default_factory=dict)
 
 
 class PaperBroker:

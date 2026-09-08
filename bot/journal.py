@@ -20,14 +20,18 @@ import json
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+import time
+from contextlib import contextmanager
 
-from config import CONFIG
+from config import CONFIG, utc_now
 
 # One lock per PROCESS (not per Journal instance): the dashboard and its engine
 # thread each construct a Journal, and per-instance locks would not serialize
 # writes between them.
 _PROCESS_LOCK = threading.RLock()
+
+# the engine used to define its own byte-identical utc_now() — one shared clock
+_now = utc_now
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS decisions (
@@ -95,11 +99,35 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
 CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
 CREATE INDEX IF NOT EXISTS idx_decisions_ts ON decisions(ts);
+CREATE INDEX IF NOT EXISTS idx_equity_ts ON equity(ts, id);
 """
 
+# real-file-corruption signatures only — NOT lock/busy/disk-full (a merely
+# locked or full-disk db must never be quarantined, only a torn file)
+_DB_CORRUPT_SIGNATURES = ("not a database", "malformed")
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+def _iso(ts: str | None) -> str:
+    """Canonical journal timestamp (ISO-UTC, 'T' separator). seed_demo used to
+    write pandas' space-separated str(Timestamp) — the two formats sorted
+    differently within a day and corrupted ts-ordered reads (the restart cash
+    anchor could pick a stale point). Normalize every ts ON WRITE, and
+    _migrate normalizes legacy rows ON BOOT. An unparseable value is stamped
+    with the current time instead of passing through: garbage sorts AFTER
+    every ISO string, so closed_cash_delta_since would re-count that trade's
+    PnL into broker cash on EVERY restart."""
+    if not ts:
+        return _now()
+    from config import parse_utc
+    dt = parse_utc(str(ts))
+    return dt.isoformat(timespec="seconds") if dt else _now()
+
+
+def _db_corrupt(exc: sqlite3.DatabaseError) -> bool:
+    """True only for real file corruption — NOT for lock/busy/disk-full
+    (quarantining a merely-locked or full disk db would destroy the journal)."""
+    msg = str(exc).lower()
+    return any(s in msg for s in _DB_CORRUPT_SIGNATURES)
 
 
 class Journal:
@@ -107,9 +135,34 @@ class Journal:
         self.db_path = db_path or CONFIG.db_path
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._lock = _PROCESS_LOCK
-        with self._conn() as conn:
-            conn.executescript(_SCHEMA)
-            self._migrate(conn)
+        try:
+            with self._conn() as conn:
+                conn.executescript(_SCHEMA)
+                self._migrate(conn)
+        except sqlite3.DatabaseError as exc:
+            # the journal is the single source of truth, but a corrupt file
+            # must not brick the whole app at import time (uvicorn dies, no UI
+            # to explain) — quarantine like every OTHER stateful artifact and
+            # start fresh. Locked/busy/disk-full errors re-raise (see _db_corrupt).
+            if not _db_corrupt(exc):
+                raise
+            stamp = int(time.time())
+            quarantine = f"{self.db_path}.corrupt.{stamp}"
+            print(f"[journal] trading db is corrupt ({exc}) — quarantined to "
+                  f"{os.path.basename(quarantine)}(+wal/shm), starting a fresh journal")
+            try:
+                os.replace(self.db_path, quarantine)
+            finally:
+                for suffix in ("-wal", "-shm"):
+                    side = self.db_path + suffix
+                    if os.path.exists(side):
+                        try:
+                            os.replace(side, quarantine + suffix)
+                        except OSError:
+                            pass
+            with self._conn() as conn:
+                conn.executescript(_SCHEMA)
+                self._migrate(conn)
 
     def _migrate(self, conn: sqlite3.Connection):
         """Add columns introduced after the first release. Idempotent.
@@ -126,26 +179,44 @@ class Journal:
                 # NOT NULL DEFAULT keeps migrated DBs under the same constraint
                 # the fresh schema declares
                 conn.execute("ALTER TABLE trades ADD COLUMN timeframe TEXT NOT NULL DEFAULT '1h'")
-            # idempotent backfill: legacy NULLs (from a crash mid-migration or
-            # pre-migration rows) resolve to the strategy-specialized timeframe
-            for strategy, tf in (("vwap_scalper", "15m"), ("connors_meanrev", "4h")):
-                conn.execute("UPDATE trades SET timeframe=? WHERE strategy=? AND timeframe IS NULL",
-                             (tf, strategy))
+            # strategy-specialized backfill removed: the column is NOT NULL
+            # DEFAULT '1h' (ALTER fills existing rows with the default), so
+            # NULLs cannot exist — the catch-all below is the only safety net
             conn.execute("UPDATE trades SET timeframe='1h' WHERE timeframe IS NULL")
+            # normalize legacy space-separated timestamps (pandas str(Timestamp))
+            # to canonical ISO so ts-string ordering is correct everywhere
+            for table, col in (("equity", "ts"), ("trades", "opened_ts"),
+                               ("trades", "closed_ts"), ("decisions", "ts"),
+                               ("transactions", "ts"), ("chat_log", "ts")):
+                for row in conn.execute(
+                        f"SELECT id, {col} AS v FROM {table} WHERE {col} LIKE '% %'").fetchall():
+                    fixed = _iso(row["v"])
+                    if fixed != row["v"]:
+                        conn.execute(f"UPDATE {table} SET {col}=? WHERE id=?",
+                                     (fixed, row["id"]))
             conn.commit()
         except sqlite3.OperationalError as exc:
             conn.rollback()
             if "duplicate column" not in str(exc).lower():
                 raise
 
-    def _conn(self) -> sqlite3.Connection:
+    @contextmanager
+    def _conn(self):
+        """Connection with the sqlite3 commit/rollback semantics callers rely
+        on, PLUS a guaranteed close — the bare `with self._conn()` committed
+        but never closed, so every 4s dashboard poll leaked a connection to
+        the GC's discretion."""
         # timeout: SQLite's default 5s becomes a dropped cycle under dashboard
         # read load; WAL readers never block the writer either way.
         conn = sqlite3.connect(self.db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout=10000")
         conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        try:
+            with conn:   # commit on success / rollback on exception
+                yield conn
+        finally:
+            conn.close()
 
     # ---------------------------------------------------------------- writes
     def add_decision(self, symbol: str, timeframe: str, decision, mode: str = "paper") -> int:
@@ -170,7 +241,7 @@ class Journal:
                 "INSERT INTO trades (symbol, side, qty, entry_price, stop_price, target_price,"
                 " strategy, status, opened_ts, rationale_open, mode, timeframe) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (symbol, side, qty, entry_price, stop, target, strategy, "OPEN",
-                 opened_ts or _now(), rationale, mode, timeframe))
+                 _iso(opened_ts), rationale, mode, timeframe))
             return cur.lastrowid
 
     def close_trade(self, trade_id: int, exit_price: float, pnl: float, pnl_pct: float,
@@ -186,7 +257,7 @@ class Journal:
                 "UPDATE trades SET status='CLOSED', exit_price=?, pnl=?, pnl_pct=?, fees=?,"
                 " exit_reason=?, rationale_close=?, closed_ts=? WHERE id=?",
                 (exit_price, pnl, pnl_pct, fees, exit_reason, rationale_close,
-                 closed_ts or _now(), trade_id))
+                 _iso(closed_ts), trade_id))
             if equity is not None and cash is not None:
                 conn.execute(
                     "INSERT INTO equity (ts, equity, cash, mode, note) VALUES (?,?,?,?,?)",
@@ -218,7 +289,7 @@ class Journal:
                    ts: str | None = None):
         with self._lock, self._conn() as conn:
             conn.execute("INSERT INTO equity (ts, equity, cash, mode, note) VALUES (?,?,?,?,?)",
-                         (ts or _now(), equity, cash, mode, note))
+                         (_iso(ts), equity, cash, mode, note))
 
     def add_transaction(self, kind: str, amount: float, cash_after: float | None = None,
                         equity_after: float | None = None, mode: str = "paper",
@@ -230,7 +301,7 @@ class Journal:
             conn.execute(
                 "INSERT INTO transactions (ts, kind, amount, cash_after, equity_after, mode, note)"
                 " VALUES (?,?,?,?,?,?,?)",
-                (ts or _now(), kind, amount, cash_after, equity_after, mode, note))
+                (_iso(ts), kind, amount, cash_after, equity_after, mode, note))
 
     def log_chat(self, role: str, content: str):
         with self._lock, self._conn() as conn:
@@ -252,6 +323,14 @@ class Journal:
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(q, params)]
 
+    def trade_mode_counts(self) -> dict[str, int]:
+        """Closed+open trade counts per mode ('paper' vs 'demo'): the dashboard
+        badges seeded demo rows instead of silently presenting them as the
+        bot's own paper record."""
+        with self._conn() as conn:
+            return {r["mode"]: r["n"] for r in conn.execute(
+                "SELECT mode, COUNT(*) AS n FROM trades GROUP BY mode")}
+
     def recent_transactions(self, limit: int = 100, mode: str | None = None) -> list:
         q, params = "SELECT * FROM transactions", []
         if mode:
@@ -262,10 +341,32 @@ class Journal:
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(q, params)]
 
-    def recent_decisions(self, limit: int = 60) -> list:
+    def deposits_net(self, mode: str | None = None) -> float:
+        """Net deposits (deposit − withdrawals) in the typed account ledger —
+        the reconciliation between the equity walk (includes deposits) and the
+        trades' own P&L (excludes them). A reset row is 0 by definition (the
+        ledger restarts with the account; reset wipes all rows anyway)."""
+        q = ("SELECT COALESCE(SUM(CASE kind WHEN 'deposit' THEN amount"
+             " WHEN 'withdrawal' THEN -amount ELSE 0 END), 0) FROM transactions")
+        params: list = []
+        if mode:
+            q += " WHERE mode=?"
+            params.append(mode)
         with self._conn() as conn:
-            return [dict(r) for r in conn.execute(
-                "SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,))]
+            return float(conn.execute(q, params).fetchone()[0])
+
+    def recent_decisions(self, limit: int = 60, mode: str | None = None) -> list:
+        """mode filters like the other read paths: the dashboard feed and the
+        chatbot read the bot's OWN paper decisions first and only fall back to
+        every row on a demo-only journal (seed-demo writes mode='demo')."""
+        q, params = "SELECT * FROM decisions", []
+        if mode:
+            q += " WHERE mode=?"
+            params.append(mode)
+        q += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(q, params)]
 
     def equity_curve(self, limit: int = 2000, mode: str | None = None) -> list:
         q, params = "SELECT ts, equity, cash FROM equity", []

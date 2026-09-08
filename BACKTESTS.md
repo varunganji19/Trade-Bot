@@ -12,6 +12,23 @@ Starting capital $10,000, 1% risk per trade.
 > cost-positive one through measurement (not curve-fitting) is the whole point
 > of the exercise.
 
+> **Methodology changelog (2026-09 audit).** An independent code audit fixed
+> four measurement issues AFTER the rounds below were recorded; the affected
+> numbers were not silently rewritten:
+> - **Deflated Sharpe was unit-broken** (per-period SE mixed with annualized
+>   trial Sharpes) and read ~1.0 for any sane input — any DSR figure printed
+>   before this fix is uninformative. Fixed in `bot/validation.py` and pinned
+>   with a must-fail reference case.
+> - **Forex Sharpe annualization used 24/7 bar counts** — Yahoo forex trades
+>   ~24×5, so forex Sharpe magnitudes above are overstated ~18%.
+> - **The backtester skipped the fill bar's stop/target scan** (the bar where
+>   the entry filled at its open) while the live engine scans it — a parity
+>   gap exactly where it matters most. The backtester now scans the fill bar
+>   from the open, so a same-bar stop-out is seen by both paths.
+> - **Purged-CV purged entry proximity only**; it now also drops trades whose
+>   HOLDING spans a path boundary, so per-path returns are cleaner OOS
+>   segments (purge counts rise accordingly).
+
 ## Round 1 (v1) — what the first battery showed
 
 | Symbol | TF | Strategy | Return | MaxDD | Trades | Win% | PF |
@@ -30,7 +47,8 @@ Starting capital $10,000, 1% risk per trade.
 | EURUSD=X | 1h | connors_meanrev | −7.7% | −7.7% | 668 | 47.9% | 0.56 |
 | (etc.) | | | | | | | |
 
-Full v1 matrix in `data/results/*_v1.json`.
+Full v1 matrix was in `data/results/*_v1.json` (gitignored, machine-local —
+not part of the repo; the tables above are the record).
 
 ## Diagnosis of the two losers
 
@@ -126,9 +144,12 @@ Round-2 diagnosis and further fixes (all measured on the 4h crypto data):
 - **ensemble** (orchestrator) — regime-weighted blend, one position per symbol,
   risk-manager veto on every entry. Each strategy runs only on its validated
   timeframe, so on any given market the ensemble is effectively the one
-  strategy registered for that timeframe plus the risk layer — the weights
-  matter when strategies share a timeframe (e.g., both turtle and connors on
-  1h via a custom watchlist).
+  strategy registered for that timeframe plus the risk layer. The regime
+  weights and conflict guard only engage if strategies share a timeframe —
+  which currently never happens (the ranges are class-level and disjoint:
+  turtle 1h, meanrev 4h/1d, scalper 5m/15m; a watchlist entry alone cannot
+  override them), so treat the blend as dormant scaffolding, not an active
+  feature.
 
 ## Walk-forward (out-of-sample) protocol
 
@@ -189,14 +210,17 @@ a "not yet", not a "never". (Early readings on 30–80 forecasts showed +0.13;
 that decayed to negative with more data — exactly why the min-observation
 gate exists.)
 
-**Shadow Account (real 428-trade journal):** rule adherence 57.6% on BTC 1h
+**Shadow Account (428-trade journal):** rule adherence 57.6% on BTC 1h
 (16 late exits — trades lingering 2–31 bars after their strategy's exit
 signal fired; 59 exits attributed to strategies whose rules didn't produce
 them), 236/428 trades blew through their initial stop distance, disposition
-gap +342h (losers held far longer than winners), avg R −0.66. These are the
-bot's own diagnostics on its own record — the starting point for the next
-iteration of fixes, and the honest-attribution story in one command
-(`python3 main.py shadow`).
+gap +342h (losers held far longer than winners), avg R −0.66. Honest caveat:
+that journal was seeded by `seed-demo` — real backtest replays, not trades the
+live engine took; since 2026-09 those rows are labeled `mode='demo'`, the
+dashboard badges them, the chatbot's paper-record answers exclude them, and
+`python3 main.py shadow` audits the bot's OWN paper record by default
+(`--include-demo` audits the replay rows instead). These numbers demonstrate
+the shadow tooling, not a live-account record.
 
 ## Round 4 (v4) — live-engine audit: the three ways paper diverged from backtest
 

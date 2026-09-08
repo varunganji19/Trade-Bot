@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from config import CONFIG
+
 from bot.journal import Journal
 from bot.llm import LLMClient
 
@@ -36,7 +38,8 @@ STRATEGY_DOCS = {
                      "confirms a trending regime, exit on the opposite 10-bar channel, stop 2xATR. "
                      "Low win rate, big winners — it's the strategy that made the Turtles famous."),
     "connors_meanrev": ("Connors RSI-2 — Larry Connors' mean-reversion pullback: buy when RSI(2) drops "
-                        "below 10 while price is above the 200-EMA (uptrend filter), exit on the "
+                        "below 5 (we tightened his published 10 threshold; see BACKTESTS.md) while "
+                        "price is above the 200-EMA (uptrend filter), exit on the "
                         "snapback above RSI(2) 65 or EMA(5). Historically ~75% win rate on indices, "
                         "small winners / occasional larger losers (we add a 3xATR stop)."),
     "vwap_scalper": ("VWAP Scalper — intraday momentum: enters when price reclaims the rolling VWAP "
@@ -53,6 +56,58 @@ STRATEGY_DOCS = {
 
 def _fmt_money(v: float) -> str:
     return f"${v:,.2f}"
+
+
+def _symbol_from_question(q: str, known: list[str] | None = None) -> str | None:
+    """Pull the market the user named out of a natural-language question, in
+    either house format: 'BTC', 'btc/usdt', 'BTC/USDT' or 'GBPUSD', 'gbpusd=x'.
+
+    Tiers, in order:
+      1. pair form (BTC/USDT) — unambiguous on its face;
+      2. a token that matches a market the bot actually trades (watchlist or
+         journaled) — question English ('long', 'should') can never masquerade
+         as a market this way;
+      3. only when the question carries a trade verb (buy/sell/open/...), a
+         bare token that is neither known nor a function word: an
+         explicitly-asked but NEVER-TRADED market (DOGE, AAPL). Tier 2 alone
+         would silently answer the newest entry of a different market.
+    Returns None when no market is named (caller falls back to newest entry)."""
+    import re
+    up = q.upper()
+    m = re.search(r"\b([A-Z]{2,10})/([A-Z]{2,10})\b", up)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}"
+    # tier 2: first token that matches a known market
+    for m in re.finditer(r"\b([A-Z]{2,10})(?:=X)?\b", up):
+        if any(_same_symbol(sym, m.group(1)) for sym in (known or [])):
+            return m.group(1)
+    # tier 3: explicit trade verb + a non-function-word token = an untraded market
+    if re.search(r"\b(BUY|BOUGHT|SELL|SOLD|SHORT|ENTER|OPEN|TRADE)\w*\b", up):
+        _FN = {"WHY", "DID", "YOU", "THE", "BOT", "WHAT", "WHEN", "HOW", "AND",
+               "NOT", "FOR", "ARE", "WAS", "IS", "DO", "DOES", "DIDN", "DON",
+               "A", "ON", "OF", "MY", "I", "ME", "IT", "OPEN", "LONG", "SHORT",
+               "HOLD", "HOLDING", "BUY", "BOUGHT", "SELL", "SOLD", "ENTER",
+               "TRADE", "MAKE", "MADE", "EARN", "BEST", "WHICH", "WHO", "TELL",
+               "EXPLAIN", "PLEASE", "RECENT", "RECENTLY", "TODAY", "SYSTEM",
+               "MARKET", "SHOULD", "COULD", "WOULD", "POSITION"}
+        for m in re.finditer(r"\b([A-Z]{2,6})(?:=X)?\b", up):
+            if m.group(1) not in _FN:
+                return m.group(1)
+    return None
+
+
+def _same_symbol(journal_symbol: str, wanted: str | None) -> bool:
+    """Does this journal row's market match what the user asked about?
+    Wanted is the user's (possibly partial) spelling: 'BTC' matches
+    'BTC/USDT'; 'BTC/USDT' matches exactly; 'GBPUSD' matches 'GBPUSD=X'."""
+    if wanted is None:
+        return True   # no preference: any market
+    j = journal_symbol.upper()
+    w = wanted.upper()
+    if j == w or j.replace("=X", "") == w.replace("=X", ""):
+        return True
+    base = j.split("/")[0].replace("=X", "")
+    return w == base or w.split("/")[0] == base
 
 
 class ChatBot:
@@ -88,8 +143,8 @@ class ChatBot:
         return reply
 
     def _journal_context(self) -> dict:
-        stats = self.journal.stats()
-        trades = self.journal.recent_trades(limit=15)
+        stats = self.journal.stats(mode="paper")
+        trades = self.journal.recent_trades(limit=15, mode="paper")
         decisions = self.journal.recent_decisions(limit=5)
         # IST-convert timestamps here too — the LLM quotes what it's given
         return {
@@ -111,11 +166,17 @@ class ChatBot:
         }
 
     # --------------------------------------------------------- deterministic
+    def _demo_note(self) -> str:
+        """Honest suffix when seeded demo (backtest-replay) rows exist: the
+        answers describe the bot's OWN paper record, not the seeder's."""
+        n = self.journal.trade_mode_counts().get("demo", 0)
+        return f" (excludes {n} seeded mode='demo' replay trades)" if n else ""
+
     def _deterministic_answer(self, q: str) -> str:
         ql = q.lower()
         # NOTE: the user row is logged once in answer() BEFORE this method —
         # logging it again here double-writes the deterministic path
-        stats = self.journal.stats()
+        stats = self.journal.stats(mode="paper")
 
         # strategy explainers
         for key, doc in STRATEGY_DOCS.items():
@@ -126,12 +187,20 @@ class ChatBot:
 
         if any(w in ql for w in ("earn", "profit", "p&l", "pnl", "performance", "made", "how much")):
             open_trades = stats["open_trades"]
+            net_dep = self.journal.deposits_net(mode="paper")
+            dep_note = ""
+            if abs(net_dep) >= 0.01:
+                # equity walk includes deposits, trade P&L doesn't — without
+                # this line the two numbers in one sentence contradicted
+                # ("total P&L −$194.71 (return 6.89%…)")
+                dep_note = (f" Net deposits {_fmt_money(net_dep)} are included in the "
+                            f"equity/return but not in trade P&L.")
             reply = (f"Closed trades: {stats['closed_trades']} with {stats['win_rate']}% win rate, "
                      f"total P&L {_fmt_money(stats['total_pnl'])} (return {stats['return_pct']}% from "
                      f"{_fmt_money(stats['start_equity'])} to {_fmt_money(stats['current_equity'])}). "
                      f"Max drawdown {stats['max_drawdown_pct']}%. "
                      f"Profit factor {stats['profit_factor'] if stats['profit_factor'] is not None else 'n/a (no losses yet)'}. "
-                     f"{open_trades} position(s) still open.")
+                     f"{open_trades} position(s) still open.{dep_note}{self._demo_note()}")
             self.journal.log_chat("assistant", reply)
             return reply
 
@@ -142,19 +211,20 @@ class ChatBot:
             self.journal.log_chat("assistant", reply)
             return reply
 
-        if "strategy" in ql and "best" in ql or "which strategy" in ql:
+        # parens matter: `A and B or C` would misroute "which strategy" questions
+        if ("strategy" in ql and "best" in ql) or "which strategy" in ql:
             by = stats.get("by_strategy", {})
             if not by:
                 reply = "No closed trades yet, so no attribution to show. Run the bot or a backtest first."
             else:
                 lines = [f"{name}: {d['trades']} trades, {d['wins']} wins, P&L {_fmt_money(d['pnl'])}"
                          for name, d in by.items()]
-                reply = "Strategy attribution (closed trades):\n" + "\n".join(lines)
+                reply = "Strategy attribution (closed trades):\n" + "\n".join(lines) + self._demo_note()
             self.journal.log_chat("assistant", reply)
             return reply
 
         if "trade" in ql or "history" in ql or "recent" in ql:
-            trades = self.journal.recent_trades(limit=5)
+            trades = self.journal.recent_trades(limit=5, mode="paper")
             if not trades:
                 reply = "No trades in the journal yet."
             else:
@@ -168,15 +238,41 @@ class ChatBot:
             return reply
 
         if "why" in ql and ("buy" in ql or "sell" in ql or "open" in ql):
-            decisions = self.journal.recent_decisions(limit=3)
-            entries = [d for d in decisions if d["action"] != "HOLD"]
+            # answer about the market the user ASKED about, not whichever
+            # non-HOLD decision was newest: "why did you buy BTC?" used to
+            # return a GBPUSD decision (question symbol ignored entirely)
+            # the markets the bot trades (watchlist + anything journaled) are
+            # the ONLY valid bare-token matches — question words can never
+            # masquerade as a market this way
+            known = {s.symbol for s in CONFIG.watchlist}
+            known |= {t["symbol"] for t in self.journal.recent_trades(limit=200)}
+            known |= {d["symbol"] for d in self.journal.recent_decisions(limit=200)}
+            wanted = _symbol_from_question(q, sorted(known))
+            decisions = self.journal.recent_decisions(limit=30, mode="paper")
+            entries = [d for d in decisions
+                       if d["action"] != "HOLD" and _same_symbol(d["symbol"], wanted)]
+            demo_answer = False
+            if not entries and wanted is None:
+                # no symbol named: newest entry decision of the paper feed
+                entries = [d for d in decisions if d["action"] != "HOLD"]
+            if not entries:
+                # fresh seed-demo journal: the same lookup over the replay rows,
+                # honestly labeled
+                demo = self.journal.recent_decisions(limit=30, mode="demo")
+                entries = [d for d in demo
+                           if d["action"] != "HOLD" and _same_symbol(d["symbol"], wanted)]
+                demo_answer = bool(entries)
             if entries:
                 d = entries[0]
                 reply = (f"On {_fmt_ts(d['ts'])} the bot decided {d['action']} {d['symbol']} at "
                          f"~{d['price']:.6g} (confidence {d['confidence']:.2f}, regime {d['regime']}). "
-                         f"Reasoning: {d['rationale'][:400]}")
+                         f"Reasoning: {d['rationale'][:400]}"
+                         + (" [seeded demo row — backtest replay, not a live decision]" if demo_answer else ""))
             else:
-                reply = "No entry decisions in the recent journal — the bot has been holding."
+                reply = ("No entry decisions in the recent journal — the bot has been holding."
+                         if wanted is None else
+                         f"No recent entry decision on {wanted} — the bot may have only HOLDs "
+                         f"there, or it hasn't traded that market.")
             self.journal.log_chat("assistant", reply)
             return reply
 

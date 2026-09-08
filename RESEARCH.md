@@ -113,9 +113,11 @@ Convergent wisdom from the traders above:
 | **Sentiment Overlay** | LLM headline scoring (Lopez-Lira & Tang 2023) | live only | — (never initiates) | can veto/shrink entries | — |
 
 **Orchestrator:** ADX + EMA structure classifies the regime (trending vs. ranging). Trending →
-Turtle weight 0.55 / Scalper 0.30 / MeanRev 0.15. Ranging → inverted. Weighted confidence vote with
-conflict guard; optional LLM as tie-breaker/veto with strict guardrails; RiskManager has final veto
-over everything.
+Turtle weight 0.55 / Scalper 0.30 / MeanRev 0.15. Ranging → inverted. Honest caveat: each strategy
+ships on its own validated timeframe and the three ranges are disjoint, so today every market is
+owned by exactly ONE strategy — the weighted vote and the conflict guard are implemented but only
+engage if strategies ever share a timeframe. Optional LLM as tie-breaker/veto with strict guardrails;
+RiskManager has final veto over everything.
 
 ---
 

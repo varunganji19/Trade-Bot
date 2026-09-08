@@ -1,6 +1,8 @@
 """
-FastAPI dashboard + JSON API — a tabbed single-page app (inline HTML/CSS/JS,
-Chart.js via CDN; no build step).
+FastAPI dashboard + JSON API — a tabbed single-page app (inline HTML/CSS/JS;
+Chart.js is VENDORED locally at bot/chart.umd.min.js, so all JS/CSS work with
+no network; the only outbound fetch is the Google Fonts stylesheet for
+typography, which silently falls back to system fonts offline).
 
 Tabs (hash routing, ~4s polling):
   #overview   — equity curve, headline stats, engine controls, decision feed,
@@ -8,11 +10,16 @@ Tabs (hash routing, ~4s polling):
   #portfolio  — open positions (live marks, manual close) + trade history
   #watchlist  — full CRUD of what the bot trades (persisted data/watchlist.json;
                 hot-reloads into a RUNNING engine's CONFIG)
+  #evidence   — the honesty layer, rendered: Kronos rolling IC vs its promotion
+                hurdle, purged-CV path distribution, PBO/Deflated-Sharpe/MinTRL
+                verdict cards, shadow adherence, pinned-data manifest (reads
+                the generated artifacts in data/results + data/kronos_ic.json)
   #account    — paper balance: deposits/withdrawals + type-to-confirm reset
   #chat       — the journal-aware chatbot
 
-API: GET /  /api/stats /api/equity /api/trades /api/decisions /api/watchlist
-     /api/account /api/account/transactions /api/chat /api/engine/status
+API: GET /  /api/stats /api/equity /api/trades /api/decisions /api/evidence
+     /api/positions (open positions) /api/watchlist /api/account
+     /api/account/transactions /api/chat /api/engine/status
      POST /api/chat {message}  /api/engine/start {interval}  /api/engine/stop
           /api/watchlist {kind,symbol,timeframe,display?}
           /api/account/deposit {amount}  /api/account/withdraw {amount}
@@ -28,6 +35,7 @@ import shutil
 import threading
 import time
 import traceback
+from contextlib import asynccontextmanager
 from urllib.parse import unquote
 
 from fastapi import FastAPI, HTTPException, Query
@@ -44,7 +52,17 @@ from config import (CONFIG, MarketSpec, VALID_KINDS,
                     VALID_TIMEFRAMES, MAX_WATCHLIST_SPECS,
                     apply_saved_watchlist, save_watchlist, infer_kind)
 
-app = FastAPI(title="AI Trading Bot Dashboard", version="2.1")
+
+@asynccontextmanager
+async def _lifespan(_app):
+    # replaces the deprecated @app.on_event("startup") hook (which emitted
+    # deprecation warnings on every boot and test run); the body lives below
+    # the handlers it calls and resolves at startup time
+    _auto_resume_engine()
+    yield
+
+
+app = FastAPI(title="AI Trading Bot Dashboard", version="2.1", lifespan=_lifespan)
 # blocks DNS-rebinding pages from reaching the API (a rebind page becomes
 # same-origin with 127.0.0.1 and gets full read/write otherwise) — the bot
 # stays localhost-only
@@ -62,20 +80,34 @@ def _check_token(auth_header: str, token: str) -> bool:
 
 class _TokenGuard:   # pure ASGI middleware — no BaseHTTPMiddleware overhead
     """Optional shared-token auth, OFF by default. Set DASHBOARD_TOKEN to
-    require `Authorization: Bearer <token>` on every request (page + API) —
-    the belt-and-suspenders layer if the dashboard is ever deliberately
-    exposed beyond loopback."""
+    require `Authorization: Bearer <token>` on every API request — the
+    belt-and-suspenders layer if the dashboard is ever deliberately exposed
+    beyond loopback.
+
+    The HTML page shell and the vendored chart.js are EXEMPT: browsers cannot
+    send headers on navigation, and guarding GET / made the dashboard literally
+    unopenable when the feature was on (a 401 JSON page, no UI at all). The
+    shell has no secrets — every number comes from the guarded /api/* routes,
+    and the SPA attaches the bearer token from localStorage on its fetches
+    (prompting for it once when the API answers 401)."""
+    # shell only — every data route stays behind the token
+    _EXEMPT_GET = frozenset({"/", "/chart.umd.min.js"})
+
     def __init__(self, asgi_app, token: str):
         self.app = asgi_app
         self.token = token
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and not _check_token(
-                next((v.decode() for k, v in scope.get("headers", [])
-                      if k == b"authorization"), ""), self.token):
-            resp = JSONResponse({"detail": "unauthorized"}, status_code=401)
-            await resp(scope, receive, send)
-            return
+        if scope["type"] == "http":
+            if scope.get("method") == "GET" and scope.get("path") in self._EXEMPT_GET:
+                await self.app(scope, receive, send)
+                return
+            if not _check_token(
+                    next((v.decode() for k, v in scope.get("headers", [])
+                          if k == b"authorization"), ""), self.token):
+                resp = JSONResponse({"detail": "unauthorized"}, status_code=401)
+                await resp(scope, receive, send)
+                return
         await self.app(scope, receive, send)
 
 
@@ -92,6 +124,7 @@ _engine: TradingEngine | None = None
 _engine_thread: threading.Thread | None = None
 _last_engine_error: str | None = None   # survives engine teardown for /api/engine/status
 _engine_interval: int = 60              # the running engine's cycle interval (stop persists it)
+_AUTO_RESUMED_AT_BOOT = False           # the UI's first poll toasts it once (no silent surprise)
 
 FOREX_RE = re.compile(r"^[A-Z]{6}=X$")
 CRYPTO_RE = re.compile(r"^[A-Z]{2,10}/[A-Z]{2,10}$")
@@ -175,8 +208,9 @@ def _spawn_engine(interval: int) -> dict:
     """Build + start the engine thread (shared by the API endpoint and the
     startup auto-resume). Returns the API response dict."""
     global _engine, _engine_thread, _engine_interval
-    # build OUTSIDE _engine_lock: TradingEngine.__init__ loads the Kronos
-    # model (seconds) and holding the lock froze every stats/status poll
+    # build OUTSIDE _engine_lock: TradingEngine.__init__ probes the Kronos stack
+    # (imports, no weight load — that happens lazily in the first engine cycle)
+    # and holding the lock froze every stats/status poll
     eng = TradingEngine(mode="paper", quiet=False, journal=journal)
     with _engine_lock:
         if _engine is not None:
@@ -192,6 +226,7 @@ def _spawn_engine(interval: int) -> dict:
         global _engine, _last_engine_error
         import time as _t
         while _get_engine() is eng_ref:
+            cycle_t0 = _t.monotonic()
             try:
                 eng_ref.run_cycle()
             except Exception as exc:
@@ -206,7 +241,16 @@ def _spawn_engine(interval: int) -> dict:
                     if _engine is eng_ref:
                         _engine = None
                 break
-            _t.sleep(interval)
+            # sleep the REMAINDER of the interval from cycle START (a 2-minute
+            # Kronos cycle at interval=60 used to land one decision burst every
+            # ~2.5 min), and wake the SECOND the identity check flips so a stop
+            # is near-instant instead of stranding the UI for up to interval-300s
+            remaining = max(0.0, interval - (_t.monotonic() - cycle_t0))
+            deadline = _t.monotonic() + remaining
+            while _t.monotonic() < deadline:
+                if _get_engine() is not eng_ref:
+                    return
+                _t.sleep(min(1.0, max(0.0, deadline - _t.monotonic())))
             if _get_engine() is not eng_ref:
                 break
 
@@ -334,7 +378,25 @@ def chart_js():
 # stats / history
 @app.get("/api/stats")
 def api_stats():
-    stats = journal.stats()
+    # the headline cards are the bot's OWN paper record when one exists; a
+    # demo-only journal (fresh seed-demo) still shows so the demo works — the
+    # overview demo note labels what's seeded. The paper record needs BOTH a
+    # paper trade and a paper equity point: trades without an equity walk
+    # (only hand-producible) would put a nonzero total_pnl beside a
+    # capital-equals-equity headline — the same contradiction the demo fix
+    # targeted
+    modes = journal.trade_mode_counts()
+    if modes.get("paper") and journal.last_equity_point(mode="paper") is not None:
+        stats = journal.stats(mode="paper")
+    else:
+        stats = journal.stats()
+    # seeded demo rows (seed-demo backtest replays) are labeled mode='demo' —
+    # surface the split so the UI can badge them instead of passing them off
+    # as the bot's own paper record
+    stats["trade_modes"] = modes
+    # boot-resume notice: the engine started by auto-resume (not by the
+    # operator's click) — the UI toasts it once so trading never silently begins
+    stats["auto_resumed"] = _AUTO_RESUMED_AT_BOOT
     eng = _get_engine()
     stats["engine_running"] = eng is not None
     stats["cycles"] = eng.cycles if eng is not None else 0
@@ -348,15 +410,25 @@ def api_stats():
         stats["open_positions"] = [_position_dict(p, marks) for p in positions]
         stats["broker_equity"] = round(eng.broker.equity(price_map), 2)
         stats["engine_error"] = eng.last_error
+        # degraded-but-alive conditions (e.g. a held position behind a dead
+        # feed) ride here — the UI turns the pill amber and shows a banner
+        stats["health_note"] = getattr(eng, "health_note", None)
     else:
         stats["llm_mode"] = "quant"
         stats["open_positions"] = [_journal_position_dict(t) for t in journal.open_trades()]
+        stats["health_note"] = None
     return stats
 
 
 @app.get("/api/equity")
 def api_equity():
-    return journal.equity_curve(limit=3000)
+    # the account curve is the paper record; a demo-only journal (fresh
+    # seed-demo) falls back to all rows so the chart still renders, labeled
+    # by the overview demo note
+    rows = journal.equity_curve(limit=3000, mode="paper")
+    if not rows:
+        rows = journal.equity_curve(limit=3000)
+    return rows
 
 
 @app.get("/api/trades")
@@ -366,7 +438,129 @@ def api_trades(limit: int = Query(default=100, ge=1, le=1000)):
 
 @app.get("/api/decisions")
 def api_decisions(limit: int = Query(default=40, ge=1, le=500)):
-    return journal.recent_decisions(limit=limit)
+    # paper feed first; a demo-only journal (fresh seed-demo) still renders —
+    # demo rows are then badged in the terminal (they are backtest replays)
+    rows = journal.recent_decisions(limit=limit, mode="paper")
+    if not rows:
+        rows = journal.recent_decisions(limit=limit)
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# evidence — the generated artifacts behind every honesty claim, read-only
+def _results_dir() -> str:
+    return os.path.join(os.path.dirname(CONFIG.db_path), "results")
+
+
+def _evidence_kronos() -> dict:
+    """The Kronos IC ledger as a series: rolling rank-IC (same math as
+    promoted()'s gate) computed over the persisted records, so the UI can draw
+    the model's evidence curve against its own promotion hurdle."""
+    try:
+        import pandas as pd
+        from bot.kronos_signal import KronosConfig, KronosICTracker
+        cfg = KronosConfig()
+        tr = KronosICTracker(cfg.track_file, half_life=cfg.ic_half_life)
+        recs = tr.records
+        win = max(10, int(2 * cfg.ic_half_life))
+        series = []
+        for i in range(10, len(recs) + 1):
+            sub = recs[max(0, i - win):i]
+            scores = pd.Series([r[0] for r in sub])
+            rets = pd.Series([r[1] for r in sub])
+            c = scores.corr(rets, method="spearman")
+            if c == c:
+                series.append({"i": i, "ic": round(float(c), 4)})
+        return {"n": len(recs), "pending": len(tr._pending), "ic": tr.ic(),
+                "hurdle": cfg.ic_hurdle, "demote_below": cfg.demote_below,
+                "min_observations": cfg.min_observations, "series": series,
+                "note": "records resolved before 2026-09 predate per-market keying"}
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def _evidence_validations() -> list:
+    """Newest first (by file mtime): the dropdown's default '0' used to be the
+    OLDEST file by name sort, so a stale report answered as if current."""
+    out = []
+    rdir = _results_dir()
+    if os.path.isdir(rdir):
+        files = [f for f in os.listdir(rdir)
+                 if f.startswith("validation_") and f.endswith(".json")]
+        files.sort(key=lambda f: os.path.getmtime(os.path.join(rdir, f)), reverse=True)
+        for f in files:
+            try:
+                with open(os.path.join(rdir, f)) as fh:
+                    r = json.load(fh)
+                r["_file"] = f
+                out.append(r)
+            except Exception:
+                continue
+    return out
+
+
+def _evidence_shadow() -> dict | None:
+    path = os.path.join(_results_dir(), "shadow_report.json")
+    if os.path.exists(path):
+        try:
+            with open(path) as fh:
+                return json.load(fh)
+        except Exception:
+            return None
+    return None
+
+
+def _evidence_manifest() -> dict:
+    path = os.path.join(os.path.dirname(CONFIG.db_path), "manifest.json")
+    if os.path.exists(path):
+        try:
+            with open(path) as fh:
+                return json.load(fh)
+        except Exception:
+            return {}
+    return {}
+
+
+_EVIDENCE_CACHE: dict = {"key": None, "payload": None, "ts": 0.0}
+
+
+def _evidence_cache_key() -> tuple | None:
+    """Cache key: (mtime, size) of every file the payload reads. Any new
+    validation report, ledger write or manifest change flips it."""
+    try:
+        paths = [os.path.join(os.path.dirname(CONFIG.db_path), "kronos_ic.json"),
+                 os.path.join(os.path.dirname(CONFIG.db_path), "manifest.json"),
+                 os.path.join(_results_dir(), "shadow_report.json")]
+        rdir = _results_dir()
+        if os.path.isdir(rdir):
+            paths += [os.path.join(rdir, f) for f in os.listdir(rdir)
+                      if f.endswith(".json")]
+        return tuple(sorted((p, os.path.getmtime(p), os.path.getsize(p))
+                           for p in paths if os.path.exists(p)))
+    except OSError:
+        return None
+
+
+@app.get("/api/evidence")
+def api_evidence():
+    """Everything the Evidence tab renders, in one read-only payload: the
+    Kronos IC ledger, generated validation reports, the shadow report, and
+    the pinned-data manifest. No computation on trade data — these are the
+    artifacts `main.py validate` / `main.py shadow` / fetch_history wrote.
+
+    Cached by artifact (mtime,size): the rolling-IC series costs ~0.7s at the
+    ledger cap and the tab used to recompute it on every 4s poll while open —
+    12% of a core for numbers that only change when an artifact is rewritten."""
+    key = _evidence_cache_key()
+    now = time.time()
+    if key is not None and _EVIDENCE_CACHE["key"] == key and now - _EVIDENCE_CACHE["ts"] < 60:
+        return _EVIDENCE_CACHE["payload"]
+    payload = {"kronos": _evidence_kronos(),
+               "validations": _evidence_validations(),
+               "shadow": _evidence_shadow(),
+               "manifest": _evidence_manifest()}
+    _EVIDENCE_CACHE.update({"key": key, "payload": payload, "ts": now})
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +620,18 @@ def api_watchlist_delete(kind: str, symbol: str, timeframe: str):
 
 # ---------------------------------------------------------------------------
 # open positions + manual close
+@app.get("/api/positions")
+def api_positions():
+    """Alias for the open-positions block of /api/stats — the name an operator
+    (or a curl sanity check on stage) guesses first; it used to 404."""
+    eng = _get_engine()
+    if eng is not None:
+        positions, marks, _ = _live_state(eng)
+        return {"live": True, "positions": [_position_dict(p, marks) for p in positions]}
+    return {"live": False,
+            "positions": [_journal_position_dict(t) for t in journal.open_trades()]}
+
+
 @app.post("/api/positions/close")
 def api_position_close(body: PositionCloseIn):
     eng = _get_engine()
@@ -529,11 +735,42 @@ def api_account_withdraw(body: AmountIn):
     return _adjust_account(body.amount, "withdraw")
 
 
+def _prune_reset_backups(keep: str, keep_n: int = 5):
+    """Keep only the newest `keep_n` reset backups (each is a full db copy —
+    ~20MB weekly resets would grow to ~1GB/year with no pruning). Never touches
+    the just-written `keep` path; failures are silent (pruning is best-effort)."""
+    try:
+        import glob
+        pattern = f"{CONFIG.db_path.rsplit('.db', 1)[0]}.backup.*.db"
+        backups = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
+        for old in backups[keep_n:]:
+            if os.path.abspath(old) != os.path.abspath(keep):
+                os.remove(old)
+    except OSError:
+        pass
+
+
 @app.post("/api/account/reset")
 def api_account_reset(body: ResetIn):
     # a reset while the engine trades would fork broker state from the journal
-    api_engine_stop(EmptyIn())
-    backup = f"{CONFIG.db_path.rsplit('.db', 1)[0]}.backup.{int(time.time())}.db"
+    stop_status = api_engine_stop(EmptyIn())["status"]
+    if stop_status == "stopping":
+        # the engine thread outlived the bounded join: a wipe now could race
+        # its in-flight close_trade/add_equity writes into the fresh DB
+        raise HTTPException(409, "engine is still stopping — retry the reset once "
+                                 "its status shows stopped")
+    # WAL checkpoint BEFORE the copy: copy2 of the main db file alone can miss
+    # everything still living in the -wal (proven in testing: the copy was
+    # missing even the schema). TRUNCATE checkpoints and resets the WAL, so the
+    # backup is a complete, self-contained database.
+    try:
+        with journal._conn() as conn:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass   # best-effort; the copy below still runs either way
+    # name with microseconds: two resets in the same second used to overwrite
+    # the first backup (int(time.time()) collides on scripted double-clicks)
+    backup = f"{CONFIG.db_path.rsplit('.db', 1)[0]}.backup.{time.time():.6f}.db"
     try:
         shutil.copy2(CONFIG.db_path, backup)
     except OSError as exc:
@@ -542,6 +779,7 @@ def api_account_reset(body: ResetIn):
     if not os.path.exists(backup) or os.path.getsize(backup) == 0:
         os.path.exists(backup) and os.remove(backup)
         raise HTTPException(500, "reset aborted — backup file is empty")
+    _prune_reset_backups(backup)
     with journal._conn() as conn:
         for table in ("trades", "equity", "chat_log", "decisions", "transactions"):
             conn.execute(f"DELETE FROM {table}")
@@ -613,14 +851,20 @@ def api_engine_stop(body: EmptyIn):
     return {"status": "stopped"}
 
 
-@app.on_event("startup")
 def _auto_resume_engine():
     """Restart the engine when the last session left it running (the operator's
     'the bot trades autonomously' expectation survives a dashboard restart).
     A manual stop persists desired=stopped, so it always wins. Skipped under
     pytest: tests swap CONFIG.db_path to temp dirs, but the real state file
-    may exist with desired=running and must never spawn a live engine there."""
+    may exist with desired=running and must never spawn a live engine there.
+    ALGO_NO_AUTO_RESUME=1 disables the resume entirely (a rehearsal/demo
+    machine that must NOT start trading on boot)."""
+    global _AUTO_RESUMED_AT_BOOT
     if "PYTEST_CURRENT_TEST" in os.environ:
+        return
+    if os.environ.get("ALGO_NO_AUTO_RESUME", "") not in ("", "0", "false"):
+        print("[dashboard] auto-resume disabled via ALGO_NO_AUTO_RESUME — "
+              "start the engine from the UI when you want it trading")
         return
     try:
         with open(_engine_state_path()) as f:
@@ -635,7 +879,9 @@ def _auto_resume_engine():
     interval = max(5, min(3600, interval))
     result = _spawn_engine(interval)
     if result["status"] == "started":
-        print(f"[dashboard] engine auto-resumed (interval {interval}s)")
+        _AUTO_RESUMED_AT_BOOT = True
+        print(f"[dashboard] engine auto-resumed (interval {interval}s) — stop it "
+              f"from the Overview tab, or set ALGO_NO_AUTO_RESUME=1 before boot")
 
 
 @app.get("/api/engine/status")
@@ -665,64 +911,226 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F6F8FB">
 <title>Algo Trading Bot — Dashboard</title>
+<script>
+/* theme boot — runs before first paint so a saved theme never flashes.
+   light (white-blue/green) is the default; first-time visitors follow the
+   OS preference. values: light · dark (grayish) · black (AMOLED). */
+(function(){var t='light';
+try{t=localStorage.getItem('algo-theme')||t;
+if(t!=='light'&&t!=='dark'&&t!=='black')
+  t=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+}catch(e){t='light';}
+document.documentElement.setAttribute('data-theme',t);})();
+</script>
 <script src="/chart.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 
+/* ============================================================= themes
+   three full palettes, swapped by [data-theme] on <html> (set before
+   first paint by the boot script in <head>):
+     light (default) — white-blue/green: blue = interactive chrome
+       (tabs, buttons, focus), green = money-in/success/engine, red =
+       money-out/danger. Deposit keeps .btn-success green and withdraw
+       keeps .btn-danger red in ALL themes.
+     dark  — grayish slate finish. black — AMOLED true #000.
+   Components below only ever consume tokens. */
 :root {
-  --color-secondary:#1E293B; --color-on-secondary:#FFFFFF;
-  --color-accent:#22C55E; --color-on-accent:#0F172A;
-  --color-background:#020617; --color-foreground:#F8FAFC;
-  --color-card:#0E1223; --color-card-foreground:#F8FAFC;
-  --color-muted:#1A1E2F; --color-muted-foreground:#94A3B8;
-  --color-border:#334155; --color-destructive:#EF4444; --color-on-destructive:#000000;
-  --color-ring:#FFFFFF;
-  --color-pos:#22C55E; --color-neg:#EF4444; --color-blue:#38BDF8;
+  color-scheme: light;
+  --color-background:#F6F8FB; --color-foreground:#0F172A;
+  --color-card:#FFFFFF; --color-card-foreground:#0F172A;
+  --color-muted:#EDF1F6; --color-muted-foreground:#5B6B80;
+  --color-border:#DFE5EC;
+  --color-primary:#2563EB; --color-on-primary:#FFFFFF; --color-primary-hover:#1D4ED8;
+  --color-accent:#15803D; --color-on-accent:#FFFFFF; --color-accent-hover:#166534;
+  --color-secondary:#2563EB; --color-on-secondary:#FFFFFF;
+  --color-destructive:#DC2626; --color-on-destructive:#FFFFFF;
+  --color-destructive-hover:#B91C1C;
+  --color-pos:#15803D; --color-neg:#DC2626; --color-blue:#2563EB;
+  --color-ring:#2563EB;
+  --ring-soft:rgba(37,99,235,.16);
+  --pos-soft:rgba(21,128,61,.11); --neg-soft:rgba(220,38,38,.10);
+  --blue-soft:rgba(37,99,235,.11); --hold-soft:rgba(91,107,128,.12);
+  --row-hover:rgba(37,99,235,.045);
+  --hover-border:rgba(37,99,235,.38);
+  --header-bg:rgba(255,255,255,.86);
+  --overlay:rgba(15,23,42,.45);
+  --glow-pos:rgba(21,128,61,.30);
+  --shimmer:rgba(91,107,128,.16);
+  --shadow-sm:0 1px 2px rgba(15,23,42,.05);
+  --shadow-md:0 1px 2px rgba(15,23,42,.05),0 4px 14px -4px rgba(15,23,42,.10);
+  --shadow-lg:0 12px 28px -8px rgba(15,23,42,.16);
+  --shadow-xl:0 24px 56px -16px rgba(15,23,42,.24);
+  --hero-grad:radial-gradient(90% 140% at 88% -20%,rgba(37,99,235,.09),transparent 55%),
+              radial-gradient(90% 140% at 8% -30%,rgba(21,128,61,.11),transparent 52%);
+  --grad-pos:linear-gradient(90deg,#15803D,#22C55E);
+  --grad-neg:linear-gradient(90deg,#B91C1C,#EF4444);
+  --chart-line:#16A34A; --chart-fill:rgba(22,163,74,.10); --chart-grid:rgba(15,23,42,.08);
+  --scrollbar:rgba(91,107,128,.38); --scrollbar-hover:rgba(91,107,128,.60);
+  --brand-grad:linear-gradient(135deg,#22C55E,#2563EB);
+  /* the terminal feed stays a dark code-block in every theme (deliberate) */
+  --term-bg:#05080F; --term-border:#1B2432; --term-line:rgba(51,65,85,.5);
+  --term-fg:#E7EDF5; --term-muted:#7C8AA0; --term-dim:#A8B3C5;
+  /* shared metrics — identical across themes */
   --space-sm:0.25rem; --space-md:0.5rem; --space-lg:0.75rem;
   --space-xl:1rem; --space-2xl:1.5rem; --space-3xl:2rem;
-  --shadow-lg:0 10px 15px rgba(0,0,0,0.1); --shadow-xl:0 20px 25px rgba(0,0,0,0.15);
   --font-ui:'Fira Sans',-apple-system,sans-serif;
   --font-mono:'Fira Code','SF Mono',monospace;
   --radius:8px; --radius-lg:12px;
   --trans:200ms ease;
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-background:#0F1218; --color-foreground:#E8ECF3;
+  --color-card:#161A22; --color-card-foreground:#E8ECF3;
+  --color-muted:#1D222C; --color-muted-foreground:#98A2B3;
+  --color-border:#2A3140;
+  --color-primary:#2563EB; --color-on-primary:#FFFFFF; --color-primary-hover:#3B82F6;
+  --color-accent:#22C55E; --color-on-accent:#052E16; --color-accent-hover:#4ADE80;
+  --color-secondary:#1D4ED8; --color-on-secondary:#FFFFFF;
+  --color-destructive:#DC2626; --color-on-destructive:#FFFFFF;
+  --color-destructive-hover:#EF4444;
+  --color-pos:#4ADE80; --color-neg:#F87171; --color-blue:#60A5FA;
+  --color-ring:#60A5FA;
+  --ring-soft:rgba(96,165,250,.22);
+  --pos-soft:rgba(74,222,128,.13); --neg-soft:rgba(248,113,113,.13);
+  --blue-soft:rgba(96,165,250,.13); --hold-soft:rgba(152,162,179,.14);
+  --row-hover:rgba(148,163,184,.07);
+  --hover-border:rgba(96,165,250,.45);
+  --header-bg:rgba(19,23,31,.86);
+  --overlay:rgba(2,6,16,.62);
+  --glow-pos:rgba(34,197,94,.45);
+  --shimmer:rgba(152,162,179,.10);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35);
+  --shadow-md:0 1px 2px rgba(0,0,0,.35),0 4px 16px -4px rgba(0,0,0,.45);
+  --shadow-lg:0 12px 28px -8px rgba(0,0,0,.55);
+  --shadow-xl:0 24px 56px -16px rgba(0,0,0,.65);
+  --hero-grad:radial-gradient(90% 140% at 88% -20%,rgba(37,99,235,.16),transparent 55%),
+              radial-gradient(90% 140% at 8% -30%,rgba(34,197,94,.12),transparent 52%);
+  --grad-pos:linear-gradient(90deg,#16A34A,#4ADE80);
+  --grad-neg:linear-gradient(90deg,#DC2626,#F87171);
+  --chart-line:#4ADE80; --chart-fill:rgba(74,222,128,.09); --chart-grid:rgba(148,163,184,.13);
+  --scrollbar:rgba(152,162,179,.30); --scrollbar-hover:rgba(152,162,179,.50);
+}
+:root[data-theme="black"] {
+  color-scheme: dark;
+  --color-background:#000000; --color-foreground:#F4F5F7;
+  --color-card:#0B0B0D; --color-card-foreground:#F4F5F7;
+  --color-muted:#151518; --color-muted-foreground:#A1A6B0;
+  --color-border:#26262C;
+  --color-primary:#2563EB; --color-on-primary:#FFFFFF; --color-primary-hover:#3B82F6;
+  --color-accent:#22C55E; --color-on-accent:#052E16; --color-accent-hover:#4ADE80;
+  --color-secondary:#1D4ED8; --color-on-secondary:#FFFFFF;
+  --color-destructive:#DC2626; --color-on-destructive:#FFFFFF;
+  --color-destructive-hover:#EF4444;
+  --color-pos:#4ADE80; --color-neg:#F87171; --color-blue:#60A5FA;
+  --color-ring:#60A5FA;
+  --ring-soft:rgba(96,165,250,.20);
+  --pos-soft:rgba(74,222,128,.13); --neg-soft:rgba(248,113,113,.13);
+  --blue-soft:rgba(96,165,250,.13); --hold-soft:rgba(161,166,176,.14);
+  --row-hover:rgba(255,255,255,.05);
+  --hover-border:rgba(96,165,250,.42);
+  --header-bg:rgba(0,0,0,.84);
+  --overlay:rgba(0,0,0,.72);
+  --glow-pos:rgba(34,197,94,.50);
+  --shimmer:rgba(161,166,176,.10);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.6);
+  --shadow-md:0 1px 2px rgba(0,0,0,.6),0 4px 16px -4px rgba(0,0,0,.7);
+  --shadow-lg:0 12px 28px -8px rgba(0,0,0,.8);
+  --shadow-xl:0 24px 56px -16px rgba(0,0,0,.9);
+  --hero-grad:radial-gradient(90% 140% at 88% -20%,rgba(37,99,235,.13),transparent 55%),
+              radial-gradient(90% 140% at 8% -30%,rgba(34,197,94,.10),transparent 52%);
+  --grad-pos:linear-gradient(90deg,#16A34A,#4ADE80);
+  --grad-neg:linear-gradient(90deg,#DC2626,#F87171);
+  --chart-line:#4ADE80; --chart-fill:rgba(74,222,128,.08); --chart-grid:rgba(255,255,255,.09);
+  --scrollbar:rgba(161,166,176,.28); --scrollbar-hover:rgba(161,166,176,.48);
+}
 * { box-sizing:border-box; margin:0; padding:0; }
-html { scroll-behavior:smooth; }
+html { scroll-behavior:smooth; scroll-padding-top:118px; scrollbar-gutter:stable; }
 body { background:var(--color-background); color:var(--color-foreground);
        font:14px/1.5 var(--font-ui); -webkit-font-smoothing:antialiased; }
+::selection { background:var(--ring-soft); }
+/* slim theme-aware scrollbars everywhere (firefox via scrollbar-*,
+   webkit below) — part of the smooth-scroll feel */
+* { scrollbar-width:thin; scrollbar-color:var(--scrollbar) transparent; }
+::-webkit-scrollbar { width:10px; height:10px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--scrollbar); border-radius:8px;
+                            border:3px solid transparent; background-clip:content-box; }
+::-webkit-scrollbar-thumb:hover { background-color:var(--scrollbar-hover); }
 
 /* ---------------------------------------------------------------- header */
 .topbar { display:flex; justify-content:space-between; align-items:center; gap:var(--space-lg);
           padding:var(--space-lg) var(--space-xl); border-bottom:1px solid var(--color-border);
-          background:var(--color-card); position:sticky; top:0; z-index:40;
+          background:var(--header-bg); backdrop-filter:blur(10px);
+          -webkit-backdrop-filter:blur(10px);
+          position:sticky; top:0; z-index:40;
           padding-left:max(1rem, env(safe-area-inset-left)); }
 .brand { display:flex; align-items:center; gap:var(--space-md); min-width:0; }
-.brand svg { color:var(--color-accent); flex-shrink:0; }
+/* gradient logo chip — the one fixed-brand-color element in every theme */
+.logo-chip { width:32px; height:32px; border-radius:9px; background:var(--brand-grad);
+             display:grid; place-items:center; color:#fff; flex-shrink:0;
+             box-shadow:0 2px 10px rgba(37,99,235,.30); }
+.logo-chip svg { width:17px; height:17px; }
 .brand h1 { font:600 15px/1.2 var(--font-mono); letter-spacing:.3px; white-space:nowrap; }
 .brand .sub { color:var(--color-muted-foreground); font-size:11px; white-space:nowrap;
               overflow:hidden; text-overflow:ellipsis; }
+.topbar-right { display:flex; align-items:center; gap:10px; }
 .engine-pill { display:inline-flex; align-items:center; gap:6px; font-size:12px;
                color:var(--color-muted-foreground); padding:4px 10px;
                border:1px solid var(--color-border); border-radius:999px;
                white-space:nowrap; background:var(--color-muted); }
 .dot { width:8px; height:8px; border-radius:50%; background:var(--color-muted-foreground);
        transition:background var(--trans); flex-shrink:0; }
-.dot.on { background:var(--color-accent); box-shadow:0 0 10px rgba(34,197,94,.5); }
+.dot.on { background:var(--color-pos); box-shadow:0 0 10px var(--glow-pos); }
 .dot.off { background:var(--color-neg); }
+
+/* theme switch — 3-state segmented control (light · dark · AMOLED black) */
+.theme-switch { display:inline-flex; gap:2px; padding:3px;
+                border:1px solid var(--color-border); border-radius:999px;
+                background:var(--color-muted); }
+.theme-switch button { width:32px; height:26px; border-radius:999px; border:none;
+                       background:transparent; color:var(--color-muted-foreground);
+                       cursor:pointer; display:grid; place-items:center;
+                       transition:background var(--trans),color var(--trans); }
+.theme-switch button:hover { color:var(--color-foreground); }
+.theme-switch button[aria-pressed="true"] { background:var(--color-card);
+  color:var(--color-primary); box-shadow:var(--shadow-sm); }
+.theme-switch svg { width:14px; height:14px; }
+
+/* amber degraded-engine pill (health_note: position behind a dead feed) */
+.engine-pill.warn .dot { background:var(--color-neg); }
+.health-banner { display:none; align-items:flex-start; gap:10px;
+                 background:var(--neg-soft); border:1px solid var(--color-neg);
+                 color:var(--color-neg); border-radius:var(--radius);
+                 padding:12px 14px; font-size:13px; margin-bottom:12px; }
+.health-banner.show { display:flex; }
+.health-banner svg { width:17px; height:17px; flex-shrink:0; margin-top:1px; }
+.health-banner .h-dismiss { margin-left:auto; background:transparent;
+                            border:1px solid var(--color-neg); border-radius:6px;
+                            color:var(--color-neg); cursor:pointer; padding:4px 10px;
+                            font:600 11px/1.4 var(--font-ui); flex-shrink:0; }
+.health-banner .h-dismiss:hover { background:rgba(220,38,38,.14); }
 
 /* ---------------------------------------------------------------- tabs */
 .tabs { display:flex; gap:2px; padding:0 var(--space-xl); border-bottom:1px solid var(--color-border);
-        background:var(--color-card); overflow-x:auto; scrollbar-width:none;
+        background:var(--header-bg); backdrop-filter:blur(10px);
+        -webkit-backdrop-filter:blur(10px);
+        overflow-x:auto; scrollbar-width:none;
         position:sticky; top:57px; z-index:39; }
 .tabs::-webkit-scrollbar { display:none; }
 .tab { appearance:none; background:transparent; border:none; border-bottom:2px solid transparent;
        color:var(--color-muted-foreground); font:500 13px/1 var(--font-ui);
-       padding:12px 14px; cursor:pointer; transition:color var(--trans),border-color var(--trans);
+       padding:12px 14px; cursor:pointer; border-radius:6px 6px 0 0;
+       transition:color var(--trans),border-color var(--trans),background var(--trans);
        display:inline-flex; align-items:center; gap:7px; white-space:nowrap; min-height:44px; }
 .tab svg { width:15px; height:15px; }
-.tab:hover { color:var(--color-foreground); }
-.tab.active { color:var(--color-accent); border-bottom-color:var(--color-accent); }
+.tab:hover { color:var(--color-foreground); background:var(--color-muted); }
+.tab.active { color:var(--color-primary); border-bottom-color:var(--color-primary);
+              background:transparent; }
 .tab:focus-visible, button:focus-visible, a:focus-visible, input:focus-visible,
 select:focus-visible, .icon-btn:focus-visible { outline:2px solid var(--color-ring);
   outline-offset:2px; border-radius:4px; }
@@ -735,40 +1143,51 @@ main { max-width:1400px; margin:0 auto; padding:var(--space-xl); padding-bottom:
 
 /* ---------------------------------------------------------------- primitives */
 .card { background:var(--color-card); border:1px solid var(--color-border);
-        border-radius:var(--radius-lg); padding:var(--space-lg); }
+        border-radius:var(--radius-lg); padding:var(--space-lg);
+        box-shadow:var(--shadow-sm); }
 .card + .card { margin-top:var(--space-lg); }
 .card-head { display:flex; justify-content:space-between; align-items:center; gap:var(--space-md);
              margin-bottom:var(--space-lg); flex-wrap:wrap; }
 .card-head h2 { display:flex; align-items:center; gap:8px; font:600 12px/1 var(--font-ui);
                 text-transform:uppercase; letter-spacing:.8px; color:var(--color-muted-foreground); }
-.card-head h2 svg { width:15px; height:15px; color:var(--color-accent); }
+.card-head h2 svg { width:15px; height:15px; color:var(--color-primary); }
 .card-head .hint { font-size:11px; color:var(--color-muted-foreground); }
 .grid { display:grid; gap:var(--space-md); }
 
 .btn { display:inline-flex; align-items:center; justify-content:center; gap:7px;
        min-height:44px; padding:0 16px; border-radius:var(--radius); border:1px solid transparent;
-       font:600 13px/1 var(--font-ui); cursor:pointer; transition:all var(--trans);
-       background:var(--color-accent); color:var(--color-on-accent); }
-.btn:hover { opacity:.9; filter:brightness(1.08); }
-.btn:disabled { opacity:.45; cursor:not-allowed; }
+       font:600 13px/1 var(--font-ui); cursor:pointer; box-shadow:var(--shadow-sm);
+       transition:background var(--trans),color var(--trans),border-color var(--trans),
+                  box-shadow var(--trans),transform var(--trans),opacity var(--trans);
+       background:var(--color-primary); color:var(--color-on-primary); }
+.btn:hover { background:var(--color-primary-hover); box-shadow:var(--shadow-md);
+             transform:translateY(-1px); }
+.btn:active { transform:translateY(0); box-shadow:var(--shadow-sm); }
+.btn:disabled { opacity:.45; cursor:not-allowed; transform:none; box-shadow:none; }
 .btn svg { width:15px; height:15px; }
+/* money semantics stay fixed across every theme: green in · red out */
+.btn-success { background:var(--color-accent); color:var(--color-on-accent); }
+.btn-success:hover { background:var(--color-accent-hover); }
 .btn-danger { background:var(--color-destructive); color:var(--color-on-destructive); }
-.btn-danger:hover { background:#DC2626; }
-.btn-secondary { background:transparent; color:var(--color-foreground);
-                 border:1px solid var(--color-border); }
-.btn-secondary:hover { border-color:var(--color-muted-foreground); background:var(--color-muted); }
+.btn-danger:hover { background:var(--color-destructive-hover); }
+.btn-secondary { background:var(--color-card); color:var(--color-foreground);
+                 border:1px solid var(--color-border); box-shadow:none; }
+.btn-secondary:hover { border-color:var(--color-muted-foreground); background:var(--color-muted);
+                       box-shadow:var(--shadow-sm); transform:translateY(-1px); }
 .btn-ghost { background:transparent; color:var(--color-muted-foreground);
-             border:1px solid var(--color-border); }
-.btn-ghost:hover { color:var(--color-foreground); border-color:var(--color-muted-foreground); }
+             border:1px solid var(--color-border); box-shadow:none; }
+.btn-ghost:hover { color:var(--color-foreground); border-color:var(--color-muted-foreground);
+                   background:var(--color-muted); transform:none; }
 
-.input, select { min-height:44px; padding:8px 12px; background:var(--color-muted);
+.input, select { min-height:44px; padding:8px 12px; background:var(--color-card);
                  border:1px solid var(--color-border); border-radius:var(--radius);
                  color:var(--color-foreground); font:13px/1.4 var(--font-ui); width:100%;
-                 transition:border-color var(--trans); cursor:pointer; }
+                 transition:border-color var(--trans),box-shadow var(--trans); cursor:pointer; }
 .input { font-family:var(--font-mono); cursor:text; }
 .input:hover, select:hover { border-color:var(--color-muted-foreground); }
-.input:focus, select:focus { border-color:var(--color-accent); outline:none;
-                             box-shadow:0 0 0 3px rgba(34,197,94,.15); }
+.input:focus, select:focus { border-color:var(--color-primary); outline:none;
+                             box-shadow:0 0 0 3px var(--ring-soft); }
+.input::placeholder { color:var(--color-muted-foreground); opacity:.7; }
 label.fld { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.5px;
             color:var(--color-muted-foreground); margin-bottom:4px; }
 
@@ -780,7 +1199,7 @@ th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--color-
 th { color:var(--color-muted-foreground); font:500 10.5px/1.2 var(--font-ui);
      text-transform:uppercase; letter-spacing:.7px; }
 tbody tr { transition:background 150ms ease; }
-tbody tr:hover { background:rgba(51,65,85,.18); }
+tbody tr:hover { background:var(--row-hover); }
 tbody tr:last-child td { border-bottom:none; }
 td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums;
                  text-align:right; }
@@ -791,23 +1210,25 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 
 .tag { display:inline-block; padding:2px 8px; border-radius:4px; font:500 10.5px/1.4
        var(--font-mono); letter-spacing:.5px; }
-.tag.long { background:rgba(34,197,94,.12); color:var(--color-pos); }
-.tag.short { background:rgba(239,68,68,.12); color:var(--color-neg); }
-.tag.hold { background:rgba(148,163,184,.12); color:var(--color-muted-foreground); }
-.tag.close { background:rgba(56,189,248,.12); color:var(--color-blue); }
-.tag.open { background:rgba(34,197,94,.10); color:var(--color-pos); }
+.tag.long { background:var(--pos-soft); color:var(--color-pos); }
+.tag.short { background:var(--neg-soft); color:var(--color-neg); }
+.tag.hold { background:var(--hold-soft); color:var(--color-muted-foreground); }
+.tag.close { background:var(--blue-soft); color:var(--color-blue); }
+.tag.open { background:var(--pos-soft); color:var(--color-pos); }
 .tag.tf { background:var(--color-muted); color:var(--color-muted-foreground); }
+.tag.demo { background:var(--color-muted); color:var(--color-muted-foreground);
+            border:1px dashed var(--color-muted-foreground); font-style:italic; }
 .icon-btn { background:transparent; border:1px solid var(--color-border); color:var(--color-neg);
             border-radius:6px; width:34px; height:34px; display:inline-flex; align-items:center;
             justify-content:center; cursor:pointer; transition:all var(--trans); }
-.icon-btn:hover { border-color:var(--color-neg); background:rgba(239,68,68,.1); }
+.icon-btn:hover { border-color:var(--color-neg); background:var(--neg-soft); }
 .icon-btn svg { width:14px; height:14px; }
 
 /* loading skeleton */
 .skeleton { position:relative; overflow:hidden; background:var(--color-muted);
             border-radius:4px; height:14px; }
 .skeleton::after { content:''; position:absolute; inset:0;
-                   background:linear-gradient(90deg,transparent,rgba(148,163,184,.12),transparent);
+                   background:linear-gradient(90deg,transparent,var(--shimmer),transparent);
                    animation:shimmer 1.4s infinite; }
 @keyframes shimmer { from { transform:translateX(-100%); } to { transform:translateX(100%); } }
 .sk-row { display:flex; gap:var(--space-md); padding:9px 10px; align-items:center; }
@@ -816,7 +1237,11 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 .stats-grid { display:grid; gap:var(--space-md); margin-bottom:var(--space-lg);
               grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
 .stat { background:var(--color-card); border:1px solid var(--color-border);
-        border-radius:var(--radius-lg); padding:var(--space-md) var(--space-lg); }
+        border-radius:var(--radius-lg); padding:var(--space-md) var(--space-lg);
+        box-shadow:var(--shadow-sm);
+        transition:border-color var(--trans),box-shadow var(--trans),transform var(--trans); }
+.stat:hover { border-color:var(--hover-border); box-shadow:var(--shadow-md);
+              transform:translateY(-2px); }
 .stat .label { color:var(--color-muted-foreground); font:500 10px/1.3 var(--font-ui);
                text-transform:uppercase; letter-spacing:.8px; display:flex;
                align-items:center; gap:6px; }
@@ -843,18 +1268,19 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 .engine-state .sub { font-size:11px; color:var(--color-muted-foreground); }
 
 /* ---------------------------------------------------------------- decisions feed */
-.term { background:#05080F; border:1px solid var(--color-border); border-radius:var(--radius);
+.term { background:var(--term-bg); border:1px solid var(--term-border);
+        border-radius:var(--radius);
         font:12px/1.7 var(--font-mono); padding:var(--space-lg);
         max-height:520px; overflow-y:auto; }
-.term-row { display:flex; gap:10px; padding:5px 0; border-bottom:1px dashed rgba(51,65,85,.5);
+.term-row { display:flex; gap:10px; padding:5px 0; border-bottom:1px dashed var(--term-line);
             align-items:baseline; }
 .term-row:last-child { border-bottom:none; }
-.term-ts { color:var(--color-muted-foreground); font-size:11px; flex-shrink:0; padding-top:2px; }
+.term-ts { color:var(--term-muted); font-size:11px; flex-shrink:0; padding-top:2px; }
 .term-body { min-width:0; }
 .term-line { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-.term-mkt { color:var(--color-foreground); font-weight:600; }
-.term-meta { color:var(--color-muted-foreground); font-size:11px; }
-.term-why { color:#A8B3C5; font-size:11.5px; margin-top:2px; word-break:break-word; }
+.term-mkt { color:var(--term-fg); font-weight:600; }
+.term-meta { color:var(--term-muted); font-size:11px; }
+.term-why { color:var(--term-dim); font-size:11.5px; margin-top:2px; word-break:break-word; }
 
 /* strategy bars */
 .strat-bars { display:flex; flex-direction:column; gap:10px; }
@@ -865,8 +1291,8 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 .sbar .track { height:18px; background:var(--color-muted); border-radius:4px;
                overflow:hidden; position:relative; }
 .sbar .fill { position:absolute; top:0; bottom:0; transition:width .4s ease; border-radius:4px; }
-.sbar .fill.pos { background:linear-gradient(90deg,#15803D,#22C55E); }
-.sbar .fill.neg { background:linear-gradient(90deg,#B91C1C,#EF4444); right:0; }
+.sbar .fill.pos { background:var(--grad-pos); }
+.sbar .fill.neg { background:var(--grad-neg); right:0; }
 .sbar .val { font-family:var(--font-mono); font-variant-numeric:tabular-nums;
              text-align:right; font-size:12px; }
 
@@ -874,8 +1300,9 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 .wl-grid { display:grid; gap:var(--space-md); grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
 .wl-item { display:flex; justify-content:space-between; align-items:center; gap:var(--space-md);
            background:var(--color-muted); border:1px solid var(--color-border);
-           border-radius:var(--radius); padding:10px 12px; transition:border-color var(--trans); }
-.wl-item:hover { border-color:var(--color-muted-foreground); }
+           border-radius:var(--radius); padding:10px 12px;
+           transition:border-color var(--trans),box-shadow var(--trans); }
+.wl-item:hover { border-color:var(--hover-border); box-shadow:var(--shadow-sm); }
 .wl-item .sy { font:600 13px/1.3 var(--font-mono); }
 .wl-item .meta { display:flex; gap:6px; margin-top:3px; flex-wrap:wrap; }
 .wl-item .meta .tag { font-size:10px; }
@@ -890,15 +1317,17 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   .wl-form button { grid-column:1 / -1; } }
 @media (max-width:560px) { .wl-form { grid-template-columns:1fr; } }
 .presets { display:flex; gap:var(--space-md); flex-wrap:wrap; }
-.preset-btn { background:var(--color-muted); border:1px dashed var(--color-border);
+.preset-btn { background:var(--color-card); border:1px dashed var(--color-border);
               color:var(--color-muted-foreground); border-radius:var(--radius);
               padding:8px 14px; font:500 12px/1.3 var(--font-ui); cursor:pointer;
               transition:all var(--trans); min-height:44px; }
-.preset-btn:hover { color:var(--color-accent); border-color:var(--color-accent); }
+.preset-btn:hover { color:var(--color-primary); border-color:var(--hover-border);
+                    background:var(--blue-soft); }
 .preset-btn svg { width:13px; height:13px; vertical-align:-2px; margin-right:5px; }
 
 /* ---------------------------------------------------------------- account */
-.balance-card { text-align:center; padding:var(--space-2xl) var(--space-lg); }
+.balance-card { text-align:center; padding:var(--space-2xl) var(--space-lg);
+                background-color:var(--color-card); background-image:var(--hero-grad); }
 .balance-label { color:var(--color-muted-foreground); font:500 11px/1 var(--font-ui);
                  text-transform:uppercase; letter-spacing:1px; }
 .balance-value { font:700 clamp(28px,6vw,44px)/1.15 var(--font-mono);
@@ -913,7 +1342,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
                    margin-top:2px; }
 
 /* ---------------------------------------------------------------- modal + toast */
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); backdrop-filter:blur(4px);
+.modal-overlay { position:fixed; inset:0; background:var(--overlay); backdrop-filter:blur(4px);
                  display:none; align-items:center; justify-content:center; z-index:100;
                  padding:var(--space-lg); }
 .modal-overlay.open { display:flex; }
@@ -933,7 +1362,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 #toasts { position:fixed; bottom:16px; right:16px; z-index:200; display:flex;
           flex-direction:column; gap:8px; max-width:min(92vw,380px); }
 .toast { display:flex; align-items:flex-start; gap:10px; background:var(--color-card);
-         border:1px solid var(--color-border); border-left:3px solid var(--color-accent);
+         border:1px solid var(--color-border); border-left:3px solid var(--color-pos);
          border-radius:var(--radius); padding:12px 14px; font-size:13px;
          box-shadow:var(--shadow-lg); animation:toastIn .25s ease; }
 .toast.err { border-left-color:var(--color-neg); }
@@ -941,10 +1370,15 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 .toast .t-msg { color:var(--color-muted-foreground); font-size:12px; margin-top:1px;
                 word-break:break-word; }
 .toast svg { width:16px; height:16px; flex-shrink:0; margin-top:1px;
-             color:var(--color-accent); }
+             color:var(--color-pos); }
 .toast.err svg { color:var(--color-neg); }
 @keyframes toastIn { from { opacity:0; transform:translateX(16px); } to { opacity:1; transform:none; } }
 .toast.out { opacity:0; transform:translateX(16px); transition:all .3s ease; }
+
+/* offline fallback for Chart.js (styled here, not inline, so it themes) */
+.chart-offline { padding:8px 14px; margin:10px 0; border-radius:8px; font-size:12px;
+                 background:var(--neg-soft); border:1px solid var(--color-neg);
+                 color:var(--color-neg); }
 
 /* ---------------------------------------------------------------- chat */
 .chat-shell { display:flex; flex-direction:column; height:min(560px,70vh); }
@@ -962,7 +1396,8 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 .quick-chip { background:transparent; border:1px solid var(--color-border); color:var(--color-muted-foreground);
               border-radius:999px; padding:7px 13px; font:400 12px/1.3 var(--font-ui);
               cursor:pointer; transition:all var(--trans); }
-.quick-chip:hover { color:var(--color-accent); border-color:var(--color-accent); }
+.quick-chip:hover { color:var(--color-primary); border-color:var(--hover-border);
+                    background:var(--blue-soft); }
 .chatform { display:flex; gap:var(--space-md); margin-top:var(--space-md); }
 .chatform input { flex:1; }
 .typing { display:inline-flex; gap:4px; padding:10px 14px; }
@@ -1005,15 +1440,30 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 
 <header class="topbar">
   <div class="brand">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+    <span class="logo-chip" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+    </span>
     <div>
       <h1>ALGO TRADING BOT</h1>
       <div class="sub">crypto + forex · paper trading · IST</div>
     </div>
   </div>
-  <div class="engine-pill" role="status">
-    <span class="dot" id="engineDot"></span>
-    <span id="enginePillText">engine: checking…</span>
+  <div class="topbar-right">
+    <div class="engine-pill" role="status" title="">
+      <span class="dot" id="engineDot"></span>
+      <span id="enginePillText">engine: checking…</span>
+    </div>
+    <div class="theme-switch" role="group" aria-label="Color theme">
+      <button type="button" data-theme="light" aria-pressed="false" title="Light" aria-label="Light theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </button>
+      <button type="button" data-theme="dark" aria-pressed="false" title="Dark (gray)" aria-label="Dark theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button type="button" data-theme="black" aria-pressed="false" title="Black (AMOLED)" aria-label="AMOLED black theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+      </button>
+    </div>
   </div>
 </header>
 
@@ -1027,6 +1477,9 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   <button class="tab" data-view="watchlist" id="tab-watchlist">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-clock"/></svg>
     Watchlist</button>
+  <button class="tab" data-view="evidence" id="tab-evidence">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+    Evidence</button>
   <button class="tab" data-view="account" id="tab-account">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
     Account</button>
@@ -1041,9 +1494,15 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
      .tabs bar is the nav at all sizes now -->
 
 <main>
+<div class="health-banner" id="healthBanner" role="alert">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>
+  <div><b>Engine degraded:</b> <span id="healthMsg"></span></div>
+  <button class="h-dismiss" id="healthDismiss" type="button" aria-label="Dismiss">dismiss</button>
+</div>
 <!-- ============================================================ OVERVIEW -->
 <section class="view active" id="view-overview">
   <div class="stats-grid" id="ovStats"></div>
+  <div class="hint" id="ovDemoNote" style="margin:-6px 0 10px"></div>
   <div class="grid" style="grid-template-columns:2fr 1fr;margin-bottom:12px">
     <div class="card chart-card"><div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-trend"/></svg>Equity curve · mark-to-market</h2><span class="hint" id="eqRange"></span></div><div class="chart-body"><canvas id="equityChart"></canvas></div></div>
     <div class="card engine-card">
@@ -1178,6 +1637,33 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   </div>
 </section>
 
+<!-- ============================================================ EVIDENCE -->
+<section class="view" id="view-evidence">
+  <div class="stats-grid" id="evCards"></div>
+  <div class="hint" id="evHint" style="margin:-6px 0 10px">The honesty layer, rendered: every card and chart here is a GENERATED artifact (<code>make validate</code>, <code>python3 main.py shadow</code>, the fetch manifest) — never hand-edited. Empty cards mean the command hasn't been run on this machine yet.</div>
+  <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+    <div class="card chart-card">
+      <div class="card-head"><h2>Kronos rolling rank-IC vs its promotion hurdle</h2><span class="hint" id="krMeta"></span></div>
+      <div class="chart-body"><canvas id="kronosChart"></canvas></div>
+      <div class="empty" id="krEmpty" hidden>no resolved forecasts yet — the ledger fills as the engine (or <code>main.py kronos</code>) forecasts and the horizons resolve</div>
+    </div>
+    <div class="card chart-card">
+      <div class="card-head"><h2>Purged-CV out-of-sample path distribution</h2>
+        <select class="input" id="evReportSel" style="max-width:300px;min-height:34px"></select></div>
+      <div class="chart-body"><canvas id="cvChart"></canvas></div>
+      <div class="empty" id="cvEmpty" hidden>no validation reports on this machine — run <code>make validate</code></div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-head"><h2>Shadow Account — did the bot follow its own rules?</h2></div>
+    <div id="evShadow"><div class="empty">loading…</div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Pinned data manifest — fetch provenance</h2></div>
+    <div id="evManifest"><div class="empty">loading…</div></div>
+  </div>
+</section>
+
 <!-- ============================================================ ACCOUNT -->
 <section class="view" id="view-account">
   <div class="card balance-card">
@@ -1197,7 +1683,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       <form id="depositForm" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
         <div style="flex:1;min-width:130px"><label class="fld" for="depositAmt">Amount ($)</label>
           <input class="input" id="depositAmt" inputmode="decimal" placeholder="500" autocomplete="off"></div>
-        <button class="btn" type="submit" style="flex-shrink:0">
+        <button class="btn btn-success" type="submit" style="flex-shrink:0">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><use href="#i-plus"/></svg>Deposit</button>
       </form>
     </div>
@@ -1282,6 +1768,22 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 
 <div id="toasts" aria-live="polite"></div>
 
+<!-- token gate: shown by askForToken() when the API answers 401 with no
+     stored token (DASHBOARD_TOKEN mode) -->
+<div class="modal-overlay" id="tokenGate" role="dialog" aria-modal="true" aria-labelledby="tokenTitle">
+  <div class="modal">
+    <h3 id="tokenTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Token required</h3>
+    <p>This dashboard requires a bearer token. Paste it once — it is stored in
+    this browser only and attached to every API call.</p>
+    <label class="fld" for="tokenInput">Bearer token</label>
+    <input class="input" id="tokenInput" placeholder="the DASHBOARD_TOKEN value" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="tokenCancel">Cancel</button>
+      <button class="btn" id="tokenSave">Save &amp; reload</button>
+    </div>
+  </div>
+</div>
+
 <script>
 'use strict';
 /* ===================================================== tiny helpers */
@@ -1294,19 +1796,25 @@ const fmt$ = v => (v == null || isNaN(v)) ? '—' : '$' + fmtNum(v);
 const sign = v => v > 0 ? '+' : '';
 // sign() alone must stay ''-for-negatives: fmtPct does NOT wrap in Math.abs,
 // so toFixed already emits the minus there ('--3.20%' if sign grew one). fmtPnl
-// takes the abs path and prefixes its own '-'
+// takes the abs path and prefixes its own '-'.
+// z() kills negative zero and float noise: -0.0 showed as "-0.00%" and a
+// 1e-16 re-mark showed as "-$0.00" (a red flag on an empty minus)
+const z = v => (v === 0 || Math.abs(v) < 0.005) ? 0 : v;
 const fmtPnl = v => (v == null || isNaN(v)) ? '—'
-  : (v > 0 ? '+' : v < 0 ? '-' : '') + '$' + fmtNum(Math.abs(v));
-const fmtPct = v => (v == null || isNaN(v)) ? '—' : sign(v) + Number(v).toFixed(2) + '%';
+  : (v > 0.005 ? '+' : v < -0.005 ? '-' : '') + '$' + fmtNum(Math.abs(v));
+const fmtPct = v => (v == null || isNaN(v)) ? '—' : sign(v) + z(v).toFixed(2) + '%';
 const isForex = s => String(s).includes('=');
 const fmtPx = (v, s) => (v == null || isNaN(v) || !Number(v)) ? '—'
   : fmtNum(v, isForex(s) ? 5 : 2);
 const fmtQty = v => (v == null || isNaN(v)) ? '—'
   : Number(v).toLocaleString(undefined, {maximumSignificantDigits: 5});
-const posCls = v => Number(v) > 0 ? 'pos' : Number(v) < 0 ? 'neg' : '';
+const posCls = v => z(v) > 0 ? 'pos' : z(v) < 0 ? 'neg' : '';
 const tag = (cls, text) => '<span class="tag ' + esc(cls) + '">' + esc(text) + '</span>';
 const sideTag = s => tag((s || '').toLowerCase(), String(s).toUpperCase());
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* read a CSS custom property off :root — lets the Chart.js canvas follow
+   the active theme (light/dark/black) without rebuilding it */
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 /* journal timestamps are ISO-UTC; the UI reads IST (+05:30 fixed, no DST) —
    shift by 330min and read via getUTC* so the browser's own zone never leaks in.
    Keep in sync with _fmt_ts in bot/chatbot.py (same IST display contract). */
@@ -1319,11 +1827,44 @@ const fmtTs = ts => {
          p(ist.getUTCHours()) + ':' + p(ist.getUTCMinutes());
 };
 
-async function jget(u) { const r = await fetch(u); if (!r.ok) throw new Error('GET ' + u);
-                         return r.json(); }
+/* optional bearer token (DASHBOARD_TOKEN): stored once, attached to every
+   fetch. A normal browser navigation cannot send headers, so the page shell
+   is served unguarded (no secrets in it) and the SPA supplies the header. */
+const _tok = () => { try { return localStorage.getItem('algo-token') || ''; }
+                     catch (e) { return ''; } };
+function askForToken() {
+  /* the gate: shown once when the API answers 401 and no token is stored */
+  const gate = $('#tokenGate');
+  if (gate.classList.contains('open')) return;
+  $('#tokenInput').value = _tok();
+  gate.classList.add('open');
+  $('#tokenInput').focus();
+}
+$('#tokenSave').addEventListener('click', () => {
+  const v = $('#tokenInput').value.trim();
+  try { v ? localStorage.setItem('algo-token', v) : localStorage.removeItem('algo-token'); }
+  catch (e) { /* private mode: token just won't persist */ }
+  $('#tokenGate').classList.remove('open');
+  location.reload();   // re-boot the pollers with the header attached
+});
+$('#tokenGate').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+async function jget(u) {
+  const t = _tok();
+  const r = await fetch(u, t ? {headers: {Authorization: 'Bearer ' + t}} : undefined);
+  if (r.status === 401) { askForToken(); throw new Error('token required (401)'); }
+  if (!r.ok) throw new Error('GET ' + u);
+  return r.json();
+}
 async function jreq(u, method, body) {
-  const r = await fetch(u, {method, headers: {'Content-Type': 'application/json'},
+  const h = {'Content-Type': 'application/json'};
+  const t = _tok();
+  if (t) h.Authorization = 'Bearer ' + t;
+  const r = await fetch(u, {method, headers: h,
                             body: body == null ? undefined : JSON.stringify(body)});
+  if (r.status === 401) { askForToken(); throw new Error('token required (401)'); }
   let data = {};
   try { data = await r.json(); } catch (e) { /* non-JSON error body */ }
   if (!r.ok) {
@@ -1350,9 +1891,21 @@ function toast(title, msg, ok = true) {
   setTimeout(() => { d.classList.add('out'); setTimeout(() => d.remove(), 350); }, 4200);
 }
 const toastErr = (title, e) => toast(title, e && e.message ? e.message : String(e), false);
+/* the degraded-engine banner: dismissed by the operator stays dismissed until
+   the note CHANGES (a new condition re-shows it) */
+let healthDismissed = false, healthDismissedMsg = '';
+let autoResumeToasted = false;
+$('#healthDismiss').addEventListener('click', () => {
+  healthDismissed = true;
+  healthDismissedMsg = $('#healthMsg').textContent;
+  $('#healthBanner').classList.remove('show');
+  $('.engine-pill').classList.remove('warn');
+});
+
+$('#tokenCancel').addEventListener('click', () => $('#tokenGate').classList.remove('open'));
 
 /* ===================================================== routing */
-const VIEWS = ['overview', 'portfolio', 'watchlist', 'account', 'chat'];
+const VIEWS = ['overview', 'portfolio', 'watchlist', 'evidence', 'account', 'chat'];
 function setView(name) {
   if (!VIEWS.includes(name)) name = 'overview';
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
@@ -1360,6 +1913,9 @@ function setView(name) {
   if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   document.title = 'Algo Bot — ' + name[0].toUpperCase() + name.slice(1);
   refreshVisible(name);
+  /* smooth ride back to the top when swapping views (auto under reduced motion) */
+  if (reduceMotion) window.scrollTo(0, 0);
+  else window.scrollTo({top: 0, behavior: 'smooth'});
 }
 window.addEventListener('hashchange', () => setView(location.hash.slice(1) || 'overview'));
 $('#tabs').addEventListener('click', e => { const t = e.target.closest('.tab'); if (t) setView(t.dataset.view); });
@@ -1367,32 +1923,78 @@ $('#tabs').addEventListener('click', e => { const t = e.target.closest('.tab'); 
    listener on a null element would throw at boot and kill this whole script */
 
 /* first-load skeletons already in the DOM; data replaces them on first poll */
+/* one-shot view flags — declared before setView() can run them at boot */
+const chatLoaded = {v: false}, evLoaded = {v: false};
 function refreshVisible(name) {
   if (name === 'overview') { refreshStats(); refreshEquity(); refreshDecisions(); }
   else if (name === 'portfolio') { refreshStats(); refreshTrades(); }
   else if (name === 'watchlist') refreshWatchlist();
+  /* evidence loads ONCE per tab entry, not on every 4s poll: the payload is
+     generated artifacts (slow to change) and rebuilding both charts each tick
+     churned ~0.7s CPU while the tab was merely open */
+  else if (name === 'evidence' && !evLoaded.v) refreshEvidence();
   else if (name === 'account') { refreshAccount(); refreshTransactions(); }
-  else if (name === 'chat' && !chatLoaded) loadChatHistory();
+  else if (name === 'chat' && !chatLoaded.v) loadChatHistory();
 }
+
+/* ===================================================== theme
+   data-theme is already on <html> (set pre-paint in <head>) — this
+   section only wires the switcher, mirrors state onto the buttons,
+   updates the mobile browser chrome color and recolors the chart. */
+const THEME_KEY = 'algo-theme';
+const THEMES = ['light', 'dark', 'black'];
+function applyChartTheme() {
+  if (!equityChart) return;
+  const ds = equityChart.data.datasets[0];
+  ds.borderColor = cssVar('--chart-line');
+  ds.backgroundColor = cssVar('--chart-fill');
+  const tt = equityChart.options.plugins.tooltip;
+  tt.backgroundColor = cssVar('--color-card');
+  tt.borderColor = cssVar('--color-border');
+  tt.titleColor = cssVar('--color-foreground');
+  tt.bodyColor = cssVar('--color-muted-foreground');
+  const tick = cssVar('--color-muted-foreground'), grid = cssVar('--chart-grid');
+  ['x', 'y'].forEach(ax => {
+    equityChart.options.scales[ax].ticks.color = tick;
+    equityChart.options.scales[ax].grid.color = grid;
+  });
+  equityChart.update('none');
+}
+function applyTheme(t, persist) {
+  if (!THEMES.includes(t)) t = 'light';
+  document.documentElement.setAttribute('data-theme', t);
+  if (persist) { try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* private mode */ } }
+  $$('.theme-switch button').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.theme === t)));
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', cssVar('--color-background'));
+  applyChartTheme();
+}
+$$('.theme-switch button').forEach(b =>
+  b.addEventListener('click', () => applyTheme(b.dataset.theme, true)));
 
 /* ===================================================== overview */
 let equityChart = null;
 function buildEquityChart() {
+  /* colors come from the live theme's CSS variables (see applyChartTheme) */
   equityChart = new Chart($('#equityChart'), {
     type: 'line',
-    data: {labels: [], datasets: [{label: 'Equity', data: [], borderColor: '#22C55E',
-      backgroundColor: 'rgba(34,197,94,.07)', fill: true, tension: .15, pointRadius: 0,
-      borderWidth: 2}]},
+    data: {labels: [], datasets: [{label: 'Equity', data: [],
+      borderColor: cssVar('--chart-line'), backgroundColor: cssVar('--chart-fill'),
+      fill: true, tension: .15, pointRadius: 0, borderWidth: 2}]},
     options: {responsive: true, maintainAspectRatio: false, animation: reduceMotion ? false : {duration: 250},
-      plugins: {legend: {display: false}, tooltip: {backgroundColor: '#0E1223',
-        borderColor: '#334155', borderWidth: 1, titleColor: '#F8FAFC', bodyColor: '#94A3B8',
+      plugins: {legend: {display: false}, tooltip: {backgroundColor: cssVar('--color-card'),
+        borderColor: cssVar('--color-border'), borderWidth: 1,
+        titleColor: cssVar('--color-foreground'), bodyColor: cssVar('--color-muted-foreground'),
         titleFont: {family: 'Fira Code'}, bodyFont: {family: 'Fira Code'},
         callbacks: {label: c => ' ' + fmt$(c.parsed.y)}}},
-      scales: {x: {ticks: {maxTicksLimit: 8, color: '#94A3B8', font: {family: 'Fira Code', size: 10}},
-                   grid: {color: 'rgba(51,65,85,.35)'}},
-               y: {ticks: {color: '#94A3B8', font: {family: 'Fira Code', size: 10},
+      scales: {x: {ticks: {maxTicksLimit: 8, color: cssVar('--color-muted-foreground'),
+                           font: {family: 'Fira Code', size: 10}},
+                   grid: {color: cssVar('--chart-grid')}},
+               y: {ticks: {color: cssVar('--color-muted-foreground'),
+                           font: {family: 'Fira Code', size: 10},
                            callback: v => '$' + v.toLocaleString()},
-                   grid: {color: 'rgba(51,65,85,.35)'}}}}
+                   grid: {color: cssVar('--chart-grid')}}}}
   });
 }
 
@@ -1419,8 +2021,37 @@ async function refreshStats() {
     '<div class="value ' + c[2] + '">' + esc(c[1]) + '</div>' +
     '<div class="sub">' + esc(c[3]) + '</div></div>').join('');
 
+  const demoN = (s.trade_modes || {}).demo || 0;
+  const paperN = (s.trade_modes || {}).paper || 0;
+  $('#ovDemoNote').innerHTML = demoN
+    ? '<span class="tag demo">demo</span> ' + demoN + ' seeded backtest-replay trades (mode=demo): ' +
+      (paperN
+        ? 'badged in the history and excluded from these headline stats, the equity curve, chatbot and shadow answers'
+        : 'no paper trades yet — showing the demo record until the engine trades') +
+      '. python3 main.py shadow --include-demo audits the replay rows.'
+    : '';
+
   $('#engineDot').className = 'dot ' + (s.engine_running ? 'on' : 'off');
-  $('#enginePillText').textContent = 'engine: ' + (s.engine_running ? 'running' : 'stopped');
+  $('#enginePillText').textContent = 'engine: ' + (s.engine_running ? (s.health_note ? 'degraded' : 'running') : 'stopped');
+  /* health_note: degraded-but-alive (e.g. an open position behind a dead feed).
+     It rode only in /api/engine/status before — nothing rendered it, so the
+     pill stayed green on stage while a position sat unguarded. */
+  const hb = $('#healthBanner');
+  if (s.health_note && !healthDismissed) {
+    hb.classList.add('show');
+    $('#healthMsg').textContent = s.health_note;
+    $('.engine-pill').classList.add('warn');
+    $('.engine-pill').title = s.health_note;
+  } else {
+    hb.classList.remove('show');
+    $('.engine-pill').classList.remove('warn');
+    $('.engine-pill').title = '';
+  }
+  if (s.health_note && s.health_note !== healthDismissedMsg) healthDismissed = false;
+  if (s.auto_resumed && !autoResumeToasted) {
+    autoResumeToasted = true;
+    toast('Engine auto-resumed', 'the last session left it running — it is paper-trading now (stop it from this tab)');
+  }
   $('#engineStateText').textContent = s.engine_running ? 'running' : 'stopped';
   $('#engineStateText').className = 'st ' + (s.engine_running ? 'pos' : 'neg');
   $('#engineStateSub').textContent = (s.cycles ?? 0) + ' cycles · watchlist ' +
@@ -1474,7 +2105,8 @@ async function refreshDecisions() {
       '<span class="term-ts">' + esc(fmtTs(d.ts)) + '</span>' +
       '<div class="term-body"><div class="term-line">' +
       '<span class="tag ' + esc(a === 'hold' ? 'hold' : a) + '">' + esc(d.action) + '</span>' +
-      '<span class="term-mkt">' + esc(d.symbol) + ' <span class="tag tf">' + esc(d.timeframe) + '</span></span>' +
+      '<span class="term-mkt">' + esc(d.symbol) + ' <span class="tag tf">' + esc(d.timeframe) + '</span>' +
+      (d.mode === 'demo' ? ' <span class="tag demo">demo</span>' : '') + '</span>' +
       '<span class="term-meta">regime ' + esc(d.regime || '—') + ' · conf ' +
         Math.round((d.confidence || 0) * 100) + '% · @ ' + fmtPx(d.price, d.symbol) + '</span>' +
       '</div><div class="term-why">' + esc(d.rationale || '') + '</div></div></div>';
@@ -1566,7 +2198,8 @@ async function refreshTrades() {
   $('#tradeEmpty').hidden = rows.length > 0;
   tbody.innerHTML = rows.map(t => '<tr>' +
     '<td class="mono" style="color:var(--color-muted-foreground)">' + esc(fmtTs(t.opened_ts)) + '</td>' +
-    '<td class="mono"><b>' + esc(t.symbol) + '</b> <span class="tag tf">' + esc(t.timeframe || '') + '</span></td>' +
+    '<td class="mono"><b>' + esc(t.symbol) + '</b> <span class="tag tf">' + esc(t.timeframe || '') + '</span>' +
+      (t.mode === 'demo' ? ' <span class="tag demo">demo</span>' : '') + '</td>' +
     '<td>' + sideTag(t.side) + '</td>' +
     '<td class="num">' + fmtQty(t.qty) + '</td>' +
     '<td class="num">' + fmtPx(t.entry_price, t.symbol) + '</td>' +
@@ -1577,6 +2210,161 @@ async function refreshTrades() {
     '<td style="color:var(--color-muted-foreground)">' + esc(t.exit_reason || '—') + '</td></tr>').join('');
 }
 $('#stratFilter').addEventListener('change', refreshTrades);
+
+/* ===================================================== evidence */
+/* read-only render of the GENERATED artifacts: data/results/*.json
+   (validate/shadow), data/kronos_ic.json, data/manifest.json — the tab
+   computes nothing from trade data, it presents what the CLI wrote */
+let kronosChart = null, cvChart = null;
+let EV_REPORTS = [];
+
+async function refreshEvidence() {
+  evLoaded.v = true;
+  let ev;
+  try { ev = await jget('/api/evidence'); } catch (e) { return; }
+
+  /* --- Kronos rolling IC vs its own hurdle --- */
+  const k = ev.kronos || {};
+  const S = k.series || [];
+  const labels = S.map(p => p.i);
+  if (kronosChart) { kronosChart.destroy(); kronosChart = null; }
+  $('#krMeta').textContent = k.error ? ('ledger unavailable: ' + k.error)
+    : (k.n ? k.n + ' resolved forecasts · pending ' + (k.pending ?? 0) +
+        ' · rolling IC ' + (k.ic ?? '—') : '');
+  $('#krEmpty').hidden = labels.length > 0;
+  if (labels.length) {
+    kronosChart = new Chart($('#kronosChart'), {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'rolling IC', data: S.map(p => p.ic),
+          borderColor: cssVar('--color-blue'), pointRadius: 0, borderWidth: 1.5, tension: 0.25 },
+        { label: 'promotion hurdle ' + (k.hurdle ?? 0.02), data: labels.map(() => k.hurdle ?? 0.02),
+          borderColor: cssVar('--color-pos'), borderDash: [6, 4], pointRadius: 0, borderWidth: 1 },
+        { label: 'demotion floor ' + (k.demote_below ?? 0), data: labels.map(() => k.demote_below ?? 0),
+          borderColor: cssVar('--color-neg'), borderDash: [4, 4], pointRadius: 0, borderWidth: 1 }]},
+      options: { responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { labels: { color: cssVar('--color-muted-foreground'),
+                                       boxWidth: 10, font: { size: 10 } } } },
+        scales: {
+          x: { ticks: { color: cssVar('--color-muted-foreground'), maxTicksLimit: 8,
+                        font: { size: 10 } }, grid: { color: cssVar('--chart-grid') } },
+          y: { ticks: { color: cssVar('--color-muted-foreground'), font: { size: 10 } },
+               grid: { color: cssVar('--chart-grid') } } } }
+    });
+  }
+
+  /* --- validation reports: selector + verdict cards + path chart --- */
+  EV_REPORTS = ev.validations || [];
+  const sel = $('#evReportSel');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— no report selected —</option>' +
+    EV_REPORTS.map((r, i) => '<option value="' + i + '">' +
+      esc((r.symbol || '?') + ' ' + (r.timeframe || '') + ' · ' +
+          (r.strategy || '?') + ' · ' +
+          (r.start ? r.start + '→' + (r.end || 'now') : (r.days || '?') + 'd')) + '</option>').join('');
+  sel.value = (cur !== '' && Number(cur) < EV_REPORTS.length) ? cur
+                                                             : (EV_REPORTS.length ? '0' : '');
+  renderEvidenceCards();
+  renderEvidencePaths();
+
+  /* --- shadow adherence --- */
+  const sh = ev.shadow;
+  if (!sh || !sh.profile) {
+    $('#evShadow').innerHTML = '<div class="empty">no shadow report yet — run ' +
+      '<code>python3 main.py shadow</code> (writes data/results/shadow_report.json)</div>';
+  } else {
+    const rows = Object.entries(sh.symbols || {}).map(([name, s]) =>
+      '<tr><td class="mono"><b>' + esc(name) + '</b></td>' +
+      '<td class="num">' + esc(s.adherence_pct) + '%</td>' +
+      '<td class="num">' + esc(s.on_rule) + '</td>' +
+      '<td class="num">' + esc(s.late) + '</td>' +
+      '<td class="num ' + (s.rule_breaks ? 'neg' : '') + '">' + esc(s.rule_breaks) + '</td>' +
+      '<td class="num">' + esc(s.unknown) + '</td></tr>').join('');
+    $('#evShadow').innerHTML = '<table><thead><tr><th>market</th><th class="num">on-rule %</th>' +
+      '<th class="num">on-rule</th><th class="num">late</th><th class="num">rule breaks</th>' +
+      '<th class="num">unknown</th></tr></thead><tbody>' + (rows ||
+        '<tr><td colspan="6" class="empty">no auditable trades in the report</td></tr>') +
+      '</tbody></table><div class="hint" style="padding:8px 12px">profile over ' +
+      esc(sh.profile.n_trades) + ' closed trades · win rate ' + esc(sh.profile.win_rate_pct) +
+      '% · blew through stop: ' + esc(sh.profile.n_blew_through_stop) +
+      ' · disposition gap ' + esc(sh.profile.disposition_gap_hours) + 'h</div>';
+  }
+
+  /* --- pinned-data manifest --- */
+  const man = ev.manifest || {};
+  const keys = Object.keys(man);
+  $('#evManifest').innerHTML = keys.length
+    ? '<table><thead><tr><th>market</th><th class="num">bars</th><th>window</th>' +
+      '<th>source</th><th>sha256</th><th>fetched</th></tr></thead><tbody>' +
+      keys.map(kk => { const m = man[kk];
+        return '<tr><td class="mono"><b>' + esc(kk) + '</b></td>' +
+          '<td class="num">' + esc(m.bars) + '</td>' +
+          '<td class="mono">' + esc(String(m.first_ts).slice(0, 10) + ' → ' +
+                                    String(m.last_ts).slice(0, 10)) + '</td>' +
+          '<td>' + esc(m.source) + '</td>' +
+          '<td class="mono">' + esc(String(m.sha256).slice(0, 12)) + '…</td>' +
+          '<td class="mono">' + esc(String(m.fetched_at).slice(0, 10)) + '</td></tr>';
+      }).join('') + '</tbody></table>' +
+      '<div class="hint" style="padding:8px 12px">fetch with <code>--start/--end</code> for ' +
+      'byte-identical pinned windows; checksums make BACKTESTS.md claims checkable</div>'
+    : '<div class="empty">no pinned fetches yet — run a backtest with ' +
+      '<code>--start YYYY-MM-DD --end YYYY-MM-DD</code></div>';
+}
+
+function renderEvidenceCards() {
+  const r = EV_REPORTS[$('#evReportSel').value] || null;
+  const cards = r ? [
+    ['PBO', r.pbo ? r.pbo.pbo : '—',
+      r.pbo && r.pbo.pbo >= 0.5 ? 'neg' : (r.pbo && r.pbo.pbo >= 0.35 ? '' : 'pos'),
+      r.pbo ? r.pbo.verdict : 'needs a ≥2-strategy family'],
+    ['Deflated Sharpe', r.deflated_sharpe ? r.deflated_sharpe.deflated_sharpe : '—',
+      r.deflated_sharpe && r.deflated_sharpe.deflated_sharpe >= 0.95 ? 'pos' : '',
+      r.deflated_sharpe ? r.deflated_sharpe.verdict : 'pass --trial-sharpes'],
+    ['MC terminal p5', r.monte_carlo && r.monte_carlo.n_sims
+        ? '$' + r.monte_carlo.terminal_p5.toLocaleString() : '—', 'neg',
+      '5th-percentile resampled outcome'],
+    ['MinTRL', r.min_trl && r.min_trl.min_bars ? r.min_trl.min_years + 'y' : '—', '',
+      r.min_trl && r.min_trl.min_bars
+        ? Number(r.min_trl.min_bars).toLocaleString() + ' OOS bars @95%' : 'needs a positive Sharpe'],
+    ['Backtest return', r.backtest ? fmtPct(r.backtest.return_pct) : '—',
+      r.backtest && r.backtest.return_pct > 0 ? 'pos' : 'neg',
+      r.backtest ? (r.backtest.trades + ' trades · sharpe ' + r.backtest.sharpe +
+        ' · window ' + (r.start ? r.start + '→' + (r.end || 'now') : (r.days || '?') + 'd')) : ''],
+  ] : [
+    ['PBO', '—', '', 'run make validate'], ['Deflated Sharpe', '—', '', 'run make validate'],
+    ['MC terminal p5', '—', '', 'run make validate'], ['MinTRL', '—', '', 'run make validate'],
+    ['Backtest return', '—', '', 'no reports yet'],
+  ];
+  $('#evCards').innerHTML = cards.map(c =>
+    '<div class="stat"><div class="label">' + esc(c[0]) + '</div>' +
+    '<div class="value ' + c[2] + '">' + esc(c[1]) + '</div>' +
+    '<div class="sub">' + esc(c[3]) + '</div></div>').join('');
+}
+
+function renderEvidencePaths() {
+  if (cvChart) { cvChart.destroy(); cvChart = null; }
+  const r = EV_REPORTS[$('#evReportSel').value] || null;
+  const paths = r && r.purged_cv ? (r.purged_cv.paths || []) : [];
+  $('#cvEmpty').hidden = paths.some(p => p.trades);
+  if (!paths.length) return;
+  cvChart = new Chart($('#cvChart'), {
+    type: 'bar',
+    data: { labels: paths.map((p, i) => 'p' + (i + 1) + (p.trades ? '' : ' ·')),
+      datasets: [{ label: 'OOS return %',
+        data: paths.map(p => p.trades ? p.return_pct : null),
+        backgroundColor: paths.map(p => p.trades
+          ? (p.return_pct >= 0 ? cssVar('--color-pos') : cssVar('--color-neg'))
+          : cssVar('--color-muted')) }]},
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { color: cssVar('--color-muted-foreground'), font: { size: 9 } },
+                     grid: { display: false } },
+                y: { ticks: { color: cssVar('--color-muted-foreground'), font: { size: 10 },
+                              callback: v => v + '%' },
+                     grid: { color: cssVar('--chart-grid') } } } }
+  });
+}
+$('#evReportSel').addEventListener('change', () => { renderEvidenceCards(); renderEvidencePaths(); });
 
 /* ===================================================== watchlist */
 async function refreshWatchlist() {
@@ -1745,14 +2533,13 @@ $('#resetGo').addEventListener('click', async () => {
       (r.backup ? ' · backup ' + r.backup.split('/').pop() : ''));
     resetModal.classList.remove('open');
     $('#resetConfirm').value = '';
-    chatLoaded = false;
+    chatLoaded.v = false;
     $('#chatlog').innerHTML = '';
     refreshAccount(); refreshStats(); refreshEquity();
   } catch (e) { toastErr('Reset failed', e); }
 });
 
 /* ===================================================== chat */
-let chatLoaded = false;
 function addMsg(text, role) {
   const log = $('#chatlog');
   const d = document.createElement('div');
@@ -1762,7 +2549,7 @@ function addMsg(text, role) {
   log.scrollTop = log.scrollHeight;
 }
 async function loadChatHistory() {
-  chatLoaded = true;
+  chatLoaded.v = true;
   let hist;
   try { hist = await jget('/api/chat'); } catch (e) { return; }
   hist.forEach(m => addMsg(m.content, m.role === 'user' ? 'user' : 'bot'));
@@ -1812,14 +2599,14 @@ function poll() {
 }
 
 /* ===================================================== boot
-   Chart.js loads from a CDN: on venue/offline WiFi the SPA must still work.
-   If the library is missing we show a notice and render everything else —
+   Chart.js is VENDORED (served from this app at /chart.umd.min.js, no CDN
+   call): on venue/offline WiFi the SPA works regardless. If the vendored
+   library somehow fails to load we show a notice and render everything else —
    the equity chart canvas just stays empty instead of killing routing,
    polling and every button listener with a ReferenceError. */
 if (typeof Chart === 'undefined') {
   const banner = document.createElement('div');
-  banner.style.cssText = 'padding:8px 14px;margin:10px 0;border-radius:8px;' +
-    'background:#7F1D1D;color:#FEE2E2;font:12px "Fira Sans",sans-serif;';
+  banner.className = 'chart-offline';
   banner.textContent = 'Chart.js could not load (offline?) — the equity chart is ' +
     'disabled, everything else works normally.';
   const main = document.querySelector('main') || document.body;
@@ -1827,6 +2614,9 @@ if (typeof Chart === 'undefined') {
 } else {
   buildEquityChart();
 }
+/* sync the switcher + browser chrome with the theme <head> already applied;
+   runs after buildEquityChart so applyChartTheme sees a live chart */
+applyTheme(document.documentElement.getAttribute('data-theme') || 'light', false);
 setView(location.hash.slice(1) || 'overview');
 poll();
 </script>

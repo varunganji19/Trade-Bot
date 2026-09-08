@@ -16,5 +16,9 @@ data/kronos_ic.json
 .backup/
 .DS_Store
 .ruff_cache/
+.zcode/
 data/watchlist.json
 data/engine_state.json
+
+# secrets — .env.example is the committed template; .env never leaves the machine
+.env

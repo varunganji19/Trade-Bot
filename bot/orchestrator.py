@@ -5,8 +5,16 @@ Decision orchestrator — the bot's "brain".
 2. Weight-blends strategy signals per regime (see RESEARCH.md §3):
      trending  -> turtle 0.55, scalper 0.30, meanrev 0.15
      ranging   -> meanrev 0.55, scalper 0.30, turtle 0.15
+   REALITY CHECK: the blend only engages when strategies SHARE a timeframe.
+   preferred_timeframes are disjoint (turtle 1h, meanrev 4h/1d, scalper
+   5m/15m), so today every spec is evaluated by exactly ONE strategy and the
+   "blend" reduces to that strategy's own confidence. The regime weights and
+   the conflict guard are implemented scaffolding, not active features —
+   they wake up the day two strategies are registered for one timeframe.
 3. Weighted confidence vote with a conflict guard (strong simultaneous LONG and
-   SHORT conviction => HOLD).
+   SHORT conviction => HOLD) — unreachable while the timeframes stay disjoint,
+   for the same reason (Kronos, when promoted, votes but is excluded from the
+   conflict guard).
 4. Kronos (financial foundation model, bot/kronos_signal.py): its probabilistic
    forecast is ALWAYS journaled in strategy_signals (tracked non-voter), and it
    joins the vote with weight KRONOS_VOTE_WEIGHT only after its rolling IC

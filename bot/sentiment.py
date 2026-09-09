@@ -43,6 +43,55 @@ def lexicon_score(text: str) -> float:
     return max(-1.0, min(1.0, score / hits))
 
 
+# Asset keyword map: which headlines are ABOUT a given asset. A crypto-crash
+# headline must not veto an EUR/USD trade and vice versa (the global lexicon
+# average did exactly that). Keys are matched against the lowercase headline
+# text; `_MACRO_KEYS` apply to every asset (macro headlines move all books).
+_ASSET_KEYWORDS = {
+    "btc": ["bitcoin", "btc", "satoshi", "crypto", "cryptocurrency", "stablecoin",
+            "altcoin", "memecoin", "exchange", "binance", "coinbase", "etf approval"],
+    "eth": ["ethereum", "ether", "eth", "crypto", "cryptocurrency", "stablecoin",
+            "altcoin", "defi", "binance", "coinbase", "etf approval"],
+    "sol": ["solana", "sol ", "crypto", "cryptocurrency", "altcoin", "memecoin",
+            "binance", "coinbase"],
+    "eur/usd": ["euro", "eur", "ecb", "eurozone", "euro area", "germany", "france",
+                "lagarde", "bund"],
+    "gbp/usd": ["pound", "sterling", "gbp", "boe", "bank of england", "uk ",
+                "britain", "british"],
+}
+# generic crypto/forex display names ("Bitcoin", "Ethereum", "Solana", "EUR/USD")
+_HINT_ALIASES = {
+    "bitcoin": "btc", "btc": "btc",
+    "ethereum": "eth", "eth": "eth",
+    "solana": "sol", "sol": "sol",
+    "eur/usd": "eur/usd", "eurusd": "eur/usd", "eur-USD": "eur/usd",
+    "gbp/usd": "gbp/usd", "gbpusd": "gbp/usd",
+}
+# macro headlines move every book: rate decisions, inflation, recession, war
+_MACRO_KEYS = ["fed", "fomc", "powell", "rate cut", "rate hike", "inflation", "cpi",
+               "recession", "dollar index", "dxy", "treasury", "risk-off", "risk off",
+               "liquidity", "global markets", "stocks", "equities"]
+
+
+def _headline_relevant(title: str, summary: str, asset_hint: str) -> bool:
+    """Is this headline about the hinted asset (or macro-wide)? With no hint,
+    or a hint we can't map, everything is relevant (the old behavior)."""
+    hint = (asset_hint or "").strip().lower()
+    key = _HINT_ALIASES.get(hint)
+    if key is None:
+        # unmapped hint (e.g. a custom watchlist entry): fall back to token
+        # matching on the hint's own words so custom assets still filter
+        words = [w for w in hint.replace("/", " ").split() if len(w) >= 3]
+        if not words:
+            return True
+        text = (title + " " + (summary or "")).lower()
+        return any(w in text for w in words) or any(k in text for k in _MACRO_KEYS)
+    text = (title + " " + (summary or "")).lower()
+    if any(k in text for k in _MACRO_KEYS):
+        return True
+    return any(k in text for k in _ASSET_KEYWORDS.get(key, []))
+
+
 class SentimentOverlay:
     def __init__(self, llm_client=None):
         self.llm = llm_client
@@ -74,15 +123,23 @@ class SentimentOverlay:
                 method = "lexicon"
 
         if method == "lexicon":
-            scores = [lexicon_score(h["title"] + " " + h.get("summary", "")) for h in headlines]
+            # score only headlines relevant to THIS asset: a crypto-specific
+            # crash headline must not veto an EUR/USD entry (and vice versa).
+            # No match at all -> score the whole batch (unchanged behavior).
+            relevant = [h for h in headlines
+                        if _headline_relevant(h["title"], h.get("summary", ""), asset_hint)]
+            scored = relevant if relevant else headlines
+            scores = [lexicon_score(h["title"] + " " + h.get("summary", "")) for h in scored]
             nonzero = [s for s in scores if s != 0.0]
             score = sum(nonzero) / len(nonzero) if nonzero else 0.0
-            worst = min(zip(scores, headlines), key=lambda t: t[0], default=None)
-            best = max(zip(scores, headlines), key=lambda t: t[0], default=None)
-            summary = (f"lexicon scan of {len(headlines)} headlines; "
+            worst = min(zip(scores, scored), key=lambda t: t[0], default=None)
+            best = max(zip(scores, scored), key=lambda t: t[0], default=None)
+            summary = (f"lexicon scan of {len(scored)}/{len(headlines)} headlines relevant to "
+                       f"{asset_hint or 'the book'}; "
                        f"most bullish: '{best[1]['title'][:80]}' ({best[0]:+.1f}); "
                        f"most bearish: '{worst[1]['title'][:80]}' ({worst[0]:+.1f})" if nonzero else
-                       f"lexicon scan of {len(headlines)} headlines found no strong sentiment words")
+                       f"lexicon scan of {len(scored)} relevant headlines found no strong "
+                       f"sentiment words")
 
         result = {
             "score": round(score, 3),

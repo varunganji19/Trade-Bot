@@ -1,9 +1,19 @@
 {
+ "crypto:BTC/USDT:1h": {
+  "bars": 2159,
+  "cache_file": "BTCUSDT_1h_90d_20260909.parquet",
+  "caliber": "raw",
+  "fetched_at": "2026-09-09T16:23:14+00:00",
+  "first_ts": "2026-06-11 17:00:00+00:00",
+  "last_ts": "2026-09-09 15:00:00+00:00",
+  "sha256": "4858d525b6e0a4f3c4f96878b82502e38d09f2c2dc526ae6f0339f595638b265",
+  "source": "binance"
+ },
  "crypto:TEST/USDT:1h": {
   "bars": 300,
   "cache_file": "TESTUSDT_1h_7d_20260909.parquet",
   "caliber": "unknown",
-  "fetched_at": "2026-09-09T13:33:27+00:00",
+  "fetched_at": "2026-09-09T16:24:41+00:00",
   "first_ts": "2024-01-01 00:00:00+00:00",
   "last_ts": "2024-01-13 11:00:00+00:00",
   "sha256": "8ebf033d411f38fe3f99602ae9d0ed86b2e034698b0e8dcb55b99441d2628009",

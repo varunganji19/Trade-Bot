@@ -186,12 +186,19 @@ def cmd_validate(args):
 
     # 3) Deflated Sharpe: how many configs did we try while shipping this?
     #    BACKTESTS.md documents the tried configurations — keep this number
-    #    honest as the config history grows.
+    #    honest as the config history grows. The primary run's equity returns
+    #    feed the moment-aware SE (skew/kurtosis widen the SE on fat-tailed
+    #    assets; the normal-only SE overstated confidence there).
     sharpes = [s for s in (args.trial_sharpes or [])]
     if sharpes:
+        import pandas as pd
+        eq = pd.Series([p["equity"] for p in res.equity_curve]) if res.equity_curve else None
+        eq_rets = eq.pct_change().dropna().tolist() if eq is not None and len(eq) > 2 else None
         dsr = deflated_sharpe(sharpes, n_obs=len(df),
-                              bars_per_year=bars_per_year(spec.timeframe, spec.kind))
-        print(f"[validate] Deflated Sharpe over {len(sharpes)} documented trial Sharpes: {dsr}")
+                              bars_per_year=bars_per_year(spec.timeframe, spec.kind),
+                              returns=eq_rets)
+        print(f"[validate] Deflated Sharpe over {len(sharpes)} documented trial Sharpes "
+              f"(SE model: {dsr.get('se_model', 'normal')}): {dsr}")
         report["deflated_sharpe"] = dsr
 
     # 4) Monte Carlo: the order of trades was one draw — show the distribution

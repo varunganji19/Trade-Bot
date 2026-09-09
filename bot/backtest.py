@@ -327,6 +327,8 @@ def _trade_dict(pos, exit_price, reason, pnl, pnl_pct, fee, ind, i) -> dict:
         "status": "CLOSED", "entry_ts": pos.opened_ts, "exit_ts": str(ind.index[i]),
         "pnl": round(pnl, 2), "pnl_pct": round(pnl_pct, 3), "fees": round(fee, 4),
         "exit_reason": reason, "rationale": pos.rationale,
+        # initial-stop ground truth for R math in shadow.behavior_profile
+        "initial_stop": pos.initial_stop if pos.initial_stop is not None else pos.stop,
     }
 
 

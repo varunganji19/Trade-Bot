@@ -161,7 +161,11 @@ def _pos_view(trade: dict):
     p.entry_price = float(trade.get("entry_price") or 0.0)
     stop = trade.get("stop_price")
     p.stop = float(stop) if stop is not None else None
-    p.risk_per_unit = abs(p.entry_price - p.stop) if p.stop is not None else 0.0
+    # initial-risk ground truth: the latched initial stop when the journal has
+    # it; the final (trailed) stop only as a legacy approximation
+    initial = trade.get("initial_stop_price")
+    risk_stop = initial if initial is not None else stop
+    p.risk_per_unit = abs(p.entry_price - float(risk_stop)) if risk_stop is not None else 0.0
     p.bars_held = 0  # strategies use time stops; recomputed per call site below
     return p
 
@@ -177,7 +181,14 @@ def behavior_profile(trades: list[dict]) -> dict:
     r_multiples = []
     for t in closed:
         entry = t.get("entry_price")
-        stop = t.get("stop_price")
+        # INITIAL stop, not the trailed one: stop_price is overwritten by every
+        # trail, so dividing by it turned BE-trailed losers into ±20R explosions
+        # and excluded stop==entry rows entirely (a biased R sample). The
+        # latched initial_stop_price is the ground truth; legacy rows without
+        # it keep the old approximation (documented in journal._migrate).
+        stop = t.get("initial_stop_price")
+        if stop is None:
+            stop = t.get("stop_price")
         if entry and stop and abs(entry - stop) > 0:
             risk_amount = abs(entry - stop) * (t.get("qty") or 1.0)
             if risk_amount > 0:

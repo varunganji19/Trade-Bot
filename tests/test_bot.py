@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import time
@@ -922,19 +923,49 @@ def test_journal_chronological_anchor_and_stats_order():
 def test_journal_close_trade_with_equity_is_atomic_and_reconciles():
     """close_trade(equity=, cash=) writes the trade close and the equity point
     in ONE transaction, and closed_cash_delta_since() reports exactly the
-    window a crash between close and the next cycle-end write would leave."""
+    window a crash between close and the next cycle-end write would leave.
+
+    Anchor-aware arithmetic (the old query returned pnl+fees = gross for
+    every window, refunding fees the broker had already charged):
+      - anchor BETWEEN entry and close (the standard crash window): the
+        anchor cash already paid the entry fee; the close event adds
+        gross - exit_fee = pnl + entry_fee;
+      - entry ALSO after the anchor (outage window, skipped equity writes):
+        both legs are inside the window -> delta = pnl exactly."""
     from bot.journal import Journal
     with tempfile.TemporaryDirectory() as td:
         j = Journal(os.path.join(td, "t.db"))
         j.add_equity(10_000.0, 10_000.0, ts="2026-01-01T00:00:00+00:00")
+        # standard crash window: opened BEFORE the anchor, closed after it.
+        # Legacy row shape (no entry_fee/realized_cash_delta recorded) —
+        # entry_fee approximates as fees/2.
         tid = j.open_trade("TEST/USDT", "long", 1.0, 100.0, 95.0, 105.0,
-                           "turtle_trend", "r")
-        # crash-window simulation: close WITHOUT the equity args, as an old
-        # engine would between the two writes
+                           "turtle_trend", "r", opened_ts="2025-12-31T00:00:00+00:00")
         j.close_trade(tid, 105.0, 4.9, 4.9, 0.21, "take profit",
                       closed_ts="2026-01-01T12:00:00+00:00")
         gap = j.closed_cash_delta_since("2026-01-01T00:00:00+00:00")
-        assert gap == pytest_approx(4.9 + 0.21, 1e-9)
+        assert gap == pytest_approx(4.9 + 0.21 / 2.0, 1e-9)   # pnl + entry_fee
+        # outage window: entry AND close both after the anchor -> plain pnl
+        tid_b = j.open_trade("TEST/USDT", "long", 1.0, 100.0, 95.0, 105.0,
+                             "turtle_trend", "r", opened_ts="2026-06-02T00:00:00+00:00")
+        j.close_trade(tid_b, 105.0, 3.0, 3.0, 0.2, "take profit",
+                      closed_ts="2026-06-03T00:00:00+00:00")
+        # anchor BEFORE tid_b's entry: tid (closed Jan) is outside the window;
+        # tid_b spans it with BOTH legs inside -> delta = pnl exactly
+        gap_b = j.closed_cash_delta_since("2026-06-01T12:00:00+00:00")
+        assert gap_b == pytest_approx(3.0, 1e-9)               # both legs inside
+        # exact columns recorded: entry_fee + realized_cash_delta are used
+        # verbatim, no approximation. Anchor at 13:00 on Jan 1 catches BOTH
+        # tid_b (whole trade inside the window -> plain pnl 3.0) and tid_c
+        # (entry before the anchor -> recorded close-event delta 2.09).
+        tid_c = j.open_trade("TEST/USDT", "long", 1.0, 100.0, 95.0, 105.0,
+                             "turtle_trend", "r", opened_ts="2025-12-30T00:00:00+00:00",
+                             entry_fee=0.09)
+        j.close_trade(tid_c, 105.0, 2.0, 2.0, 0.19, "take profit",
+                      closed_ts="2026-01-02T00:00:00+00:00",
+                      entry_fee=0.09, realized_cash_delta=2.09)
+        gap_c = j.closed_cash_delta_since("2026-01-01T13:00:00+00:00")
+        assert gap_c == pytest_approx(3.0 + 2.09, 1e-9)
         # the atomic path writes both rows together
         tid2 = j.open_trade("TEST/USDT", "long", 1.0, 100.0, 95.0, 105.0,
                             "turtle_trend", "r")
@@ -1395,8 +1426,11 @@ def test_oos_trade_distribution_shapes():
         return  # not enough trades in this seed to partition meaningfully
     out = oos_trade_distribution(res.trades, df, n_folds=6, n_test_folds=2, purge_bars=24)
     assert out["n_paths"] == len(out["paths"]) >= 5
-    kept = sum(p["trades"] for p in out["paths"])
-    assert kept + out["purged_trades"] == out["total_trades"]
+    # per-path counts can overlap (a trade inside a block shared by several
+    # OOS paths is legitimately kept by each); the UNIQUE kept count is the
+    # one that partitions the trade set
+    kept_unique = out["kept_trades_unique"]
+    assert kept_unique + out["purged_trades"] == out["total_trades"]
     assert out["total_trades"] == len(res.trades)
     for p in out["paths"]:
         assert p["trades"] >= 0 and p["win_rate_pct"] >= 0
@@ -1670,17 +1704,32 @@ def test_strategy_check_exit_units():
     from bot.broker import Position
 
     p = CONFIG.params
-    # --- turtle: a close below the 10-bar exit channel exits
+    # --- turtle: a close below the PRIOR 10-bar exit channel exits. The
+    # unshifted rolling low includes the decision bar's own low, and close >=
+    # low by construction — the unshifted condition was mathematically
+    # impossible and this assert passed vacuously for months (reason=None,
+    # below=False). Verified non-vacuous: the seed frame has bars that satisfy
+    # the shifted condition and the test asserts on them.
     up = add_all_indicators(trending_df(300, drift=0.003, seed=21))
     turtle = TurtleTrend()
     pos = Position(trade_id=1, symbol="T", side="long", qty=1.0,
                    entry_price=float(up["close"].iloc[-30]),
                    stop=None, target=None, strategy="turtle_trend")
-    exit_lo = up["close"].rolling(p.turtle_exit_period).min().shift(1)
+    prior_lo = up["low"].rolling(p.turtle_exit_period).min().shift(1)
     i = len(up) - 1
-    below = float(up["close"].iloc[i]) < float(exit_lo.iloc[i])
-    reason, _ = turtle.check_exit(up, i, pos)
-    assert (reason is not None) == below
+    below = float(up["close"].iloc[i]) < float(prior_lo.iloc[i])
+    if not below:
+        # construct the non-vacuous case: force the last close under the prior
+        # channel so the exit MUST fire (a real reversal bar)
+        forced = up.copy()
+        floor = float(prior_lo.iloc[i])
+        forced.loc[forced.index[i], "close"] = floor - 1.0
+        forced.loc[forced.index[i], "low"] = min(floor - 1.0, float(forced["low"].iloc[i]))
+        reason_f, _ = turtle.check_exit(forced, i, pos)
+        assert reason_f is not None and "opposite-channel" in reason_f
+    else:
+        reason, _ = turtle.check_exit(up, i, pos)
+        assert reason is not None and "opposite-channel" in reason
 
     # --- meanrev: RSI(2) snapback + time stop
     mr = ConnorsMeanReversion()
@@ -1708,10 +1757,14 @@ def test_strategy_check_exit_units():
     frame = up.copy()
     frame["vwap_roll"] = 100.5      # price above VWAP: no exit pressure
     i = len(frame) - 1
-    frame.loc[frame.index[i], "close"] = 102.0     # 1R -> stop trails to entry
+    frame.loc[frame.index[i], "close"] = 102.0     # 1R -> stop trails to breakeven
     reason, new_stop = sc.check_exit(frame, i, pos)
     if new_stop is not None:
-        assert new_stop == pytest_approx(100.0, 1e-9)     # breakeven
+        # cost-aware breakeven: entry buffered by taker fee + slippage so the
+        # "breakeven" exit nets ~0 after both legs' costs (the nominal-entry
+        # stop realized a guaranteed -0.30% crypto round trip)
+        buf = CONFIG.costs.fee("crypto") + CONFIG.costs.slippage("crypto")
+        assert new_stop == pytest_approx(100.0 * (1.0 + buf), 1e-9)
     # ONE close beyond the VWAP buffer must NOT exit; two consecutive must
     f = frame.copy()
     f.loc[f.index[i], "close"] = 99.0                       # close < vwap - buffer
@@ -1945,12 +1998,18 @@ def test_shadow_rule_adherence_categories():
     decided = rep.n_on_rule + rep.n_rule_break + rep.n_late
     assert decided >= 1
     assert rep.n_rule_break == 0, [t for t in rep.trades if t["verdict"] == "rule break"]
-    # a fabricated discretionary exit (strategy silent) must be a rule break
+    # a fabricated discretionary exit: with the Turtle S1 exit FIXED, the
+    # strategy (correctly) fires an opposite-channel exit before this row's
+    # close on a trending frame — so the honest verdict for "closed later
+    # anyway" is LATE (it would only be a rule break if the strategy stayed
+    # silent through the close, which the fixed exit rarely allows on a
+    # trending frame). Both verdicts mean "not on-rule"; late additionally
+    # dates the divergence.
     silent = _journal_trade(999, 300, 320, df, exit_reason="LLM override",
                             strategy="turtle_trend")
     rep2 = rule_adherence([silent], df, CONFIG.params)
     verdicts = {t["verdict"] for t in rep2.trades}
-    assert verdicts <= {"rule break", "on-rule (hard bracket)"}
+    assert verdicts <= {"rule break", "on-rule (hard bracket)", "late"}
     if rep2.trades and rep2.trades[0]["verdict"] == "rule break":
         assert "strategy silent" in rep2.trades[0]["note"]
     # a stop-loss exit is on-rule by construction
@@ -2877,6 +2936,311 @@ def test_meanrev_never_fires_short_gate_on_warmup_rsi():
     old.loc[old.index[i], "rsi2"] = 100.0             # the OLD warmup value
     old.loc[old.index[i], "halflife"] = 5.0
     assert mr.evaluate(old, i).action == "SHORT"
+
+
+# ------------------- confirmed-flaw fixes (FLAW_VALIDATION.md, 2026-09-09)
+def test_turtle_opposite_channel_exit_actually_fires():
+    """Flaw 1.1: the unshifted exit channel included the decision bar's own
+    low/high, making the exit mathematically impossible (close >= low by
+    candlestick construction). The shifted (prior-channel) exit must fire on
+    a real reversal, and a full backtest must produce opposite-channel exits
+    rather than only stops and end-of-data holds."""
+    from bot.backtest import Backtester
+    p = CONFIG.params
+    # rising frame -> build the reversal tail: close breaks under the PRIOR
+    # 10-bar low, with a coherent candle (low <= close)
+    prices = np.concatenate([np.linspace(100, 130, 260),
+                              np.linspace(130, 90, 40)])
+    df = add_all_indicators(make_df(prices, seed=11))
+    turtle = TurtleTrend()
+    from bot.broker import Position
+    pos = Position(trade_id=1, symbol="T", side="long", qty=1.0,
+                   entry_price=float(df["close"].iloc[200]),
+                   stop=None, target=None, strategy="turtle_trend")
+    fired = 0
+    for i in range(p.turtle_exit_period + 1, len(df)):
+        reason, _ = turtle.check_exit(df, i, pos)
+        if reason:
+            fired += 1
+            prior_lo = df["low"].rolling(p.turtle_exit_period).min().shift(1).iloc[i]
+            assert float(df["close"].iloc[i]) < float(prior_lo)   # the real condition
+    assert fired >= 1, "opposite-channel exit never fired — dead exit code is back"
+    # end-to-end: the fixed backtest exits via the channel, not just stops
+    res = Backtester(CONFIG).run(CRYPTO_1H, df, strategy="turtle_trend")
+    reasons = {t["exit_reason"] for t in res.trades}
+    assert any("opposite-channel" in r for r in reasons), reasons
+
+
+def test_scalper_breakeven_stop_is_cost_aware():
+    """Flaw 1.3: a stop AT the entry price realized a guaranteed ~-0.30%
+    round trip (exit taker fee + slippage on top of the entry leg). The
+    breakeven stop must sit above entry (long) by the cost buffer, and exiting
+    there must net approximately zero P&L through the broker."""
+    sc = VWAPScalper()
+    df = add_all_indicators(trending_df(300, drift=0.002, seed=23))
+    from bot.broker import Position
+    pos = Position(trade_id=1, symbol="TEST/USDT", side="long", qty=1.0,
+                   entry_price=100.0, stop=98.0, target=None,
+                   strategy="vwap_scalper", risk_per_unit=2.0)
+    frame = df.copy()
+    frame["vwap_roll"] = 100.5
+    i = len(frame) - 1
+    frame.loc[frame.index[i], "close"] = 102.0        # +1R
+    _, new_stop = sc.check_exit(frame, i, pos)
+    buf = CONFIG.costs.fee("crypto") + CONFIG.costs.slippage("crypto")
+    assert new_stop is not None
+    assert new_stop == pytest_approx(100.0 * (1.0 + buf), 1e-9)
+    assert new_stop > 100.0                            # the whole point
+    # and the short side mirrors it (below entry)
+    pos_s = Position(trade_id=2, symbol="TEST/USDT", side="short", qty=1.0,
+                     entry_price=100.0, stop=102.0, target=None,
+                     strategy="vwap_scalper", risk_per_unit=2.0)
+    frame_s = frame.copy()
+    frame_s.loc[frame_s.index[i], "close"] = 98.0      # +1R for the short
+    _, new_stop_s = sc.check_exit(frame_s, i, pos_s)
+    assert new_stop_s == pytest_approx(100.0 * (1.0 - buf), 1e-9)
+    # broker-level: entering and exiting at the BE level nets ~-entry-leg only,
+    # vs the old guaranteed -0.30%
+    b = PaperBroker(10_000.0)
+    d = _dec("LONG", 0.9, stop=5.0, price=100.0)
+    opened = b.open_position(CRYPTO_1H, d, qty=1.0, price=100.0, trade_id=1)
+    closed, pnl, _, _, _ = b.close_position(CRYPTO_1H, opened.entry_price * (1.0 + buf),
+                                            "stop loss")
+    # exit ABOVE raw entry (by the buffer) yet still nets a small loss: the
+    # entry-leg fee. Before the fix, the BE stop was AT entry and lost both.
+    assert -0.20 < pnl < 0.0
+
+
+def test_journal_initial_stop_survives_trailing():
+    """Flaw 2.1: trailing stops overwrote stop_price in the trades table, so
+    R-multiples divided by the FINAL (trailed/BE) stop — producing ±20R
+    explosions and excluding stop==entry rows. initial_stop_price must be
+    latched at open and never moved by trails; the broker's restore and
+    shadow's R math must both use it."""
+    from bot.journal import Journal
+    from bot.shadow import behavior_profile
+    from bot.broker import PaperBroker
+    with tempfile.TemporaryDirectory() as td:
+        j = Journal(os.path.join(td, "t.db"))
+        tid = j.open_trade("TEST/USDT", "long", 1.0, 100.0, None, None,
+                           "vwap_scalper", "r")
+        # fill arrives: stop 98 latched as the initial stop
+        j.record_fill(tid, entry_price=100.5, stop=98.0, target=None,
+                      entry_fee=0.1, initial_stop=98.0)
+        # the position runs to +1R: stop trails to cost-aware breakeven
+        j.update_trade_stops(tid, stop=100.7)
+        row = j.recent_trades()[0]
+        assert row["stop_price"] == pytest_approx(100.7, 1e-9)          # trailed
+        assert row["initial_stop_price"] == pytest_approx(98.0, 1e-9)   # latched
+        # broker restore derives R from the INITIAL stop
+        b = PaperBroker(10_000.0)
+        pos = b.restore_position(j.open_trades()[0], "crypto", timeframe="1h")
+        assert pos.risk_per_unit == pytest_approx(2.5, 1e-9)            # |100.5-98|
+        # behavior_profile: a BE-trailed small loser reads as a sane fraction
+        # of initial risk, not an explosion; and stop==entry rows are INCLUDED
+        # via the initial stop instead of being excluded
+        j.close_trade(tid, 100.7, -0.35, -0.35, 0.25, "stop loss",
+                     closed_ts="2026-01-01T00:00:00+00:00")
+        t = j.recent_trades()[0]
+        prof = behavior_profile([{**t, "qty": 1.0}])
+        assert prof["avg_r"] is not None and abs(prof["avg_r"]) < 0.25   # -0.35/2.5R
+        assert prof["n_blew_through_stop"] == 0
+        # migration: a legacy DB gains the columns and backfills
+        j2 = Journal(os.path.join(td, "t2.db"))
+        tid2 = j2.open_trade("TEST/USDT", "long", 1.0, 100.0, 95.0, 105.0,
+                             "turtle_trend", "r")
+        # simulate a legacy CLOSED row: fees set, audit columns absent
+        j2.close_trade(tid2, 105.0, 4.9, 4.9, 0.21, "take profit",
+                       closed_ts="2026-01-01T00:00:00+00:00")
+        conn = sqlite3.connect(j2.db_path)
+        conn.execute("UPDATE trades SET initial_stop_price=NULL, entry_fee=NULL WHERE id=?",
+                     (tid2,))
+        conn.commit()
+        conn.close()
+        j3 = Journal(j2.db_path)      # boot runs _migrate
+        row2 = j3.recent_trades()[0]
+        assert row2["initial_stop_price"] == pytest_approx(95.0, 1e-9)  # backfilled
+        assert row2["entry_fee"] == pytest_approx(0.105, 1e-9)          # fees/2
+
+
+def test_engine_crash_window_cash_reconciliation_is_exact():
+    """Flaw 2.3: the crash-window recovery must restore broker cash to the
+    cent for trades closed after the last equity anchor. Two windows:
+      - STANDARD: opened -> anchor -> closed -> crash (anchor between the
+        legs): recovery owes the close event = pnl + entry_fee;
+      - OUTAGE: anchor -> opened -> closed -> crash (skipped equity writes
+        while held symbols failed to fetch): recovery owes the WHOLE trade
+        = pnl.
+    Both compare against the uninterrupted broker path."""
+    import bot.engine as engine_mod
+    df = add_all_indicators(trending_df(260, drift=0.003, seed=29))
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    price = float(df["close"].iloc[50])
+    d = _dec("LONG", 0.9, stop=2.0, price=price)
+    T_OPEN, T_ANCHOR, T_CLOSE = ("2026-01-01T00:00:00+00:00",
+                                 "2026-01-01T00:30:00+00:00",
+                                 "2026-01-01T01:00:00+00:00")
+
+    def _trade_cycle(eng, journal, anchor_ts=None):
+        """Open + close one trade through broker+journal; optionally write an
+        equity anchor BETWEEN the legs (the crash-window setup). Returns the
+        broker's post-close cash (the ground truth)."""
+        pos = eng.broker.open_position(spec, d, qty=2.0, price=price, trade_id=1,
+                                       ts=T_OPEN, decision_bar_ts=0.0)
+        journal.open_trade(spec.symbol, "long", 2.0, price, None, None,
+                           "turtle_trend", "r", timeframe="1h", opened_ts=T_OPEN)
+        journal.record_fill(1, pos.entry_price, pos.stop, None,
+                            pos.entry_fee, pos.initial_stop)
+        if anchor_ts is not None:
+            journal.add_equity(eng.broker.equity({spec.symbol: price}),
+                               eng.broker.cash, ts=anchor_ts)
+        closed, pnl, pnl_pct, fees, exit_fill = eng.broker.close_position(
+            spec, price + 1.0, "signal exit")
+        journal.close_trade(1, exit_fill, pnl, pnl_pct, fees, "signal exit",
+                            closed_ts=T_CLOSE, entry_fee=pos.entry_fee,
+                            realized_cash_delta=pnl + (pos.entry_fee or 0.0))
+        return eng.broker.cash
+
+    with tempfile.TemporaryDirectory() as td:
+        eng, saved = _engine_with_db(td)
+        try:
+            # uninterrupted path: cycle-end equity written AFTER the close
+            truth = _trade_cycle(eng, eng.journal, anchor_ts=None)
+            eng.journal.add_equity(truth, truth, ts="2026-01-01T02:00:00+00:00")
+
+            # STANDARD crash window: anchor BETWEEN the legs, no write after
+            with tempfile.TemporaryDirectory() as td2:
+                eng2, _ = _engine_with_db(td2)
+                _trade_cycle(eng2, eng2.journal, anchor_ts=T_ANCHOR)
+                # crash + restart: restore must land exactly on truth
+                eng3 = engine_mod.TradingEngine(mode="paper", quiet=True)
+                assert eng3.broker.cash == pytest_approx(truth, 1e-6), \
+                    (eng3.broker.cash, truth)
+
+            # OUTAGE window: anchor BEFORE the entry (equity writes skipped
+            # while the held symbol's fetch failed), whole trade inside the
+            # window -> recovery owes plain pnl
+            with tempfile.TemporaryDirectory() as td3:
+                eng4, _ = _engine_with_db(td3)
+                eng4.journal.add_equity(eng4.broker.equity({}), eng4.broker.cash,
+                                        ts="2025-12-31T00:00:00+00:00")
+                _trade_cycle(eng4, eng4.journal, anchor_ts=None)
+                eng5 = engine_mod.TradingEngine(mode="paper", quiet=True)
+                assert eng5.broker.cash == pytest_approx(truth, 1e-6), \
+                    (eng5.broker.cash, truth)
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+
+
+def test_allocator_keeps_crypto_weekend_bars():
+    """Flaw 3.2: the aligned returns matrix dropped every weekend row when the
+    book mixed 24/7 crypto with 24x5 forex (~28% of crypto observations).
+    inverse_vol must now compute each symbol's vol on its OWN bars: a
+    crypto+forex book keeps all crypto bars, and weekend-vol moves weights."""
+    from bot.allocator import allocation_weights, per_symbol_vols, returns_matrix
+    # 10 calendar days of hourly bars: crypto has all 240, forex weekdays only
+    idx = pd.date_range("2026-01-01", periods=240, freq="1h", tz="UTC")
+    rng = np.random.default_rng(6)
+    crypto = pd.DataFrame({"close": 100 + rng.normal(0, 1.0, 240).cumsum(),
+                           "volume": 1.0}, index=idx)
+    # forex frame: weekend rows MISSING (the realistic 24x5 shape)
+    fidx = idx[idx.dayofweek < 5]
+    forex = pd.DataFrame({"close": 1.10 + rng.normal(0, 0.002, len(fidx)).cumsum(),
+                          "volume": 0.0}, index=fidx)
+    specs = [MarketSpec("crypto", "BTC/USDT", "1h"), MarketSpec("forex", "EURUSD=X", "1h")]
+    hist = {"BTC/USDT": crypto, "EURUSD=X": forex}
+    # the aligned matrix itself still thins (only for HRP) — documented
+    m = returns_matrix(specs, hist)
+    assert len(m) < len(crypto) - 2              # weekends gone from the matrix
+    # per-symbol vols: crypto uses ALL its own bars (the default lookback of
+    # 200 bars is the allocator's window — compare on that same tail)
+    vols = per_symbol_vols(specs, hist)
+    r_crypto = crypto["close"].tail(200).pct_change().dropna()
+    assert vols["BTC/USDT"] == pytest_approx(float(r_crypto.std()), 1e-12)
+    r_forex = forex["close"].tail(200).pct_change().dropna()
+    assert vols["EURUSD=X"] == pytest_approx(float(r_forex.std()), 1e-12)
+    # inverse_vol weights derive from those own-bar vols: calmer symbol wins
+    w = allocation_weights(specs, hist, method="inverse_vol")
+    assert abs(sum(w.values()) - 1.0) < 1e-6
+    assert w["BTC/USDT"] > 0 and w["EURUSD=X"] > 0
+    calm_specs = [MarketSpec("crypto", "CALM/USDT", "1h"), MarketSpec("forex", "EURUSD=X", "1h")]
+    calm = crypto.copy()
+    calm["close"] = 100 + rng.normal(0, 0.05, 240).cumsum()    # tiny vol
+    w2 = allocation_weights(calm_specs, {**hist, "CALM/USDT": calm}, method="inverse_vol")
+    assert w2["CALM/USDT"] > w2["EURUSD=X"]
+
+
+def test_sentiment_lexicon_filters_by_asset():
+    """Flaw 3.3: the lexicon branch ignored asset_hint, so a crypto-crash
+    headline vetoed EUR/USD longs (and macro forex news moved crypto).
+    Headlines about OTHER assets must be filtered out; macro stays relevant;
+    a fully-unmatched batch falls back to scoring everything."""
+    import bot.data as data_mod
+    import bot.sentiment as sentiment_mod
+    from bot.sentiment import SentimentOverlay
+    headlines = [
+        {"title": "DeFi protocol exploited for $50M; crypto plunges",
+         "summary": "hack drains bridge reserves", "source": "cointelegraph"},
+        {"title": "ECB signals dovish pivot; euro rallies",
+         "summary": "", "source": "fxstreet"},
+    ]
+    # patch where sentiment LOOKS the name up (it did `from bot.data import
+    # fetch_news` — patching bot.data.fetch_news alone rebinds nothing)
+    orig = data_mod.fetch_news
+    sentiment_mod.fetch_news = lambda: [dict(h) for h in headlines]
+    try:
+        s = SentimentOverlay(llm_client=None)
+        # EUR/USD book: the crypto-hack headline is irrelevant -> only the
+        # dovish-ECB story scores -> positive, not the -0.6 crypto panic
+        eur = s.assess(asset_hint="EUR/USD")
+        assert eur["score"] > 0, eur
+        # BTC book: only the hack story is relevant -> negative
+        btc = s.assess(asset_hint="Bitcoin")
+        assert btc["score"] < 0, btc
+        # macro headlines stay relevant to every book (and this one scores
+        # positive through the lexicon: "rate cut" + "rally" are bullish)
+        macro = [{"title": "Fed signals rate cut; stocks rally worldwide",
+                  "summary": "", "source": "fxstreet"}]
+        sentiment_mod.fetch_news = lambda: [dict(h) for h in macro]
+        s2 = SentimentOverlay(llm_client=None)
+        both = s2.assess(asset_hint="Bitcoin")
+        assert both["score"] > 0
+        # no relevant match -> fall back to the whole batch (old behavior)
+        off = [{"title": "Champions League final ends in thriller",
+                "summary": "", "source": "x"}]
+        sentiment_mod.fetch_news = lambda: [dict(off[0])]
+        s3 = SentimentOverlay(llm_client=None)
+        fb = s3.assess(asset_hint="Bitcoin")
+        assert fb["method"] == "lexicon"          # scored, just neutral
+    finally:
+        sentiment_mod.fetch_news = orig
+
+
+def test_deflated_sharpe_moments_widen_se_on_fat_tails():
+    """Flaw 3.1: the normal-only SE ignored skew/kurtosis. The moment-aware
+    SE (Merton/OPM form on the PER-PERIOD SR, de-annualized first) must
+    differ from the normal SE in the right direction on fat-tailed returns,
+    equal it exactly for normal returns, and the no-returns path must keep
+    the old behavior and say which model it used."""
+    from bot.validation import deflated_sharpe
+    APY = 8760.0
+    trials = [1.0, 0.5, 0.6, 0.4, 0.5]
+    rng = np.random.default_rng(2)
+    normal = rng.normal(0, 0.01, 5_000)
+    fat = np.concatenate([rng.normal(0, 0.004, 4_900), rng.normal(0, 0.08, 100)])
+    d_norm = deflated_sharpe(trials, 5_000, APY)
+    d_normal_rets = deflated_sharpe(trials, 5_000, APY, returns=normal)
+    d_fat = deflated_sharpe(trials, 5_000, APY, returns=fat)
+    assert d_norm["se_model"] == "normal"
+    assert d_normal_rets["se_model"] == "moments"
+    # near-normal returns: the moment SE lands within a few % of the normal SE
+    assert 0.9 < (d_normal_rets["deflated_sharpe"] / d_norm["deflated_sharpe"]) < 1.05
+    # fat tails: wider SE -> LOWER DSR confidence (the honest direction)
+    assert d_fat["deflated_sharpe"] <= d_normal_rets["deflated_sharpe"]
+    # skew interacts with sign: the pinned reference stays in its band with
+    # the normal model (back-compat of the default path)
+    ref = deflated_sharpe([1.0, 0.5, 0.6, 0.4, 0.5], 26_000, APY)
+    assert 0.85 <= ref["deflated_sharpe"] <= 0.93
 
 
 if __name__ == "__main__":

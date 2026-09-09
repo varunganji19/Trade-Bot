@@ -84,11 +84,16 @@ class TurtleTrend(BaseStrategy):
         p = self.p
         close = self._at(df, "close", i)
         if position.side == "long":
-            exit_low = self._at(df, "don_exit_low", i)
+            # PRIOR 10-bar channel (shift=1): the unshifted rolling low includes
+            # the decision bar's own low, and close >= low by candlestick
+            # construction — `close < exit_low` was mathematically impossible and
+            # the Turtle S1 exit never fired (positions rode stops or held for
+            # months). Same prior-channel convention as the entry breakout.
+            exit_low = self._at(df, "don_exit_low", i, shift=1)
             if self._ok(exit_low) and close < exit_low:
                 return f"donchian-{p.turtle_exit_period} opposite-channel exit", None
         else:
-            exit_up = self._at(df, "don_exit_up", i)
+            exit_up = self._at(df, "don_exit_up", i, shift=1)
             if self._ok(exit_up) and close > exit_up:
                 return f"donchian-{p.turtle_exit_period} opposite-channel exit", None
         return None, None

@@ -216,11 +216,23 @@ class VWAPScalper(BaseStrategy):
             r_now = (close - position.entry_price) / risk if position.side == "long" \
                 else (position.entry_price - close) / risk
             if r_now >= p.scalper_break_even_rr:
-                be = position.entry_price
-                if position.side == "long" and (position.stop is None or position.stop < be):
-                    new_stop = be
-                elif position.side == "short" and (position.stop is None or position.stop > be):
-                    new_stop = be
+                # cost-aware breakeven: exiting AT entry still pays the exit leg
+                # (taker fee + adverse slippage) on top of the entry leg already
+                # paid — a stop at the nominal entry price realizes a guaranteed
+                # ~-0.30% crypto round trip. Buffer the level so the "breakeven"
+                # exit actually breaks even (stop exits are market legs: taker).
+                from config import CONFIG, infer_kind
+                costs = CONFIG.costs
+                kind = infer_kind(getattr(position, "symbol", ""))
+                buf = costs.fee(kind) + costs.slippage(kind)
+                if position.side == "long":
+                    be = position.entry_price * (1.0 + buf)
+                    if position.stop is None or position.stop < be:
+                        new_stop = be
+                else:
+                    be = position.entry_price * (1.0 - buf)
+                    if position.stop is None or position.stop > be:
+                        new_stop = be
 
         # buffered VWAP exit: a single noisy close across VWAP must not eject the
         # trade — require N consecutive closes beyond VWAP ± buffer (ATR-scaled).

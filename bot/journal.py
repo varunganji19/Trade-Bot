@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS trades (
     entry_price REAL NOT NULL,
     exit_price REAL,
     stop_price REAL,
+    initial_stop_price REAL,
     target_price REAL,
     strategy TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'OPEN',
@@ -66,6 +67,8 @@ CREATE TABLE IF NOT EXISTS trades (
     pnl REAL,
     pnl_pct REAL,
     fees REAL,
+    entry_fee REAL,
+    realized_cash_delta REAL,
     exit_reason TEXT,
     rationale_open TEXT,
     rationale_close TEXT,
@@ -179,6 +182,31 @@ class Journal:
                 # NOT NULL DEFAULT keeps migrated DBs under the same constraint
                 # the fresh schema declares
                 conn.execute("ALTER TABLE trades ADD COLUMN timeframe TEXT NOT NULL DEFAULT '1h'")
+            # --- 2026-09 audit columns -------------------------------------
+            # initial_stop_price: R-multiples must divide by the INITIAL stop,
+            # never the trailed one (behavior_profile read exploded ±20R values
+            # and false stop-breach counts because stop_price is overwritten by
+            # every trail). Legacy rows backfill from their final stop_price —
+            # the best available approximation for rows whose trail history is
+            # gone; only BE-trailed legacy rows stay distorted and are
+            # documented as such.
+            if "initial_stop_price" not in cols:
+                conn.execute("ALTER TABLE trades ADD COLUMN initial_stop_price REAL")
+            # entry_fee: the entry leg's taker fee, so cash reconciliation can
+            # distinguish anchor-relative windows (see closed_cash_delta_since)
+            # instead of guessing which fees the anchor already reflects.
+            if "entry_fee" not in cols:
+                conn.execute("ALTER TABLE trades ADD COLUMN entry_fee REAL")
+            # realized_cash_delta: exact broker cash effect of the CLOSE event
+            # (gross - exit_fee), recorded at close time — the reconciliation
+            # ground truth for crash windows.
+            if "realized_cash_delta" not in cols:
+                conn.execute("ALTER TABLE trades ADD COLUMN realized_cash_delta REAL")
+            # backfills re-run until they stick (crash between ALTER and UPDATE)
+            conn.execute("UPDATE trades SET initial_stop_price = stop_price"
+                         " WHERE initial_stop_price IS NULL AND stop_price IS NOT NULL")
+            conn.execute("UPDATE trades SET entry_fee = fees / 2.0"
+                         " WHERE entry_fee IS NULL AND fees IS NOT NULL")
             # strategy-specialized backfill removed: the column is NOT NULL
             # DEFAULT '1h' (ALTER fills existing rows with the default), so
             # NULLs cannot exist — the catch-all below is the only safety net
@@ -235,29 +263,65 @@ class Journal:
     def open_trade(self, symbol: str, side: str, qty: float, entry_price: float,
                    stop: float | None, target: float | None, strategy: str,
                    rationale: str, mode: str = "paper", opened_ts: str | None = None,
-                   timeframe: str = "1h") -> int:
+                   timeframe: str = "1h", entry_fee: float | None = None) -> int:
+        """`stop` (when given) is recorded as BOTH stop_price and
+        initial_stop_price: at open they are the same level, and the initial
+        copy is never overwritten by later trails (R-multiple ground truth).
+        `entry_fee` records the entry leg's fee for anchor-aware cash
+        reconciliation (see closed_cash_delta_since)."""
         with self._lock, self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO trades (symbol, side, qty, entry_price, stop_price, target_price,"
-                " strategy, status, opened_ts, rationale_open, mode, timeframe) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (symbol, side, qty, entry_price, stop, target, strategy, "OPEN",
-                 _iso(opened_ts), rationale, mode, timeframe))
+                "INSERT INTO trades (symbol, side, qty, entry_price, stop_price,"
+                " initial_stop_price, target_price, strategy, status, opened_ts,"
+                " rationale_open, mode, timeframe, entry_fee)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (symbol, side, qty, entry_price, stop, stop, target, strategy, "OPEN",
+                 _iso(opened_ts), rationale, mode, timeframe, entry_fee))
             return cur.lastrowid
+
+    def record_fill(self, trade_id: int, entry_price: float, stop: float | None = None,
+                    target: float | None = None, entry_fee: float | None = None,
+                    initial_stop: float | None = None):
+        """Post-fill correction of the row the engine opens BEFORE the broker
+        fill (journal-first, self-healing). Sets the fill-derived entry/stop/
+        target AND their initial-risk snapshots: `initial_stop_price` latches
+        the fill-derived stop exactly once (never on later calls) and
+        `entry_fee` latches the entry leg's fee. Re-calls only refresh
+        stop_price/target_price — the trailing path."""
+        with self._lock, self._conn() as conn:
+            conn.execute("UPDATE trades SET entry_price=?, entry_fee=? WHERE id=?",
+                         (entry_price, entry_fee, trade_id))
+            if stop is not None:
+                conn.execute(
+                    "UPDATE trades SET stop_price=?,"
+                    " initial_stop_price=COALESCE(initial_stop_price, ?) WHERE id=?",
+                    (stop, initial_stop if initial_stop is not None else stop, trade_id))
+            if target is not None:
+                conn.execute("UPDATE trades SET target_price=? WHERE id=?",
+                             (target, trade_id))
 
     def close_trade(self, trade_id: int, exit_price: float, pnl: float, pnl_pct: float,
                     fees: float, exit_reason: str, rationale_close: str = "",
                     closed_ts: str | None = None, equity: float | None = None,
-                    cash: float | None = None, mode: str = "paper"):
+                    cash: float | None = None, mode: str = "paper",
+                    entry_fee: float | None = None,
+                    realized_cash_delta: float | None = None):
         """Close a trade. When equity/cash are given, the cycle-end equity point
         is written IN THE SAME transaction — a crash between the two used to
         drop the exit proceeds from the account (CLOSED trade, pre-exit cash
-        as the restart anchor)."""
+        as the restart anchor).
+
+        `entry_fee` (the entry leg's fee) and `realized_cash_delta` (the exact
+        broker cash effect of THIS close event) are written when supplied so
+        closed_cash_delta_since can reconcile crash windows exactly instead
+        of guessing which fees the anchor already reflects."""
         with self._lock, self._conn() as conn:
             conn.execute(
                 "UPDATE trades SET status='CLOSED', exit_price=?, pnl=?, pnl_pct=?, fees=?,"
-                " exit_reason=?, rationale_close=?, closed_ts=? WHERE id=?",
+                " exit_reason=?, rationale_close=?, closed_ts=?,"
+                " entry_fee=COALESCE(entry_fee, ?), realized_cash_delta=? WHERE id=?",
                 (exit_price, pnl, pnl_pct, fees, exit_reason, rationale_close,
-                 _iso(closed_ts), trade_id))
+                 _iso(closed_ts), entry_fee, realized_cash_delta, trade_id))
             if equity is not None and cash is not None:
                 conn.execute(
                     "INSERT INTO equity (ts, equity, cash, mode, note) VALUES (?,?,?,?,?)",
@@ -265,6 +329,9 @@ class Journal:
 
     def update_trade_stops(self, trade_id: int, stop: float | None = None, target: float | None = None,
                            entry_price: float | None = None):
+        """Trail stop/target (and legacy entry-price correction). Only the
+        LIVE levels move: initial_stop_price is never touched here — the
+        initial risk must survive every trail for R-multiple math."""
         if stop is None and target is None and entry_price is None:
             return
         with self._lock, self._conn() as conn:
@@ -400,13 +467,35 @@ class Journal:
         return dict(row) if row else None
 
     def closed_cash_delta_since(self, ts: str, mode: str | None = None) -> float:
-        """Net cash effect (realized pnl + round-trip fees) of trades CLOSED
-        strictly after `ts` — the reconciliation term for a crash between a
-        trade's close and the cycle-end equity write. Idempotent: once the
-        engine journals a fresh equity point, the window moves past them."""
-        q = ("SELECT COALESCE(SUM(COALESCE(pnl,0) + COALESCE(fees,0)), 0)"
+        """Exact net cash effect of trades CLOSED strictly after `ts` — the
+        reconciliation term for a crash between a trade's close and the
+        cycle-end equity write. Idempotent: once the engine journals a fresh
+        equity point, the window moves past them.
+
+        Anchor-aware arithmetic (the old query was pnl+fees = gross, which
+        refunded every fee and overstated recovered cash by both legs):
+          - anchor BETWEEN entry and close: the anchor cash still owes the
+            entry fee + entry slippage effect but the broker only charged the
+            entry fee at open (already in the anchor). The close event then
+            adds gross - exit_fee. So the window delta = gross - exit_fee
+            = pnl + entry_fee.
+          - entry ALSO after the anchor (outage window with skipped equity
+            writes): the whole trade is unreflected -> the window delta is
+            pnl - entry_fee (the entry fee was charged after the anchor).
+            With realized_cash_delta recorded (the exact close-event delta) we
+            take the exact value and subtract the entry fee charged inside the
+            window.
+        Legacy rows (no entry_fee/realized_cash_delta) approximate entry_fee
+        as fees/2 — right by symmetry, documented in _migrate."""
+        q = ("SELECT COALESCE(SUM(CASE"
+             " WHEN opened_ts <= ? THEN"
+             "   COALESCE(realized_cash_delta, COALESCE(pnl,0) + COALESCE(entry_fee, COALESCE(fees,0)/2.0))"
+             " ELSE"
+             "   COALESCE(realized_cash_delta, COALESCE(pnl,0) + COALESCE(entry_fee, COALESCE(fees,0)/2.0))"
+             "   - COALESCE(entry_fee, COALESCE(fees,0)/2.0)"
+             " END), 0)"
              " FROM trades WHERE status='CLOSED' AND closed_ts > ?")
-        params: list = [ts]
+        params: list = [ts, ts]
         if mode:
             q += " AND mode=?"
             params.append(mode)

@@ -45,6 +45,7 @@ class Position:
     bars_held: int = 0
     entry_fee: float | None = None  # entry-leg fee, deferred into close_position pnl
     entry_bar_ts: float = 0.0   # epoch of the DECISION bar (bar-time clock for bars_held)
+    initial_stop: float | None = None  # fill-time stop level, never trailed (R ground truth)
 
 
 class PaperBroker:
@@ -134,7 +135,7 @@ class PaperBroker:
             strategy=decision.strategy_name or "orchestrator",
             timeframe=spec.timeframe, rationale=decision.rationale, opened_ts=ts,
             risk_per_unit=decision.stop_distance, entry_fee=fee,
-            entry_bar_ts=decision_bar_ts or 0.0,
+            entry_bar_ts=decision_bar_ts or 0.0, initial_stop=stop,
         )
         self.positions[self.position_key(spec.symbol, spec.timeframe)] = pos
         return pos
@@ -183,15 +184,23 @@ class PaperBroker:
             bars = max(0, int((datetime.now(timezone.utc).timestamp() - entry_bar_ts)
                               / bar_seconds))
         stop = row["stop_price"]
-        risk = abs(row["entry_price"] - stop) if stop else 0.0
+        # initial-risk ground truth: prefer the latched initial stop; fall back
+        # to the final (possibly BE-trailed) stop for legacy rows — their true
+        # initial distance is unrecoverable, and R math on them is documented
+        # as approximate (see journal._migrate).
+        initial = row["initial_stop_price"] if "initial_stop_price" in row.keys() else None
+        risk_src = initial if initial is not None else stop
+        risk = abs(row["entry_price"] - risk_src) if risk_src else 0.0
         pos = Position(
             trade_id=row["id"], symbol=row["symbol"], side=row["side"], qty=row["qty"],
             entry_price=row["entry_price"], stop=stop, target=row["target_price"],
             strategy=row["strategy"], timeframe=row.get("timeframe") or timeframe,
             rationale=row["rationale_open"] or "", opened_ts=opened or "",
             risk_per_unit=risk, bars_held=bars,
-            entry_fee=self._fee(row["entry_price"] * row["qty"], kind),
+            entry_fee=(row["entry_fee"] if "entry_fee" in row.keys() and row["entry_fee"] is not None
+                       else self._fee(row["entry_price"] * row["qty"], kind)),
             entry_bar_ts=entry_bar_ts,
+            initial_stop=initial,
         )
         self.positions[self.position_key(pos.symbol, pos.timeframe)] = pos
         return pos

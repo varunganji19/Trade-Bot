@@ -230,3 +230,37 @@ fidelity, then statistics and infra. Each phase lands green on the full suite.
   separately.
 - Expect BACKTESTS.md turtle numbers to move a lot after 1.1 — that is the
   point (the old numbers were produced by a strategy with a dead exit).
+
+---
+
+# IMPLEMENTATION LOG (2026-09-09) — all CONFIRMED flaws fixed
+
+The seven CONFIRMED flaws are fixed; the PARTIAL ones (1.2 ordering, 2.2
+account model, 4.1 cache freshness, 4.2 Kronos perf) remain unfixed by scope
+decision above. 121/121 tests green (114 prior + 7 new regression tests).
+
+| ID | Status | What shipped | Where |
+|----|--------|--------------|-------|
+| 1.1 | **FIXED** | Exit channel reads the PRIOR 10-bar channel (`shift=1`), same convention as the entry breakout; vacuous test replaced with a firing-assert + end-to-end exit-mix check | `bot/strategies/turtle.py`, `tests/test_bot.py` |
+| 1.3 | **FIXED** | Breakeven stop = entry ± (taker fee + slippage), inferred per-kind from the symbol; short side mirrored | `bot/strategies/scalper.py`, `tests/test_bot.py` |
+| 2.1 | **FIXED** | `initial_stop_price` column latched at fill (`record_fill`), never trailed over; broker `Position.initial_stop`; `restore_position`/`_pos_view`/`behavior_profile` R math reads the initial stop; migration backfills legacy rows from their final stop (documented approximation) | `bot/journal.py`, `bot/broker.py`, `bot/shadow.py`, `bot/engine.py`, `bot/backtest.py` |
+| 2.3 | **FIXED** | `realized_cash_delta` + `entry_fee` columns recorded at close; `closed_cash_delta_since` is anchor-aware (entry-before-anchor → close-event delta; entry-after-anchor → plain pnl); engine passes the split values; both crash windows verified to the cent against the uninterrupted broker path | `bot/journal.py`, `bot/engine.py`, `tests/test_bot.py` |
+| 3.1 | **FIXED** | Moment-aware DSR: de-annualize best → per-period SR → Merton/OPM variance with sample skew/kurtosis → re-annualize the SE; `se_model` field says which was used; `cmd_validate` passes the primary run's equity returns; no-returns path keeps the normal SE | `bot/validation.py`, `main.py`, `tests/test_bot.py` |
+| 3.2 | **FIXED** | `inverse_vol` computes each symbol's vol on its OWN bars (`per_symbol_vols`) — no timestamp alignment, crypto keeps weekends; HRP keeps the aligned matrix (correlations need common observations) with the tradeoff documented; weights identical to skfolio's InverseVolatility on aligned-only books | `bot/allocator.py`, `tests/test_bot.py` |
+| 3.3 | **FIXED** | Lexicon branch filters headlines by asset keyword map (BTC/ETH/SOL/EUR/GBP + shared crypto/macro keys), with whole-batch fallback when nothing matches; LLM branch unchanged (it already received `asset_hint`) | `bot/sentiment.py`, `tests/test_bot.py` |
+
+Post-fix re-measurement (BACKTESTS.md Round 8, same cached windows as the
+audit): BTC 1h turtle −5.0%/115 trades (was +1.5%/11 — the dead-exit artifact),
+SOL +10.6%/PF 1.68 (edge survives with real exits), ETH +0.5%/PF 1.02 (coin
+flip), scalper 15m moves little (the fix removes a guaranteed leak, it does
+not create an edge). Exit-mix proof the fix is live: 108 of 242 turtle exits
+are now opposite-channel (structurally 0 before).
+
+Two side effects of the fixes worth recording:
+- `oos_trade_distribution` now reports `kept_trades_unique` — with short
+  holding periods, the same trade legitimately appears in several overlapping
+  OOS paths, so the per-path counts no longer sum to total_trades; the unique
+  count restores the partition identity.
+- The rule-adherence replay now classifies some fabricated "discretionary"
+  closes as LATE instead of RULE BREAK — with a live exit signal, "closed
+  later than the strategy fired" is the accurate description.

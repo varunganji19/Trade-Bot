@@ -168,6 +168,10 @@ def oos_trade_distribution(trades: list[dict], df: pd.DataFrame,
         "t_stat": round(tstat, 2) if tstat is not None else None,
         "pct_paths_profitable": round(len(profitable) / len(rets) * 100.0, 1) if rets else None,
         "purged_trades": len(scored) - len(assigned),
+        # unique trades kept in >=1 path; per-path counts SUM to more than
+        # this when a trade sits in a fold block shared by several paths
+        # (overlapping OOS paths are the design, not a bug)
+        "kept_trades_unique": len(assigned),
         "total_trades": len(scored),
     }
 
@@ -262,7 +266,8 @@ def _norm_sf(x: float) -> float:
     return 0.5 * math.erfc(x / math.sqrt(2.0))
 
 
-def deflated_sharpe(sharpes: list[float], n_obs: int, bars_per_year: float) -> dict:
+def deflated_sharpe(sharpes: list[float], n_obs: int, bars_per_year: float,
+                    returns=None) -> dict:
     """Deflated Sharpe Ratio (Bailey & Lopez de Prado 2014).
 
     We tried many configurations before shipping one; the DSR asks: given the
@@ -278,6 +283,18 @@ def deflated_sharpe(sharpes: list[float], n_obs: int, bars_per_year: float) -> d
     sqrt(bars_per_year / n_obs) — the SE of a per-period Sharpe is 1/sqrt(n)
     and mixing that with annualized trials inflated DSR to ~1.0 for any sane
     input (the statistic could essentially never reject).
+
+    HIGHER MOMENTS: when the primary run's per-bar returns are supplied,
+    the SE uses the Merton/OPM adjustment — the asymptotic variance of the
+    SR estimate depends on skewness (gamma3) and kurtosis (gamma4):
+        var(SR_p) ~= (1 - gamma3*SR_p + (gamma4-1)/4 * SR_p^2) / (n-1)
+    (Mertens 2002; Christie 2005; the form Bailey & LdP use for the DSR).
+    Fat-tailed crypto returns (gamma4 >> 3) with non-zero per-period SR get
+    a wider SE than the normal-only 1/sqrt(n). The formula applies to the
+    PER-PERIOD SR: the annualized `best` is de-annualized first
+    (SR_p = best / sqrt(bars_per_year)) and the SE is re-annualized after —
+    feeding the annualized SR in directly (the naive patch) mis-scales the
+    correction by ~sqrt(apy).
 
     A DSR >= 0.95 is publishable confidence; below 0.5 the strategy's Sharpe is
     fully explained by selection over trials (p-hacking, quantified)."""
@@ -296,14 +313,32 @@ def deflated_sharpe(sharpes: list[float], n_obs: int, bars_per_year: float) -> d
     e_max = (1.0 - gamma) * _norm_inv_cdf(1.0 - 1.0 / n_trials) \
         + gamma * _norm_inv_cdf(1.0 - 1.0 / (n_trials * math.e))
     sr0 = e_max * math.sqrt(var)
-    # SE of the ANNUALIZED Sharpe estimated over n_obs bars: the per-period
-    # SE 1/sqrt(n) scales by sqrt(apy) under annualization
+
+    # SE of the ANNUALIZED Sharpe estimated over n_obs bars. Default: the
+    # normal-only 1/sqrt(n) per-period SE scaled by sqrt(apy). With a returns
+    # series: the Merton/OPM moment adjustment on the per-period SR.
+    se_model = "normal"
     se = math.sqrt(bars_per_year / max(1, n_obs))
+    if returns is not None:
+        r = pd.Series(returns).dropna()
+        if len(r) >= 20 and float(r.std()) > 0:
+            # the trial Sharpes are annualized; the moment formula needs the
+            # PER-PERIOD SR of the best trial
+            sr_p = best / math.sqrt(bars_per_year)
+            skew = float(r.skew())
+            # pandas kurtosis is EXCESS kurtosis; the formula wants raw
+            kurt = float(r.kurt()) + 3.0
+            var_p = (1.0 - skew * sr_p + ((kurt - 1.0) / 4.0) * sr_p ** 2) \
+                / max(1, len(r) - 1)
+            if var_p > 0:
+                se = math.sqrt(bars_per_year * var_p)
+                se_model = "moments"
     dsr = 1.0 - _norm_sf((best - sr0) / se)
     return {
         "best_sharpe": round(best, 3),
         "n_trials": n_trials,
         "sr0_expected_max": round(sr0, 3),
+        "se_model": se_model,
         "deflated_sharpe": round(dsr, 3),
         "verdict": "selection-aware confidence" if dsr >= 0.95 else
                    ("suggestive" if dsr >= 0.8 else "Sharpe explained by trial count"),

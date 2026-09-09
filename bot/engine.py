@@ -418,11 +418,15 @@ class TradingEngine:
             self.broker.open_position(spec, decision, approval.qty, decision.price, trade_id, ts=utc_now(),
                                       decision_bar_ts=bar_epoch)
             pos = self.broker.positions[self.broker.position_key(spec.symbol, spec.timeframe)]
-            # single follow-up write carries the FILL-derived stop/target and
-            # the fill itself (the journal's entry_price must record the fill,
-            # not the decision price — exits are journaled at fills)
-            self.journal.update_trade_stops(trade_id, stop=pos.stop, target=pos.target,
-                                            entry_price=pos.entry_price)
+            # single follow-up write carries the FILL-derived stop/target, the
+            # fill itself (the journal's entry_price must record the fill, not
+            # the decision price — exits are journaled at fills), the entry
+            # leg's fee, and the INITIAL stop latch (R ground truth, never
+            # trailed over)
+            self.journal.record_fill(trade_id, entry_price=pos.entry_price,
+                                     stop=pos.stop, target=pos.target,
+                                     entry_fee=pos.entry_fee,
+                                     initial_stop=pos.initial_stop)
         except Exception:
             self.journal.abort_trade(trade_id)
             raise
@@ -511,6 +515,12 @@ class TradingEngine:
         keep write_equity=True — they have no cycle tail behind them."""
         closed_pos, pnl, pnl_pct, fees, exit_fill = self.broker.close_position(
             spec, exit_price, reason)
+        # exact cash effect of THIS close event: the broker added
+        # gross - exit_fee; pnl = gross - exit_fee - entry_fee, so the
+        # close-event delta = pnl + entry_fee (entry fee was charged at open,
+        # already reflected in any pre-close equity anchor)
+        entry_fee = closed_pos.entry_fee if closed_pos.entry_fee is not None else 0.0
+        cash_delta = pnl + entry_fee
         # close + the cycle's equity point in ONE transaction: a crash between
         # two separate writes used to leave the trade CLOSED while the restart
         # anchor still held pre-exit cash — the proceeds vanished from the account
@@ -520,6 +530,8 @@ class TradingEngine:
             exit_reason=reason, rationale_close=closed_pos.rationale,
             equity=self.broker.equity({}) if write_equity else None,
             cash=self.broker.cash if write_equity else None, mode=self.mode,
+            entry_fee=round(entry_fee, 6) if closed_pos.entry_fee is not None else None,
+            realized_cash_delta=round(cash_delta, 6),
         )
         # cooldown after any exit so the next cycle can't instantly re-enter;
         # stored in epoch seconds so every timeframe of the symbol reads the

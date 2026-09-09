@@ -16,7 +16,7 @@ Starting capital $10,000, 1% risk per trade.
 > four measurement issues AFTER the rounds below were recorded; the affected
 > numbers were not silently rewritten:
 > - **Deflated Sharpe was unit-broken** (per-period SE mixed with annualized
->   trial Sharpes) and read ~1.0 for any sane input — any DSR figure printed
+>   trial Sharpes) and read ~1.0 for any input — any DSR figure printed
 >   before this fix is uninformative. Fixed in `bot/validation.py` and pinned
 >   with a must-fail reference case.
 > - **Forex Sharpe annualization used 24/7 bar counts** — Yahoo forex trades
@@ -28,6 +28,63 @@ Starting capital $10,000, 1% risk per trade.
 > - **Purged-CV purged entry proximity only**; it now also drops trades whose
 >   HOLDING spans a path boundary, so per-path returns are cleaner OOS
 >   segments (purge counts rise accordingly).
+
+> **Strategy changelog (2026-09-09 Gemini-audit fixes — see
+> FLAW_VALIDATION.md).** Five STRATEGY/ACCOUNTING bugs were fixed after the
+> rounds below; the turtle numbers in every earlier round are from a strategy
+> whose 10-bar Donchian exit could mathematically never fire (the channel
+> included the decision bar's own low/high, and close ≥ low by candlestick
+> construction — verified 0 of 8,759 bars could trigger it). Those runs exited
+> only via 2×ATR stops or end-of-data, so their "trend following" numbers
+> measured a stop-out machine, not the Turtle S1 exit. All earlier turtle
+> rows are superseded by Round 8 below; the scalper's breakeven-stop rows are
+> superseded where noted. Also fixed in the same pass: journal initial-stop
+> latching (R-multiples used the TRAILED stop — the old profile's ±20R
+> explosions and "blew through stop" counts were artifacts), anchor-aware
+> crash-window cash reconciliation (the old query refunded both fee legs),
+> per-symbol-vol allocation (the aligned matrix dropped ~28% of crypto
+> weekend bars in mixed books), and asset-filtered lexicon sentiment (a
+> crypto-crash headline no longer vetoes an EUR/USD entry).
+
+## Round 8 (2026-09-09) — post-fix re-measurement: the honest turtle
+
+The Turtle S1 exit now reads the PRIOR 10-bar channel (`shift=1`, matching
+the entry-breakout convention); the scalper's breakeven stop is cost-aware
+(entry ± taker fee + slippage, so a "breakeven" exit nets ~0 instead of a
+guaranteed −0.30% round trip). Same cached windows as the audit, full costs.
+
+| Symbol | TF | Strategy | Return | MaxDD | Trades | Win% | PF | Sharpe | Exit mix |
+|---|---|---|---:|---:|---:|---:|---:|---:|---|
+| BTC/USDT | 1h | turtle_trend | −5.0% | −10.1% | 115 | 23.5% | 0.82 | −1.42 | 49 channel / 65 stop / 1 EOD |
+| ETH/USDT | 1h | turtle_trend | +0.5% | −9.8% | 70 | 22.9% | 1.02 | 0.38 | 28 channel / 42 stop |
+| SOL/USDT | 1h | turtle_trend | **+10.6%** | −7.5% | 57 | 42.1% | 1.68 | 3.35 | 31 channel / 25 stop / 1 EOD |
+| BTC/USDT | 15m | vwap_scalper | −11.1% | −13.8% | 135 | 17.8% | 0.31 | −30.25 | (cost-aware BE) |
+| ETH/USDT | 15m | vwap_scalper | −8.6% | −9.8% | 163 | 29.4% | 0.58 | −13.28 | (cost-aware BE) |
+
+What changed and why it matters:
+
+- **BTC 1h turtle: the old +1.5%/11 trades was an artifact.** The dead exit
+  meant one lucky month-long hold supplied most of the P&L; with the exit
+  live, the same window trades 115 times and loses −5.0% at 23.5% win rate.
+  The strategy's edge on BTC 1h is NOT confirmed — this is the honest
+  baseline any future turtle tuning must beat.
+- **SOL keeps a real edge** (+10.6%, PF 1.68, Sharpe 3.35 with 42% wins) —
+  and now it's demonstrated with 57 real exits rather than 8 hold-to-end
+  trades.
+- **ETH is a coin flip** (PF 1.02, Sharpe 0.38) — the exit didn't reveal an
+  edge, it revealed the absence of one on this window.
+- **Scalper 15m numbers move little** (−11.1%/−8.6% vs the pre-fix runs on
+  comparable windows): the cost-aware BE stop fixes the GUARANTEED ~-0.30%
+  leak per BE exit but does not conjure an edge — the scalper remains
+  cost-dominated on 15m majors, consistent with the cost studies in Rounds
+  1-2. No configuration changed; only the stop arithmetic.
+- Exit-mix evidence the fix is live: 108 of 242 turtle exits across the three
+  symbols are now the Donchian opposite-channel exit, which was structurally
+  0 before (see FLAW_VALIDATION.md for the impossibility proof).
+
+The purged-CV / PBO / Monte Carlo batteries should be re-run on the new
+turtle path before citing any distributional claim; earlier purged-CV turtle
+figures (e.g. "2 of 28 paths traded") described the dead-exit world.
 
 ## Round 1 (v1) — what the first battery showed
 
@@ -173,6 +230,11 @@ carry statistical weight. The signal-IC report in the same command (conviction
 vs 24-bar forward return, Spearman, overlap-adjusted t) gave pooled IC 0.09,
 t≈0.33 for turtle on that window — directionally fine, not significant.
 
+**(Superseded 2026-09-09: this count described the dead-exit turtle — 10
+trades existed precisely because the Donchian exit never fired. With the
+exit fixed the same window trades 115 times; re-run the purged-CV battery
+before citing any path distribution from this paragraph or earlier.)**
+
 ## Round 3 (v3) — execution truth, allocation, and the Kronos verdict
 
 The v3 pass hardened the *measurement machinery* itself; headline strategy
@@ -264,6 +326,12 @@ re-run byte-identical (stats and every trade) — the measurement machinery is
 unchanged; only the live engine was corrected. Four regression tests added
 (53 total): cross-timeframe isolation, restart cash/position restore,
 bars-held-in-bars, journal migration.
+
+**(Superseded 2026-09-09: the 2026-09-09 strategy fixes (live turtle exit,
+cost-aware scalper BE) intentionally change BOTH paths' trade sets — that is
+the point. The byte-identical guarantee applies to the measurement machinery
+only, and still holds: the backtester and live engine evaluate the same fixed
+strategy code.)**
 
 ## Round 5 (v5) — the RVOL filter: an honest negative result
 

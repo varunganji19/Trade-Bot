@@ -24,6 +24,7 @@ API: GET /  /api/stats /api/equity /api/trades /api/decisions /api/evidence
           /api/watchlist {kind,symbol,timeframe,display?}
           /api/account/deposit {amount}  /api/account/withdraw {amount}
           /api/account/reset {capital}
+          /api/trading/pause {note?}  /api/trading/resume {}   (manual halt)
      DELETE /api/watchlist/{kind}/{symbol}/{timeframe}
 """
 from __future__ import annotations
@@ -47,6 +48,7 @@ from starlette.responses import JSONResponse
 from bot.chatbot import ChatBot
 from bot.engine import TradingEngine
 from bot.journal import Journal
+from bot.pause import is_paused, set_paused
 from bot.strategies import STRATEGY_CLASSES
 from config import (CONFIG, MarketSpec, VALID_KINDS,
                     VALID_TIMEFRAMES, MAX_WATCHLIST_SPECS,
@@ -175,6 +177,13 @@ class ResetIn(BaseModel):
 class PositionCloseIn(BaseModel):
     symbol: str
     timeframe: str
+
+
+class PauseIn(BaseModel):
+    """Manual pause/resume body: optional human note. The body-less variant
+    is a plain {} like every other mutating POST (the JSON content type forces
+    the CORS preflight that defeats form-encoded CSRF)."""
+    note: str = Field(default="", max_length=200)
 
 
 class EmptyIn(BaseModel):
@@ -401,6 +410,14 @@ def api_stats():
     stats["engine_running"] = eng is not None
     stats["cycles"] = eng.cycles if eng is not None else 0
     stats["watchlist_count"] = len(CONFIG.watchlist)
+    # manual pause rides the same poll as health_note (the banner + button
+    # must flip within one 4s tick, without a second request). Reported for a
+    # stopped engine too — the flag file outlives any single engine run.
+    paused, pause_note = is_paused()
+    if eng is not None:
+        paused = paused or bool(getattr(eng.risk, "paused", False))
+    stats["paused"] = paused
+    stats["paused_note"] = pause_note
     if eng is not None:
         stats["llm_mode"] = eng.llm.provider if eng.llm.enabled else "quant"
         # live-state trio via the shared helper (marks come from the engine's
@@ -886,21 +903,63 @@ def _auto_resume_engine():
 
 @app.get("/api/engine/status")
 def api_engine_status():
+    # paused = the operator's manual halt. It is shown for a STOPPED engine
+    # too: the flag is a file (outlives the engine) and a fresh start must
+    # visibly carry the pause, never silently resume trading.
+    paused, _ = is_paused()
     eng = _get_engine()
     th = _engine_thread
-    if eng is None:
-        return {"running": False, "cycles": 0, "llm": "quant", "positions": 0,
+    if eng is not None:
+        paused = paused or bool(getattr(eng.risk, "paused", False))
+        return {"running": True, "cycles": eng.cycles,
+                "llm": eng.llm.provider if eng.llm.enabled else "quant",
+                "positions": len(eng.broker.positions_snapshot()),
                 "interval": CONFIG.live_interval_seconds,
                 "alive": bool(th is not None and th.is_alive()),
-                "last_error": _last_engine_error, "health_note": None}
-    return {"running": True, "cycles": eng.cycles,
-            "llm": eng.llm.provider if eng.llm.enabled else "quant",
-            "positions": len(eng.broker.positions_snapshot()),
+                "last_error": eng.last_error or _last_engine_error,
+                # degraded-but-alive conditions (e.g. a held position behind a dead
+                # feed) ride here — last_error is reserved for fatal engine errors
+                "health_note": getattr(eng, "health_note", None),
+                "paused": paused}
+    return {"running": False, "cycles": 0, "llm": "quant", "positions": 0,
+            "interval": CONFIG.live_interval_seconds,
             "alive": bool(th is not None and th.is_alive()),
-            "last_error": eng.last_error or _last_engine_error,
-            # degraded-but-alive conditions (e.g. a held position behind a dead
-            # feed) ride here — last_error is reserved for fatal engine errors
-            "health_note": getattr(eng, "health_note", None)}
+            "last_error": _last_engine_error, "health_note": None,
+            "paused": paused}
+
+
+@app.post("/api/trading/pause")
+def api_trading_pause(body: PauseIn):
+    """Set the manual pause. The file write persists the halt for a future
+    engine/dashboard restart; when an engine IS live its risk.paused is set
+    in the same call so the halt takes effect before the next cycle (a new
+    entry could otherwise slip in during the interval). Entries only — open
+    positions keep their stops/targets/exits; nothing is force-closed."""
+    if not set_paused(True, body.note):
+        raise HTTPException(500, "could not write the pause flag (disk error?) — "
+                               "trading is NOT paused")
+    eng = _get_engine()
+    if eng is not None:
+        eng.risk.paused = True
+    return {"status": "paused",
+            "note": body.note,
+            "semantics": "blocks new entries only — open positions are still "
+                         "managed (stops, targets, strategy exits). Nothing is "
+                         "force-closed."}
+
+
+@app.post("/api/trading/resume")
+def api_trading_resume(body: EmptyIn):
+    """Clear the manual pause (new entries allowed again; every other risk
+    gate still applies). Resuming WRITES paused:false rather than deleting
+    the flag — a visible record beats an absence that reads as 'never paused'."""
+    if not set_paused(False):
+        raise HTTPException(500, "could not write the pause flag (disk error?) — "
+                               "trading is still paused")
+    eng = _get_engine()
+    if eng is not None:
+        eng.risk.paused = False
+    return {"status": "resumed"}
 
 
 # ===========================================================================
@@ -954,6 +1013,10 @@ document.documentElement.setAttribute('data-theme',t);})();
   --ring-soft:rgba(37,99,235,.16);
   --pos-soft:rgba(21,128,61,.11); --neg-soft:rgba(220,38,38,.10);
   --blue-soft:rgba(37,99,235,.11); --hold-soft:rgba(91,107,128,.12);
+  /* amber = caution states (manual pause banner): distinct from red=danger
+     (loss/damage) and green=pos — the pause is a deliberate operator state,
+     not an error */
+  --amber:#B45309; --amber-soft:rgba(245,158,11,.15);
   --row-hover:rgba(37,99,235,.045);
   --hover-border:rgba(37,99,235,.38);
   --header-bg:rgba(255,255,255,.86);
@@ -998,6 +1061,7 @@ document.documentElement.setAttribute('data-theme',t);})();
   --ring-soft:rgba(96,165,250,.22);
   --pos-soft:rgba(74,222,128,.13); --neg-soft:rgba(248,113,113,.13);
   --blue-soft:rgba(96,165,250,.13); --hold-soft:rgba(152,162,179,.14);
+  --amber:#F59E0B; --amber-soft:rgba(245,158,11,.16);
   --row-hover:rgba(148,163,184,.07);
   --hover-border:rgba(96,165,250,.45);
   --header-bg:rgba(19,23,31,.86);
@@ -1031,6 +1095,7 @@ document.documentElement.setAttribute('data-theme',t);})();
   --ring-soft:rgba(96,165,250,.20);
   --pos-soft:rgba(74,222,128,.13); --neg-soft:rgba(248,113,113,.13);
   --blue-soft:rgba(96,165,250,.13); --hold-soft:rgba(161,166,176,.14);
+  --amber:#F59E0B; --amber-soft:rgba(245,158,11,.14);
   --row-hover:rgba(255,255,255,.05);
   --hover-border:rgba(96,165,250,.42);
   --header-bg:rgba(0,0,0,.84);
@@ -1114,6 +1179,28 @@ body { background:var(--color-background); color:var(--color-foreground);
                             color:var(--color-neg); cursor:pointer; padding:4px 10px;
                             font:600 11px/1.4 var(--font-ui); flex-shrink:0; }
 .health-banner .h-dismiss:hover { background:rgba(220,38,38,.14); }
+
+/* amber manual-pause banner: the operator paused the bot — a deliberate
+   state, so amber (caution) rather than the red degraded-engine banner;
+   never dismissible while the pause is actually active (unlike health_note
+   the operator ends it via Resume, not via a dismiss button) */
+.pause-banner { display:none; align-items:flex-start; gap:10px;
+                background:var(--amber-soft); border:1px solid var(--amber);
+                color:var(--amber); border-radius:var(--radius);
+                padding:12px 14px; font-size:13px; margin-bottom:12px; }
+.pause-banner.show { display:flex; }
+.pause-banner svg { width:17px; height:17px; flex-shrink:0; margin-top:1px; }
+.pause-banner .p-body b { font-weight:700; }
+
+/* plain-language risk-controls explanation beside the engine buttons — the
+   non-technical reader is the audience (what each halt does AND does not do) */
+.risk-controls { margin-top:12px; border-top:1px dashed var(--color-border);
+                 padding-top:10px; font-size:12px; line-height:1.55;
+                 color:var(--color-muted-foreground); }
+.risk-controls b { color:var(--color-foreground); font-weight:600; }
+.risk-controls .rc-row { margin-top:6px; }
+.btn-warn { background:var(--amber); color:#1F1300; }
+.btn-warn:hover { filter:brightness(.94); }
 
 /* ---------------------------------------------------------------- tabs */
 .tabs { display:flex; gap:2px; padding:0 var(--space-xl); border-bottom:1px solid var(--color-border);
@@ -1494,6 +1581,10 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
      .tabs bar is the nav at all sizes now -->
 
 <main>
+<div class="pause-banner" id="pauseBanner" role="status">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+  <div class="p-body"><b>Trading paused (manual).</b> Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.<span id="pauseNoteBox"></span> <span style="opacity:.85">Resume from the Overview tab when you want new entries again.</span></div>
+</div>
 <div class="health-banner" id="healthBanner" role="alert">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>
   <div><b>Engine degraded:</b> <span id="healthMsg"></span></div>
@@ -1524,10 +1615,18 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
         <button class="btn btn-secondary" id="btnStop" disabled>
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
           Stop</button>
+        <button class="btn btn-warn" id="btnPause" title="Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          <span id="pauseLabel">Pause trading</span></button>
       </div>
       <div class="engine-state" style="margin-top:12px">
         <span class="st" id="engineStateText">stopped</span>
         <span class="sub" id="engineStateSub">0 cycles · watchlist 0 specs</span>
+      </div>
+      <div class="risk-controls">
+        <b>Risk controls</b> — what they do and don't do
+        <div class="rc-row"><b>Daily kill switch (automatic):</b> after a −3% day it blocks new entries for the rest of the UTC day. It resets by itself at the next UTC day. It never force-closes positions — their stops, targets and strategy exits keep running.</div>
+        <div class="rc-row"><b>Pause trading (manual):</b> stays until you press Resume. Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.</div>
       </div>
     </div>
   </div>
@@ -2059,6 +2158,19 @@ async function refreshStats() {
   $('#btnStart').disabled = !!s.engine_running;
   $('#btnStop').disabled = !s.engine_running;
 
+  /* manual pause: banner + button flip. Reported for a stopped engine too —
+     the flag is a file that outlives any engine run, and a pause must never
+     be lost by stopping/starting the engine. */
+  const pb = $('#pauseBanner');
+  if (s.paused) {
+    pb.classList.add('show');
+    $('#pauseNoteBox').textContent = s.paused_note ? ' Note: ' + s.paused_note + '.' : '';
+    $('#pauseLabel').textContent = 'Resume trading';
+  } else {
+    pb.classList.remove('show');
+    $('#pauseLabel').textContent = 'Pause trading';
+  }
+
   renderPositions(s);
   renderStratBars(s.by_strategy || {});
 }
@@ -2135,6 +2247,29 @@ async function stopEngine() {
 }
 $('#btnStart').addEventListener('click', startEngine);
 $('#btnStop').addEventListener('click', stopEngine);
+
+/* manual pause/resume — one button that follows the flag's state. The copy
+   must state the semantics every time it fires: entries-only, nothing is
+   force-closed (an operator pausing in a panic must know what they did NOT
+   just do to their open positions). */
+async function togglePause() {
+  const paused = $('#pauseBanner').classList.contains('show');
+  if (!paused) {
+    try {
+      const r = await jpost('/api/trading/pause', {note: ''});
+      toast('Trading paused', r.semantics || 'blocks new entries only');
+      addMsg('[engine] trading paused — new entries blocked, open positions still managed', 'bot');
+    } catch (e) { toastErr('Could not pause', e); }
+  } else {
+    try {
+      await jpost('/api/trading/resume', {});
+      toast('Trading resumed', 'new entries are allowed again (all other risk gates still apply)');
+      addMsg('[engine] trading resumed — new entries allowed again', 'bot');
+    } catch (e) { toastErr('Could not resume', e); }
+  }
+  refreshStats();
+}
+$('#btnPause').addEventListener('click', togglePause);
 
 /* ===================================================== portfolio */
 function renderPositions(s) {

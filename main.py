@@ -7,6 +7,8 @@ Usage:
                            [--strategy turtle_trend|connors_meanrev|vwap_scalper|ensemble]
                            [--walk-forward] [--json out.json]
   python3 main.py run [--once]                 # paper-trade (live loop or one cycle)
+  python3 main.py pause [note]                 # manual halt: blocks NEW entries only
+  python3 main.py resume                       # clear the manual pause (new entries allowed)
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
   python3 main.py status                       # journal summary
   python3 main.py chat "question"              # chatbot from the terminal
@@ -247,6 +249,27 @@ def cmd_run(args):
         engine.run_forever(interval=args.interval or CONFIG.live_interval_seconds)
 
 
+def cmd_pause(args):
+    from bot.pause import set_paused
+    if not set_paused(True, args.note):
+        print("[pause] could not write the pause flag (disk error?) — trading is NOT paused")
+        sys.exit(1)
+    print("[pause] trading paused."
+          + (f" Note: {args.note}" if args.note else ""))
+    print("[pause] New entries are now blocked. Open positions (if any) are still "
+          "managed — nothing is force-closed.")
+    print("[pause] This stays until you run: python3 main.py resume")
+
+
+def cmd_resume(args):
+    from bot.pause import set_paused
+    if not set_paused(False):
+        print("[resume] could not write the pause flag (disk error?) — trading is still paused")
+        sys.exit(1)
+    print("[resume] trading resumed — new entries are allowed again (all other "
+          "risk gates still apply).")
+
+
 def cmd_dashboard(args):
     import errno
     import socket
@@ -300,9 +323,17 @@ def _port_owner(port: int) -> str | None:
 
 def cmd_status(args):
     from bot.journal import Journal
+    from bot.pause import is_paused
     j = Journal()
     stats = j.stats()
     print(json.dumps(stats, indent=1))
+    paused, pause_note = is_paused()
+    if paused:
+        print("trading: PAUSED (manual flag) — blocks new entries only; open positions "
+              "are still managed, nothing is force-closed"
+              + (f" · note: {pause_note}" if pause_note else ""))
+    else:
+        print("trading: active (no manual pause)")
     open_trades = j.open_trades()
     if open_trades:
         print(f"open positions: {len(open_trades)}")
@@ -492,6 +523,15 @@ def main():
     run.add_argument("--once", action="store_true", help="one cycle then exit")
     run.add_argument("--interval", type=int, default=None, help="seconds between cycles")
     run.set_defaults(fn=cmd_run)
+
+    pz = sub.add_parser("pause", help="manual halt: block NEW entries only "
+                                      "(open positions stay managed, nothing is force-closed)")
+    pz.add_argument("note", nargs="?", default="",
+                    help="optional reason recorded with the flag (quote multi-word notes)")
+    pz.set_defaults(fn=cmd_pause)
+
+    rp = sub.add_parser("resume", help="clear the manual pause (new entries allowed again)")
+    rp.set_defaults(fn=cmd_resume)
 
     va = sub.add_parser("validate",
                         help="honest-statistics battery: purged-CV, PBO, Deflated Sharpe, "

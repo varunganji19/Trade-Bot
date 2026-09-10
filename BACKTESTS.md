@@ -45,6 +45,13 @@ Starting capital $10,000, 1% risk per trade.
 > per-symbol-vol allocation (the aligned matrix dropped ~28% of crypto
 > weekend bars in mixed books), and asset-filtered lexicon sentiment (a
 > crypto-crash headline no longer vetoes an EUR/USD entry).
+>
+> **Backtest fidelity changelog (2026-09-10 — Fix 1.2, see Round 9).** The
+> backtester now fills a strategy exit decided at bar i at bar i+1's open
+> BEFORE scanning that bar for stop/target — a same-bar stop/target can no
+> longer "win" over an exit order that already filled. Earlier rounds' exit
+> attribution on the affected ~2-3% of trades is biased accordingly; the
+> pinned before/after table lives in Round 9.
 
 ## Round 8 (2026-09-09) — post-fix re-measurement: the honest turtle
 
@@ -85,6 +92,51 @@ What changed and why it matters:
 The purged-CV / PBO / Monte Carlo batteries should be re-run on the new
 turtle path before citing any distributional claim; earlier purged-CV turtle
 figures (e.g. "2 of 28 paths traded") described the dead-exit world.
+
+## Round 9 (2026-09-10) — exit-ordering fix (Fix 1.2): fills before scans
+
+The backtester now honors time order when a strategy exit and a bracket level
+compete for the same bar: an exit signal decided at bar i's close FILLS at
+bar i+1's open, and only then is bar i+1's remaining range scanned for
+stop/target. Before this fix the scanner ran first, so a same-bar stop or
+target could "win" over an exit order that was already filled at the open —
+a mixed-direction bias on a small slice of trades. The fill bar's own scan
+(entered at its open) stays first, and within-bar conservatism (stop before
+target) is unchanged. See FLAW_VALIDATION.md §1.2 for the validation.
+
+All seven runs use PINNED `--start/--end` windows (byte-identical cached
+data, see `scripts/pinned_runs.py`), so the before/after columns differ by
+the ordering change alone. Provenance: `pinned_before` == `pinned_mid`
+(runs after the 2026-09-10 risk/pause and Kronos/cache waves — numerically
+inert for backtests, verified run-by-run) == the Round 8 cached windows.
+
+| Run | Return before → after | MaxDD | Trades | PF | Sharpe | Exits changed |
+|---|---:|---:|---:|---:|---:|---:|
+| BTC/USDT 1h turtle | −5.11% → −4.72% | −10.09% → −10.03% | 116 | 0.82 → 0.83 | −1.44 → −1.32 | 4 |
+| ETH/USDT 1h turtle | +0.29% → +0.39% | −9.80% → −9.72% | 71 | 1.01 → 1.02 | 0.23 → 0.26 | 2 |
+| SOL/USDT 1h turtle | +10.32% → +10.37% | −7.50% → −7.46% | 57 | 1.65 → 1.66 | 3.25 → 3.27 | 1 |
+| BTC/USDT 4h connors | +0.77% (unchanged) | −0.18% | 6 | 14.93 | 14.87 | 0 |
+| ETH/USDT 4h connors | −0.23% (unchanged) | −0.86% | 4 | 0.57 | — | 0 |
+| BTC/USDT 15m scalper | −11.41% → −11.23% | −13.89% → −13.72% | 136 | 0.30 | −30.53 → −30.07 | 5 |
+| ETH/USDT 15m scalper | −8.59% → −7.97% | −9.84% → −9.56% | 163 | 0.58 → 0.60 | −13.28 → −12.37 | 6 |
+
+The audit's prediction was near-exact: the turtle windows had 4/115, 2/70
+and 1/57 conflicting exits (BTC/ETH/SOL) and the re-run flips exactly 4, 2
+and 1 trades — each from a same-bar stop/target fill to the already-decided
+signal exit. Connors is untouched (its RSI-reset exits never competed with a
+bracket on the same bar on these windows). The scalper flips 5-6 trades per
+window — its trailing breakeven stop creates more same-bar collisions, and
+the reordered scan now also uses the freshly-trailed stop level, matching
+the live engine's semantics (the engine trails at bar i's close and the
+next bar's scan sees the new level).
+
+No conclusion changes: BTC 1h turtle stays negative, SOL keeps its edge,
+ETH stays a coin flip, and the scalper stays cost-dominated on 15m majors.
+The moves are small and uniformly in the trades' favor — consistent with
+removing a bias that let a same-bar stop "steal" an exit that had already
+filled at a better price. As with Round 8, the purged-CV / PBO / Monte Carlo
+batteries should be re-run on this final path before citing any
+distributional claim.
 
 ## Round 1 (v1) — what the first battery showed
 

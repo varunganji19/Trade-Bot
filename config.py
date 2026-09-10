@@ -35,6 +35,14 @@ class RiskConfig:
     risk_per_trade: float = 0.01        # 1% of equity risked per trade
     max_position_pct: float = 0.25      # max notional per position (25% of equity)
     max_open_positions: int = 4
+    # gross-notional leverage cap: total open notional (all books, marked) plus
+    # the new entry's pre-fill notional may not exceed this multiple of equity.
+    # The ~1x bound used to be only IMPLICIT (25% x 4 positions); making it an
+    # explicit gate enforces it across mixed timeframes/books where the per-
+    # position and per-symbol caps cannot see the whole picture (audit Fix
+    # 2.2-lite: 4 books x 25% can stack to 1x in the live engine, and nothing
+    # bounded the total if the per-position cap was ever raised).
+    max_gross_leverage: float = 1.0
     daily_loss_kill_switch: float = 0.03  # stop opening trades after -3% day
     min_confidence: float = 0.55        # orchestrator confidence floor for entries
     # R-distance sanity gate (the old dead max_r_per_trade knob promised it):

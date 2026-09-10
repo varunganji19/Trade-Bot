@@ -11,6 +11,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -3241,6 +3242,687 @@ def test_deflated_sharpe_moments_widen_se_on_fat_tails():
     # the normal model (back-compat of the default path)
     ref = deflated_sharpe([1.0, 0.5, 0.6, 0.4, 0.5], 26_000, APY)
     assert 0.85 <= ref["deflated_sharpe"] <= 0.93
+
+
+# ---------------------------------------------------------------------------
+# Wave W1: gross cap + pause controls
+# (audit Fix 2.2-lite: explicit gross-notional leverage cap; manual
+#  "pause all trading" flag — entries-only halt; risk-control docs)
+# ---------------------------------------------------------------------------
+def test_risk_gross_leverage_cap_gate():
+    """The ~1x book bound must be an EXPLICIT gate in approve(), not an
+    implicit 25% x 4 arithmetic coincidence. Over the cap -> refused with a
+    gross-cap reason; exactly at the cap -> allowed (gate is >, not >=);
+    under it -> approved; and the 0.0 default (the backtest call site, which
+    passes no gross) is unchanged behavior."""
+    rm = RiskManager(CONFIG)
+    rm.note_equity(10_000)
+    d = _dec("LONG", 0.9, stop=5.0, price=100.0)
+    # sizing: 1% risk ($100) / $5 stop = 20 qty -> new notional $2,000
+    res = rm.approve(d, CRYPTO_1H, 10_000, 0, False, open_gross_notional=8_100.0)
+    assert not res.approved                       # 8_100 + 2_000 > 1.0 x 10_000
+    assert "gross" in res.reason.lower() and "cap" in res.reason.lower()
+    # exactly AT the cap (8_000 + 2_000 == 10_000) is allowed: >, not >=
+    res = rm.approve(d, CRYPTO_1H, 10_000, 0, False, open_gross_notional=8_000.0)
+    assert res.approved and res.qty > 0
+    # headroom -> approved
+    res = rm.approve(d, CRYPTO_1H, 10_000, 0, False, open_gross_notional=7_000.0)
+    assert res.approved and res.qty > 0
+    # default (backtest call site passes no gross) -> unchanged
+    res = rm.approve(d, CRYPTO_1H, 10_000, 0, False)
+    assert res.approved and res.qty > 0
+
+
+def test_engine_open_gross_notional_marks_and_fallback():
+    """The gross-cap input helper: sum(qty x mark) over open positions, each
+    book marked at its OWN last-good close; a book with no mark yet (e.g. a
+    restored position behind a dead feed) falls back to its entry price —
+    never 0.0, which would under-count exposure and silently dis-arm the cap."""
+    import bot.engine as engine_mod
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        CONFIG.db_path = os.path.join(td, "t.db")
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            eng = engine_mod.TradingEngine(mode="paper", quiet=True)
+            spec_a = MarketSpec("crypto", "TEST/USDT", "1h")
+            spec_b = MarketSpec("crypto", "OTHER/USDT", "15m")
+            pos_a = eng.broker.open_position(spec_a, _dec("LONG", 0.9, stop=1.0, price=100.0),
+                                             qty=2.0, price=100.0, trade_id=-1)
+            pos_b = eng.broker.open_position(spec_b, _dec("LONG", 0.9, stop=1.0, price=50.0),
+                                             qty=4.0, price=50.0, trade_id=-2)
+            # book A has a last-good close (110) that differs from its entry;
+            # book B has no mark yet -> entry-price fallback
+            eng._last_good_price[("TEST/USDT", "1h")] = 110.0
+            expected = pos_a.qty * 110.0 + pos_b.qty * pos_b.entry_price
+            assert eng._open_gross_notional() == pytest_approx(expected, 1e-9)
+            # the mark must actually be USED: an entry-price-only sum differs
+            # (a helper that ignored the last-good close would read equal)
+            entry_only = pos_a.qty * pos_a.entry_price + pos_b.qty * pos_b.entry_price
+            assert eng._open_gross_notional() != pytest_approx(entry_only, 1e-9)
+            # flat book -> 0.0 (the gate's default input)
+            eng.broker.positions.clear()
+            assert eng._open_gross_notional() == 0.0
+        finally:
+            CONFIG.db_path = old_db
+            engine_mod.TradingEngine._init_kronos = old_kronos
+
+
+def test_engine_passes_open_gross_into_approve():
+    """Call-site wiring: when the live engine evaluates a NEW entry it must
+    hand approve() the mark-priced gross of the whole open book (not the 0.0
+    default) — the gate is only as real as the number it is fed."""
+    import bot.engine as engine_mod
+
+    df = add_all_indicators(make_df(100.0 * np.cumprod(1 + np.full(120, 0.001)), seed=9))
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_wl = list(CONFIG.watchlist)
+        CONFIG.db_path = os.path.join(td, "t.db")
+        CONFIG.watchlist[:] = [spec]
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            eng = engine_mod.TradingEngine(mode="paper", quiet=True)
+            eng.market_data.latest = lambda s, limit=None: df
+            # one open position on ANOTHER symbol; its book's last-good mark
+            # (60) differs from its entry, so a 0.0 or entry-priced hand-off
+            # is detectable
+            other = MarketSpec("crypto", "OTHER/USDT", "1h")
+            pos = eng.broker.open_position(other, _dec("LONG", 0.9, stop=1.0, price=50.0),
+                                           qty=2.0, price=50.0, trade_id=-1)
+            eng._last_good_price[("OTHER/USDT", "1h")] = 60.0
+
+            class EntryDecision:
+                action = "LONG"
+                confidence = 0.9
+                price = 100.0
+                stop_distance = 2.0
+                target_rr = None
+                strategy_name = "turtle_trend"
+                rationale = "wiring test"
+                regime = "trending"
+                strategy_signals = {}
+                sentiment = {}
+
+            eng.orchestrator.decide = lambda *a, **k: EntryDecision()
+
+            captured = {}
+            real_approve = eng.risk.approve
+
+            def spy(decision, spec_, equity, open_pos, *args, **kw):
+                captured["gross"] = kw.get("open_gross_notional")
+                return real_approve(decision, spec_, equity, open_pos, *args, **kw)
+
+            eng.risk.approve = spy
+            eng.run_cycle()
+            # the TEST/USDT entry was evaluated with the OTHER book's
+            # mark-priced gross in hand
+            assert captured["gross"] == pytest_approx(pos.qty * 60.0, 1e-9)
+        finally:
+            CONFIG.db_path = old_db
+            CONFIG.watchlist[:] = old_wl
+            engine_mod.TradingEngine._init_kronos = old_kronos
+
+
+def test_manual_pause_blocks_new_entries_not_exits():
+    """Pause semantics: a paused RiskManager refuses an otherwise-valid NEW
+    entry (reason states entries-only), a broker close still fills (every
+    stop/target/strategy/manual exit routes through close_position and is
+    never blocked), and resuming re-admits the same entry. The flag file
+    lands next to the ACTIVE journal (CONFIG.db_path's dir) — never real
+    data/ — and resume writes a visible paused:false record, not a delete."""
+    from bot.pause import _pause_path, is_paused, set_paused
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            assert is_paused() == (False, None)          # missing file -> not paused
+            assert set_paused(True, "audit freeze") is True
+            paused, note = is_paused()
+            assert paused is True and note == "audit freeze"
+            assert os.path.dirname(_pause_path()) == td
+
+            rm = RiskManager(CONFIG)
+            rm.note_equity(10_000)
+            d = _dec("LONG", 0.9, stop=5.0, price=100.0)
+            rm.paused = True
+            res = rm.approve(d, CRYPTO_1H, 10_000, 0, False)
+            assert not res.approved
+            assert "pause" in res.reason.lower()
+            assert "entries only" in res.reason.lower()
+            # EXITS ARE NEVER BLOCKED: a broker close still fills while paused
+            broker = PaperBroker(costs=CONFIG.costs)
+            broker.open_position(CRYPTO_1H, d, qty=1.0, price=100.0, trade_id=-1)
+            closed_pos, _, _, _, _ = broker.close_position(CRYPTO_1H, 100.0, "manual close")
+            assert closed_pos.symbol == CRYPTO_1H.symbol and not broker.positions
+            # resume (paused=False) -> the SAME entry passes
+            rm.paused = False
+            res = rm.approve(d, CRYPTO_1H, 10_000, 0, False)
+            assert res.approved and res.qty > 0
+            # resume persists a visible paused:false record (not a deletion)
+            assert set_paused(False) is True
+            payload = json.load(open(_pause_path()))
+            assert payload["paused"] is False and "ts" in payload
+            assert is_paused() == (False, None)
+        finally:
+            CONFIG.db_path = old_db
+
+
+def test_corrupt_pause_flag_quarantined_fail_safe():
+    """A torn/unreadable pause flag fails TOWARD NOT TRADING: quarantined
+    aside with a .corrupt.<epoch> suffix (journal/watchlist pattern — kept
+    for inspection, out of the read path) and answered as PAUSED with a loud
+    note. Never an exception, never a silent 'resume'."""
+    from bot.pause import _pause_path, is_paused
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            path = _pause_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as fh:
+                fh.write("{ this is not json")
+            paused, note = is_paused()
+            assert paused is True and "PAUSED" in note
+            assert not os.path.exists(path)           # moved out of the read path
+            quarantined = [f for f in os.listdir(td)
+                           if f.startswith("trading_paused.json.corrupt.")]
+            assert quarantined                        # kept for inspection
+        finally:
+            CONFIG.db_path = old_db
+
+
+def test_engine_cycle_mirrors_pause_flag():
+    """The engine reads the manual flag ONCE per cycle (the only flag IO in
+    the engine) and mirrors it into RiskManager.paused; the cycle summary
+    carries paused + note. A cleared flag re-admits entries on the next
+    cycle — the halt is a state the operator ends, not a latch."""
+    import bot.engine as engine_mod
+    from bot.pause import set_paused
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        CONFIG.db_path = os.path.join(td, "t.db")
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            eng = engine_mod.TradingEngine(mode="paper", quiet=True)
+            eng.market_data.latest = lambda s, limit=None: None   # no fetches/entries
+            assert set_paused(True, "watching the news") is True
+            summary = eng.run_cycle()
+            assert summary["paused"] is True and eng.risk.paused is True
+            assert summary.get("paused_note") == "watching the news"
+            assert set_paused(False) is True
+            summary = eng.run_cycle()
+            assert summary["paused"] is False and eng.risk.paused is False
+        finally:
+            CONFIG.db_path = old_db
+            engine_mod.TradingEngine._init_kronos = old_kronos
+
+
+def test_dashboard_pause_resume_endpoints():
+    """Dashboard pause/resume API (TestClient, no server): the flag persists
+    next to the ACTIVE journal (this test's temp dir — never the real
+    data/), /api/engine/status and /api/stats report it, the note
+    round-trips, and a body-less POST is refused like every other mutating
+    endpoint (the JSON body forces the CSRF preflight)."""
+    from fastapi.testclient import TestClient
+    import bot.dashboard as dash_mod
+    from bot.pause import _pause_path
+
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_journal = CONFIG.db_path, dash_mod.journal
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            dash_mod.journal = dash_mod.Journal(CONFIG.db_path)
+            dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
+            client = TestClient(dash_mod.app)
+
+            assert client.get("/api/engine/status").json()["paused"] is False
+            r = client.post("/api/trading/pause", json={})
+            assert r.status_code == 200 and r.json()["status"] == "paused"
+            assert "entries only" in r.json()["semantics"]
+            # the flag landed in the TEST's data dir, not the real one
+            assert os.path.dirname(_pause_path()) == td
+            assert os.path.exists(_pause_path())
+            assert client.get("/api/engine/status").json()["paused"] is True
+            assert client.get("/api/stats").json()["paused"] is True
+            # a note round-trips through the flag file
+            r = client.post("/api/trading/pause", json={"note": "watching the Fed"})
+            assert r.status_code == 200 and r.json()["note"] == "watching the Fed"
+            # resume clears it everywhere
+            r = client.post("/api/trading/resume", json={})
+            assert r.status_code == 200 and r.json()["status"] == "resumed"
+            assert client.get("/api/engine/status").json()["paused"] is False
+            assert client.get("/api/stats").json()["paused"] is False
+            # body-less POST is refused (CSRF preflight convention)
+            assert client.post("/api/trading/pause").status_code == 422
+            client.post("/api/trading/resume", json={})
+        finally:
+            CONFIG.db_path = old_db
+            dash_mod.journal = old_journal
+            dash_mod.chatbot = dash_mod.ChatBot(old_journal)
+
+
+# ---------------------------------------------------------------------------
+# Wave W3: Kronos future stamps + cache freshness
+# (audit Fix 4.2 correctness half: forecast stamps must follow the book's
+#  ACTUAL timeframe on irregular frames where infer_freq returns None — the
+#  old "1h" fallback made a 15m book's 24-step forecast span 24 wrong hours
+#  and a 4h book's span 24 instead of 96; audit Fix 4.1: rolling windows
+#  reuse any cache file fresher than CACHE_FRESHNESS_HOURS by mtime, not
+#  just the same-calendar-day stamp, while PINNED windows stay exact-name
+#  byte-identical and never glob)
+# ---------------------------------------------------------------------------
+def test_kronos_future_index_pure_helper():
+    """_future_index: `horizon` stamps exactly TIMEFRAME_SECONDS[tf] apart,
+    UTC-aware, first one STRICTLY after last_ts (the decision bar)."""
+    from bot.kronos_signal import _future_index
+    last = pd.Timestamp("2026-09-08 16:00", tz="UTC")
+
+    idx4 = _future_index(last, 6, "4h")
+    assert isinstance(idx4, pd.DatetimeIndex) and len(idx4) == 6
+    assert str(idx4.tz) == "UTC"
+    assert idx4[0] == last + pd.Timedelta(hours=4)      # strictly after
+    gaps = idx4[1:] - idx4[:-1]
+    assert (gaps == pd.Timedelta(hours=4)).all()
+    assert idx4[-1] == last + pd.Timedelta(hours=24)
+
+    idx15 = _future_index(last, 24, "15m")
+    assert len(idx15) == 24
+    assert idx15[0] == last + pd.Timedelta(minutes=15)
+    assert (idx15[1:] - idx15[:-1] == pd.Timedelta(minutes=15)).all()
+    # a 24-step 15m forecast spans 6 hours of future, not 24 — the exact
+    # mis-stamp the old 1h fallback produced on irregular 15m books
+    assert idx15[-1] == last + pd.Timedelta(hours=6)
+
+    # naive input is treated as UTC (cached frames may carry naive stamps)
+    idx_naive = _future_index(pd.Timestamp("2026-09-08 16:00"), 2, "1h")
+    assert str(idx_naive.tz) == "UTC" and len(idx_naive) == 2
+
+
+def _gapped_4h_frame(n_gap=40):
+    """Regular 4h bars with a 2-DAY hole in the middle — infer_freq returns
+    None on it (forex weekend gap / exchange outage analogue)."""
+    head = pd.date_range("2026-01-01", periods=n_gap, freq="4h", tz="UTC")
+    tail = pd.date_range(head[-1] + pd.Timedelta(days=2, hours=4),
+                         periods=n_gap, freq="4h", tz="UTC")
+    idx = head.append(tail)
+    prices = 100.0 * np.cumprod(1 + np.full(len(idx), 0.001))
+    return make_df(prices, start=idx[0].strftime("%Y-%m-%d %H:%M"),
+                   seed=11).set_axis(idx)
+
+
+def test_kronos_evaluate_stamps_by_timeframe_on_gapped_frame():
+    """End-to-end pass-through: with timeframe given, the future stamps the
+    predictor receives are the book's ACTUAL 4h spacing even on a frame
+    infer_freq rejects (pre-fix code fell back to 1h stamps there, spanning
+    24 hours instead of 96)."""
+    import tempfile
+    from bot.kronos_signal import KronosConfig, KronosSignalEngine
+
+    df = _gapped_4h_frame()
+    assert pd.infer_freq(df.index) is None        # the premise of the flaw
+
+    recorded = []
+
+    class _FakePredictor:
+        def predict(self, df, x_timestamp, y_timestamp, pred_len, T, top_p,
+                    sample_count, **kw):
+            recorded.append(pd.DatetimeIndex(y_timestamp))
+            # minimal contract evaluate() consumes: close column, pred_len rows
+            base = float(df["close"].iloc[-1])
+            return pd.DataFrame({"close": np.full(pred_len, base)},
+                                index=pd.DatetimeIndex(y_timestamp))
+
+    class _FakeLazy:                    # drop-in for KronosPredictorLazy
+        def _ensure(self):
+            return _FakePredictor()
+
+    with tempfile.TemporaryDirectory() as td:
+        cfg = KronosConfig()
+        cfg.track_file = os.path.join(td, "ic.json")
+        cfg.sample_count = 2              # 2 sequential single-sample calls
+        eng = KronosSignalEngine(cfg)
+        real_lazy = eng.predictor
+        eng.predictor = _FakeLazy()
+        try:
+            sig = eng.evaluate(df, horizon=24, timeframe="4h")
+            assert sig is not None
+            assert len(recorded) >= 1
+            for stamps in recorded:
+                assert len(stamps) == 24
+                # every consecutive stamp pair is exactly 4h apart — the
+                # pre-fix fallback produced 1h here (and only 24h of span)
+                assert (stamps[1:] - stamps[:-1] == pd.Timedelta(hours=4)).all()
+                assert stamps[0] > df.index[-1]    # strictly after the book
+            # the 24-step 4h forecast spans 96 hours of stamped future
+            assert recorded[0][-1] == df.index[-1] + pd.Timedelta(hours=96)
+        finally:
+            eng.predictor = real_lazy
+
+
+def test_kronos_evaluate_timeframe_none_keeps_infer_freq_fallback():
+    """timeframe=None keeps today's infer_freq fallback EXACTLY (back-compat:
+    main.py's cmd_kronos calls evaluate without a timeframe) — on a REGULAR
+    frame the stamps are the inferred spacing; on a gapped frame they remain
+    the legacy 1h fallback (that behavior is what the engine-side timeframe=
+    kwarg fixes at its call site)."""
+    import tempfile
+    from bot.kronos_signal import KronosConfig, KronosSignalEngine
+
+    df = make_df(np.linspace(100, 130, 200), freq="4h")    # regular 4h
+    recorded = []
+
+    class _FakePredictor:
+        def predict(self, df, x_timestamp, y_timestamp, pred_len, T, top_p,
+                    sample_count, **kw):
+            recorded.append(pd.DatetimeIndex(y_timestamp))
+            base = float(df["close"].iloc[-1])
+            return pd.DataFrame({"close": np.full(pred_len, base)},
+                                index=pd.DatetimeIndex(y_timestamp))
+
+    class _FakeLazy:                    # drop-in for KronosPredictorLazy
+        def _ensure(self):
+            return _FakePredictor()
+
+    with tempfile.TemporaryDirectory() as td:
+        cfg = KronosConfig()
+        cfg.track_file = os.path.join(td, "ic.json")
+        cfg.sample_count = 1
+        eng = KronosSignalEngine(cfg)
+        real_lazy = eng.predictor
+        eng.predictor = _FakeLazy()
+        try:
+            sig = eng.evaluate(df, horizon=6)           # NO timeframe
+            assert sig is not None
+            stamps = recorded[0]
+            # infer_freq on a regular 4h book yields 4h stamps (unchanged)
+            assert (stamps[1:] - stamps[:-1] == pd.Timedelta(hours=4)).all()
+            assert stamps[0] == df.index[-1] + pd.Timedelta(hours=4)
+        finally:
+            eng.predictor = real_lazy
+
+
+def _w3_cache_env(td, spec, days=7, stamp="20260101"):
+    """Shared setup: point CONFIG.data_cache_dir at a tmp dir, return the
+    OLD state the test must restore (the real data/cache is never touched)."""
+    from bot import data as data_mod
+    old = {
+        "cache_dir": CONFIG.data_cache_dir,
+        "db_path": CONFIG.db_path,
+        "fetch": data_mod.fetch_crypto_history,
+    }
+    CONFIG.data_cache_dir = td
+    CONFIG.db_path = os.path.join(td, "t.db")     # manifest lands in td too
+    return old, data_mod
+
+
+def _w3_restore(old, data_mod):
+    CONFIG.data_cache_dir = old["cache_dir"]
+    CONFIG.db_path = old["db_path"]
+    data_mod.fetch_crypto_history = old["fetch"]
+
+
+def _w3_rolling_cache_path(td, spec, days, stamp):
+    """The exact rolling cache name _disk_cache_path would write for a
+    days-window request (same dashed-ISO + day-stamp conventions)."""
+    safe = spec.symbol.replace("/", "").replace("=X", "")
+    return os.path.join(td, f"{safe}_{spec.timeframe}_{days}d_{stamp}.parquet")
+
+
+def _w3_plant_rolling_cache(td, spec, frame, stamp="20260101"):
+    """Write a plausible parquet under a ROLLING days-form cache name with an
+    OLD date-stamp in the name (the pre-fix regime refetched it tomorrow)."""
+    safe = spec.symbol.replace("/", "").replace("=X", "")
+    path = os.path.join(td, f"{safe}_{spec.timeframe}_7d_{stamp}.parquet")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    frame.to_parquet(path)
+    return path
+
+
+def test_fetch_history_reuses_fresh_rolling_cache_across_day_stamps():
+    """Fix 4.1: a rolling days-window with an OLD date-stamp but a NEW mtime
+    (yesterday's fetch, minutes old) is REUSED — no fetcher call, no manifest
+    write, no prune. Pre-fix code computed today's exact path, missed the
+    old-stamp file, and hit the network."""
+    import tempfile
+    from bot.data import fetch_history
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    frame = make_df(np.linspace(100, 130, 300))
+
+    with tempfile.TemporaryDirectory() as td:
+        old, data_mod = _w3_cache_env(td, spec)
+        try:
+            path = _w3_plant_rolling_cache(td, spec, frame, stamp="20260101")
+            os.utime(path, (time.time(), time.time()))     # fresh mtime, old stamp
+            # any fetch attempt = test failure
+            data_mod.fetch_crypto_history = lambda *a, **k: (_ for _ in ()).throw(
+                RuntimeError("network fetch attempted"))
+            got = fetch_history(spec, days=7)
+            assert len(got) == len(frame)
+            assert got["close"].iloc[0] == pytest_approx(frame["close"].iloc[0], 1e-9)
+            assert got["close"].iloc[-1] == pytest_approx(frame["close"].iloc[-1], 1e-9)
+            # reuse is read-only: no manifest entry for a fetch that never happened
+            assert not os.path.exists(os.path.join(td, "manifest.json"))
+        finally:
+            _w3_restore(old, data_mod)
+
+
+def test_fetch_history_stale_rolling_cache_refetches():
+    """The freshness bound is real: a file older than the window means
+    refetch — the fetched frame is returned and a new cache file is written
+    for next time."""
+    import tempfile
+    from bot.data import fetch_history
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    stale = make_df(np.linspace(100, 130, 300))
+    fresh_frame = make_df(np.linspace(200, 260, 300), seed=42)
+
+    with tempfile.TemporaryDirectory() as td:
+        old, data_mod = _w3_cache_env(td, spec)
+        try:
+            _w3_plant_rolling_cache(td, spec, stale, stamp="20260101")
+            data_mod.fetch_crypto_history = lambda *a, **k: fresh_frame.copy()
+            # age the planted file past the 24h window (mtime, not the name's
+            # day-stamp, is the freshness clock — backdate by 2 days)
+            safe = spec.symbol.replace("/", "").replace("=X", "")
+            planted = os.path.join(td, f"{safe}_{spec.timeframe}_7d_20260101.parquet")
+            two_days_ago = time.time() - 2 * 86400
+            os.utime(planted, (two_days_ago, two_days_ago))
+            # under TODAY's date stamp: the file the pre-4.1 exact-name path
+            # would have read had it been fresh — planted with the FETCHED
+            # frame's content and also backdated, so serving it instead of
+            # refetching is detectable (the stale-frame value differs)
+            today_stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+            today_planted = _w3_rolling_cache_path(td, spec, 7, today_stamp)
+            stale.to_parquet(today_planted)
+            os.utime(today_planted, (two_days_ago, two_days_ago))
+            got = fetch_history(spec, days=7)
+            assert got["close"].iloc[0] == pytest_approx(fresh_frame["close"].iloc[0], 1e-9)
+            assert len(got) == len(fresh_frame)
+            # the refetch persisted today's-stamp cache file — with the
+            # FETCHED frame's content (over the planted stale decoy)
+            stored = pd.read_parquet(_w3_rolling_cache_path(td, spec, 7, today_stamp))
+            assert len(stored) == len(fresh_frame)
+            assert stored["close"].iloc[0] == pytest_approx(
+                fresh_frame["close"].iloc[0], 1e-9)
+        finally:
+            _w3_restore(old, data_mod)
+
+
+def test_fetch_history_pinned_window_never_globs_rolling_decoy():
+    """PINNED --start/--end keeps EXACT-NAME byte-identical semantics: a
+    fresh rolling days-form decoy for the SAME symbol must never be glob-
+    reused for a pinned request (it covers a different window) — with the
+    fetcher failing, the pinned call must fail rather than serve the decoy."""
+    import tempfile
+    from bot.data import fetch_history
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    decoy = make_df(np.linspace(100, 130, 300))
+
+    with tempfile.TemporaryDirectory() as td:
+        old, data_mod = _w3_cache_env(td, spec)
+        try:
+            path = _w3_plant_rolling_cache(td, spec, decoy, stamp="20260101")
+            os.utime(path, (time.time(), time.time()))      # fresh decoy
+            reads = []
+            real_load = data_mod._load_cached
+            data_mod._load_cached = lambda p: reads.append(os.path.basename(p)) or real_load(p)
+            data_mod.fetch_crypto_history = lambda *a, **k: (_ for _ in ()).throw(
+                RuntimeError("network fetch attempted"))
+            try:
+                # the pinned window has no exact-name cache and must NOT fall
+                # back to the decoy: it attempts the fetch and propagates the
+                # error rather than serving a frame fetched for another window
+                try:
+                    got = fetch_history(spec, start="2024-01-01", end="2024-01-03")
+                    raised = False
+                except RuntimeError:
+                    got = None
+                    raised = True
+                assert raised, "pinned window glob-reused the rolling decoy"
+                assert got is None or got["close"].iloc[0] != pytest_approx(
+                    decoy["close"].iloc[0], 1e-9)
+                # the ONLY cache file the pinned branch read was its exact
+                # pinned name — never the days-form decoy
+                assert reads == ["TESTUSDT_1h_2024-01-01_2024-01-03.parquet"], reads
+            finally:
+                data_mod._load_cached = real_load
+        finally:
+            _w3_restore(old, data_mod)
+
+
+def test_cache_freshness_env_read_at_call_time():
+    """CACHE_FRESHNESS_HOURS is read from env at CALL time: a shrink is a
+    same-process force-refetch knob, and a malformed value falls back to the
+    24h default instead of crashing the fetch path."""
+    from bot.data import _cache_freshness_hours
+    assert _cache_freshness_hours() == pytest_approx(24.0, 1e-9)
+    os.environ["CACHE_FRESHNESS_HOURS"] = "0.5"
+    try:
+        assert _cache_freshness_hours() == pytest_approx(0.5, 1e-9)
+        os.environ["CACHE_FRESHNESS_HOURS"] = "not-a-number"
+        assert _cache_freshness_hours() == pytest_approx(24.0, 1e-9)
+    finally:
+        del os.environ["CACHE_FRESHNESS_HOURS"]
+    assert _cache_freshness_hours() == pytest_approx(24.0, 1e-9)
+
+
+# ------------------------------------- Wave W2: backtest exit ordering (Fix 1.2)
+def _w2_exit_conflict_frame(n=260):
+    """Deterministic crafted frame, zero intrabar noise: every bar is fully
+    controlled so the only moving parts are the ones the ordering test needs.
+    Timeline (warmup 220, loop i in [220, n-2]):
+      bar 250  decision bar -> the stub fires its one LONG entry
+      bar 251  FILL bar: entry fills at its open (100) with slippage; the
+               bracket (stop ~95.05, target ~110.05) sits far outside its
+               [99, 101] range, so the fill-bar scan (step (a), untouched by
+               Fix 1.2) finds nothing
+      bar 252  exit-decision bar: range [100, 103] still clears both levels,
+               so nothing can exit before the strategy's check_exit(252)
+      bar 253  exit bar: opens at 104 (above stop, below target) and its high
+               115 blows through the target — the exact Fix 1.2 conflict: the
+               signal exit fills at this bar's OPEN while the target lies
+               inside its range
+    Bars before 250 are flat filler (no signal, nothing to hit)."""
+    idx = pd.date_range("2024-01-01", periods=n, freq="1h", tz="UTC")
+    opens = np.full(n, 100.0)
+    highs = np.full(n, 100.6)
+    lows = np.full(n, 99.4)
+    closes = np.full(n, 100.0)
+    vols = np.full(n, 100.0)
+    crafted = {
+        251: (100.0, 101.0, 99.0, 100.5),   # fill bar: clears both levels
+        252: (100.5, 103.0, 100.0, 102.5),  # decision bar: clears both levels
+        253: (104.0, 115.0, 103.8, 114.0),  # exit bar: open below target, high through it
+    }
+    for j, (oj, hj, lj, cj) in crafted.items():
+        opens[j], highs[j], lows[j], closes[j] = oj, hj, lj, cj
+    return pd.DataFrame({"open": opens, "high": highs, "low": lows, "close": closes,
+                         "volume": vols}, index=idx)
+
+
+class _W2StubStrategy:
+    """Single-strategy-mode stand-in pinned to fixed bars: evaluate fires its
+    LONG exactly once (bar 250), check_exit fires exactly once (at exit_bar)
+    or never (exit_bar=None). The entry Signal clears every risk.approve gate
+    (confidence 0.80 >= floor 0.55, stop_distance 5.0 <= 10%-of-price cap,
+    target_rr 2.0 >= 1.2 floor), so the trade reaches the conflict through the
+    REAL entry path — sizing, fills, bracket construction — not a
+    hand-installed Position."""
+    name = "w2_stub"
+
+    def __init__(self, exit_bar=None, exit_reason="stub signal exit"):
+        self.exit_bar, self.exit_reason = exit_bar, exit_reason
+
+    def evaluate(self, df, i):
+        from bot.strategies.base import Signal
+        if i == 250:
+            return Signal(self.name, "LONG", 0.80, stop_distance=5.0,
+                          target_rr=2.0, rationale="w2 crafted entry")
+        return Signal(self.name, "FLAT", 0.0, rationale="w2 flat")
+
+    def check_exit(self, df, i, position):
+        return (self.exit_reason, None) if i == self.exit_bar else (None, None)
+
+
+def _w2_run_with_stub(stub, df):
+    """Single-strategy-mode run with get_strategy swapped for the stub —
+    patched in bot.backtest's own namespace (where run() imported it), and
+    restored even when the test body asserts mid-flight."""
+    import bot.backtest as bt_mod
+    old = bt_mod.get_strategy
+    bt_mod.get_strategy = lambda name, params: stub
+    try:
+        return bt_mod.Backtester(CONFIG).run(CRYPTO_1H, df, strategy="w2_stub")
+    finally:
+        bt_mod.get_strategy = old
+
+
+def test_backtest_strategy_exit_fill_precedes_same_bar_target():
+    """Fix 1.2 flip assertion: the strategy exit decided at bar 252's close
+    fills at bar 253's OPEN, and that fill must execute BEFORE bar 253's
+    stop/target scan — a take-profit level inside bar 253's range cannot beat
+    an order already filled at the open. The old scan-next-bar-first order
+    recorded 'take profit' on this exact frame; only the reorder flips it to
+    the signal exit at the (slipped) open."""
+    df = _w2_exit_conflict_frame()
+    res = _w2_run_with_stub(_W2StubStrategy(exit_bar=252), df)
+    assert len(res.trades) == 1, "stub must enter exactly once and never re-enter"
+    t = res.trades[0]
+    assert t["side"] == "long" and t["entry_ts"] == str(df.index[251])
+    # non-vacuity preconditions: the target really is inside bar 253 (above
+    # its open — an intrabar touch, not a gap-through) and nothing EARLIER in
+    # the hold could have exited, so the only race is exit-at-open vs
+    # target-in-range on bar 253
+    assert df["open"].iloc[253] < t["target"] <= df["high"].iloc[253]
+    assert df["low"].iloc[251:253].min() > t["stop"]
+    assert df["high"].iloc[251:253].max() < t["target"]
+    # THE ordering assertion: the signal exit wins, filled at bar 253's open
+    assert t["exit_reason"] == "stub signal exit", \
+        f"a same-bar target stole the already-filled signal exit: {t['exit_reason']}"
+    # market leg (signal exits are not resting limits): adverse slippage off
+    # the open, taker pricing — NOT the target level
+    expected = float(df["open"].iloc[253]) * (1 - CONFIG.costs.slippage("crypto"))
+    assert t["exit_price"] == pytest_approx(expected, 1e-9)
+    assert t["exit_ts"] == str(df.index[253])
+
+
+def test_backtest_take_profit_still_fills_without_signal_exit():
+    """Control for the Fix 1.2 reorder: identical frame, but the strategy
+    never fires check_exit, so the step-(c) next-bar scan must still produce
+    the take-profit fill at its level (resting limit: maker, no slippage).
+    Ordering-independent by construction — no signal exit exists to race it,
+    so this passes under both orders; it guards the normal bracket path
+    against collateral damage from the reorder."""
+    df = _w2_exit_conflict_frame()
+    res = _w2_run_with_stub(_W2StubStrategy(exit_bar=None), df)
+    assert len(res.trades) == 1
+    t = res.trades[0]
+    assert t["exit_reason"] == "take profit"
+    assert t["exit_price"] == pytest_approx(t["target"], 1e-9)  # level fill, no slip
+    assert t["exit_ts"] == str(df.index[253])
 
 
 if __name__ == "__main__":

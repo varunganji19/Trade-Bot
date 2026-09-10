@@ -27,6 +27,7 @@ from bot.indicators import add_all_indicators
 from bot.journal import Journal
 from bot.llm import LLMClient
 from bot.orchestrator import Orchestrator
+from bot.pause import is_paused
 from bot.risk import RiskManager
 from bot.sentiment import SentimentOverlay
 from bot.strategies import get_strategy
@@ -164,6 +165,22 @@ class TradingEngine:
         histories: dict[tuple[str, str], pd.DataFrame] = {}
 
         try:
+            # manual pause flag: read ONCE per cycle (the only flag IO in the
+            # engine — backtests construct their own RiskManager and never
+            # touch the file) and mirror it into the risk manager, where the
+            # entry veto lives. Position management below is untouched by it:
+            # stops, targets, strategy exits and marks keep running while
+            # paused; only new entries are blocked.
+            paused, pause_note = is_paused()
+            self.risk.paused = paused
+            summary["paused"] = paused
+            if pause_note:
+                summary["paused_note"] = pause_note
+            if paused and not self.quiet:
+                print("[engine] manual pause active — new entries blocked "
+                      "(open positions still managed)"
+                      + (f" · {pause_note}" if pause_note else ""))
+
             for spec in self.cfg.watchlist:
                 key = (spec.symbol, spec.timeframe)
                 try:
@@ -317,7 +334,8 @@ class TradingEngine:
             if last is not None and bar_key - last < every:
                 return None, self.kronos.promoted()
             sig = self.kronos.evaluate(df.iloc[: i + 1],
-                                       horizon=self._kronos_horizon(spec.timeframe))
+                                       horizon=self._kronos_horizon(spec.timeframe),
+                                       timeframe=spec.timeframe)
             # ledger key committed only AFTER a successful evaluation: a
             # transient failure used to book the bar and then silently skip
             # Kronos for `every` more bars with no retry
@@ -352,6 +370,20 @@ class TradingEngine:
         if df is None or len(df) == 0:
             return None
         return float(df["close"].iloc[-1])
+
+    def _open_gross_notional(self) -> float:
+        """Mark-priced gross notional of every open position — the risk
+        manager's gross-leverage gate input. Each book is marked at its OWN
+        (symbol, timeframe)'s last good close; a book with no mark yet (e.g.
+        a restored position behind a dead feed) falls back to its entry
+        price — a stale-but-sane estimate beats both 0.0 (which would let the
+        gate under-count exposure) and a sibling timeframe's price (which
+        prices a 15m position with the 1h book's close)."""
+        gross = 0.0
+        for pos in self.broker.positions_snapshot():
+            mark = self._last_good_price.get((pos.symbol, pos.timeframe), pos.entry_price)
+            gross += pos.qty * mark
+        return gross
 
     def _process_market(self, spec: MarketSpec, summary: dict, df: pd.DataFrame | None = None):
         if df is None:
@@ -397,7 +429,8 @@ class TradingEngine:
         open_positions = len(self.broker.positions)
         approval = self.risk.approve(decision, spec, self.broker.equity({}), open_positions,
                                      has_position_on_symbol=self.broker.has_position(spec.symbol),
-                                     bar_epoch=bar_epoch)
+                                     bar_epoch=bar_epoch,
+                                     open_gross_notional=self._open_gross_notional())
         if not approval.approved:
             if not self.quiet:
                 print(f"[engine] {spec.symbol} {spec.timeframe}: {decision.action} blocked by risk: {approval.reason}")

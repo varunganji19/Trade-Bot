@@ -13,6 +13,11 @@ Fidelity rules (see RESEARCH.md §4):
   - Market legs pay taker fees + slippage (crypto 0.10% + 0.05%, forex
     0.02%+0.01%); bracket take-profit exits are resting limits and fill at
     their level with no slippage, paying the maker fee.
+  - A strategy exit decided at bar i's close FILLS at bar i+1's open BEFORE
+    that bar's stop/target scan — an already-filled market order cannot lose
+    to a same-bar bracket level, and only when no signal fired does the bar
+    i+1 scan run (with the bar-i-trailed stop as the active level, matching
+    the live engine's trail-then-manage cycle; audit Fix 1.2).
   - Stops are checked before targets within a bar (conservative).
   - Same Orchestrator/RiskManager/PaperBroker code as the live engine.
 
@@ -156,29 +161,44 @@ class Backtester:
             pos = broker.positions.get(broker.position_key(spec.symbol, spec.timeframe))
             if pos is not None:
                 pos.bars_held += 1
-                # stop/target scans in time order: the fill bar first (whole
-                # range is post-fill — the entry filled at its open), then the
-                # next bar
-                scan_bars: list[tuple[int, object]] = []
-                if fill_scan_pending:
-                    scan_bars.append((i, cur_bar))
-                    fill_scan_pending = False
-                scan_bars.append((i + 1, next_bar))
+                # Event ordering (audit Fix 1.2, FLAW_VALIDATION correction #1):
+                # the strategy exit decided at bar i's CLOSE fills at bar i+1's
+                # OPEN — that market fill is already on the tape BEFORE bar i+1
+                # trades, so it must execute before any bar-i+1 stop/target scan.
+                # The old scan-both-bars-first loop let a same-bar stop/target
+                # "win" over an order that had already filled at the open
+                # (mixed-direction bias: winners stolen by targets, losers saved
+                # by stops, ~2-3% of trades). Time order is now:
+                #   (a) fill bar FIRST — its whole range is post-fill and
+                #       PRE-decision, so it is unaffected by this fix;
+                #   (b) the strategy exit at the next open;
+                #   (c) bar i+1's stop/target scan, ONLY if (b) did not fire —
+                #       with the newly-trailed stop active (live parity: the
+                #       engine trails at bar i's close and the next bar's scan
+                #       uses the new level).
                 reason, exit_price, exit_idx = None, None, None
-                for idx, bar in scan_bars:
-                    reason, exit_price = broker.scan_bar_exits(spec, bar)
+                if fill_scan_pending:
+                    reason, exit_price = broker.scan_bar_exits(spec, cur_bar)
                     if reason:
-                        exit_idx = idx
-                        break
+                        exit_idx = i
+                    fill_scan_pending = False
                 if not reason:
                     exit_reason, new_stop = single.check_exit(ind, i, pos) if single else (
                         orchestrator_strat_exit(orchestrator, ind, i, pos))
                     if new_stop is not None and new_stop != pos.stop:
                         pos.stop = new_stop
                     if exit_reason:
-                        # the exit signal was computed on bar i's close, which was
-                        # not tradable at decision time -> fill at bar i+1's open
+                        # the exit signal was computed on bar i's close, which
+                        # was not tradable at decision time -> fill at bar i+1's
+                        # open, and bar i+1's intra-bar stop/target scan never
+                        # happens — the position is gone at the open
                         reason, exit_price, exit_idx = exit_reason, next_open, i + 1
+                    else:
+                        # no signal exit: bar i+1's range is the next stop/target
+                        # opportunity, now with the trailed stop as the level
+                        reason, exit_price = broker.scan_bar_exits(spec, next_bar)
+                        if reason:
+                            exit_idx = i + 1
                 if reason:
                     closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
                         spec, exit_price, reason)

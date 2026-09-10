@@ -3,8 +3,11 @@ Risk manager — the final veto layer before any order.
 
 Implements the risk framework from RESEARCH.md §2.5:
   - 1% of equity risked per trade, size computed from the stop distance
-  - notional cap per position, concurrent position cap
+  - notional cap per position, concurrent position cap, gross-notional
+    leverage cap across the whole book
   - one position per symbol
+  - manual pause (operator flag, see bot.pause): blocks new entries until
+    resumed — open positions are never force-closed
   - daily loss kill switch (stops new entries for the UTC day)
   - cooldown per symbol after a stop-out
   - minimum confidence floor
@@ -35,6 +38,15 @@ class RiskDecision:
 
 
 class RiskManager:
+    """The final veto before any order.
+
+    Two independent halts can block NEW entries: the manual pause (`paused`,
+    operator-set via bot.pause, indefinite, entries-only) and the automatic
+    daily kill switch (equity-triggered, scoped to the UTC day). Neither ever
+    force-closes a position — open positions always keep their hard stops,
+    targets and strategy exits while either is engaged.
+    """
+
     def __init__(self, cfg=None):
         self.cfg = cfg or CONFIG
         self.daily_start_equity: float | None = None
@@ -43,6 +55,10 @@ class RiskManager:
         # wall/bar time (not bar indexes) so a cooldown set after a 1h stop-out
         # means the same three hours to the 15m and 4h specs of that symbol.
         self.cooldowns: dict[str, float] = {}
+        # manual pause flag (mirrored from bot.pause's file by the live engine
+        # once per cycle; backtests construct their own RiskManager and never
+        # read the file, so they stay hermetic). Blocks NEW entries only.
+        self.paused: bool = False
         self.halted = False
         self.alloc_weights: dict[str, float] = {}  # symbol -> share of total risk budget
         # drawdown throttle state (see note_equity): peak equity, current DD,
@@ -148,8 +164,32 @@ class RiskManager:
 
     def approve(self, decision, spec: MarketSpec, equity: float, open_positions: int,
                 has_position_on_symbol: bool,
-                bar_epoch: float | None = None) -> RiskDecision:
+                bar_epoch: float | None = None,
+                open_gross_notional: float = 0.0) -> RiskDecision:
+        """Final entry veto. `open_gross_notional` is the book's CURRENT open
+        notional (every open position, marked at its own timeframe's last
+        good close) — pre-computed by the caller so the gate sees the WHOLE
+        book, not just this decision's slice; the 0.0 default leaves only the
+        new entry's own notional in the comparison, which is what the
+        single-position backtest call site passes.
+
+        `decision.price` is the pre-fill ESTIMATE (the live fill lands on the
+        next cycle, at its own slippage) — the gross gate therefore compares
+        against a small underestimate of the true fill notional, which is the
+        conservative direction for a cap that exists to bound the worst case.
+        Single-symbol backtests can never trip the gate: max one open position
+        at ≤ max_position_pct (25%) notional is far inside 1.0x equity — the
+        gate protects the live multi-book engine, where 4 books × 25% can
+        stack to the full cap.
+        """
         r = self.cfg.risk
+        # manual pause FIRST — it outranks every other consideration because
+        # the operator set it deliberately; the automatic kill switch below is
+        # a separate, equity-triggered mechanism
+        if self.paused:
+            return RiskDecision(False, reason="manual pause active — blocks NEW entries "
+                                             "only; open positions are still managed "
+                                             "(stops, targets, exits)")
         if self.halted:
             return RiskDecision(False, reason=f"daily kill switch active (limit {r.daily_loss_kill_switch:.0%})")
         if decision.action not in ("LONG", "SHORT"):
@@ -186,6 +226,19 @@ class RiskManager:
                                  risk_fraction=self.risk_fraction(spec.symbol))
         if qty <= 0:
             return RiskDecision(False, reason="position size rounds to zero (min notional)")
+        # gross leverage gate (audit Fix 2.2-lite): total open notional + this
+        # entry must stay under max_gross_leverage x equity. The bound used to
+        # be only implicit (25% per position x max 4 positions); explicit, it
+        # is enforced as ONE cap across mixed timeframes/books and survives
+        # any future change to either of the two factors that implied it.
+        # equity <= 0 cannot be sensibly levered either way — skip rather than
+        # divide by zero (an engine with zero equity has bigger problems).
+        total_gross = open_gross_notional + qty * decision.price
+        if equity > 0 and total_gross > r.max_gross_leverage * equity:
+            return RiskDecision(False, reason=f"gross notional {total_gross:.0f} "
+                                             f"({total_gross / equity:.1f}x equity) > "
+                                             f"cap {r.max_gross_leverage:.0f}x equity "
+                                             f"{equity:.0f} (gross leverage gate)")
         return RiskDecision(True, qty=qty, reason=f"{decision.action} {qty:.6g} @ {decision.price:.6g}")
 
     def risk_fraction(self, symbol: str) -> float:

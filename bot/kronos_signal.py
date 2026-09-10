@@ -31,6 +31,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from config import TIMEFRAME_SECONDS
+
 
 @dataclass
 class KronosConfig:
@@ -252,6 +254,25 @@ class KronosPredictorLazy:
         return self._probe()
 
 
+def _future_index(last_ts, horizon: int, timeframe: str) -> pd.DatetimeIndex:
+    """`horizon` future bar stamps spaced TIMEFRAME_SECONDS[timeframe] apart,
+    starting STRICTLY after `last_ts`, tz-aware UTC.
+
+    Pure pandas — unit-testable without the model. This replaces the
+    infer_freq-based stamping on irregular books (forex weekend gaps, exchange
+    outages, cached frames with holes): there infer_freq returns None and the
+    old "1h" fallback stamped a 15m book's 24-step forecast across 24 wrong
+    hours (and a 4h book's across 24 instead of 96). The spacing comes from
+    the caller's ACTUAL timeframe, not from the (possibly gapped) index."""
+    step = pd.Timedelta(seconds=TIMEFRAME_SECONDS[timeframe])
+    last = pd.Timestamp(last_ts)
+    if last.tzinfo is not None:
+        last = last.tz_convert("UTC")
+    else:
+        last = last.tz_localize("UTC")
+    return pd.date_range(start=last + step, periods=horizon, freq=step, tz="UTC")
+
+
 class KronosSignalEngine:
     """The bot-facing interface: forecast -> probabilistic signal + IC ledger.
 
@@ -266,7 +287,8 @@ class KronosSignalEngine:
         self.last_error: str | None = None   # set by evaluate(); never silently swallow
 
     # ------------------------------------------------------------- forecast
-    def evaluate(self, df: pd.DataFrame, horizon: int = 24) -> KronosSignal | None:
+    def evaluate(self, df: pd.DataFrame, horizon: int = 24,
+                 timeframe: str | None = None) -> KronosSignal | None:
         p = self.predictor._ensure()
         if p is None or df is None or len(df) < 30:
             return None
@@ -275,11 +297,24 @@ class KronosSignalEngine:
             cols = [c for c in ("open", "high", "low", "close", "volume") if c in x]
             x = x[cols]
             x_ts = pd.Series(x.index)
-            freq = pd.infer_freq(df.index) or "1h"
-            fut_idx = pd.date_range(x.index[-1], periods=horizon + 1,
-                                    freq=freq, tz="UTC")[1:]
+            # future stamps: the timeframe (when the caller knows it — the
+            # engine always does) keeps irregular books honest; infer_freq is
+            # the legacy fallback for callers without one (main.py cmd_kronos)
+            if timeframe is not None:
+                fut_idx = _future_index(x.index[-1], horizon, timeframe)
+            else:
+                freq = pd.infer_freq(df.index) or "1h"
+                fut_idx = pd.date_range(x.index[-1], periods=horizon + 1,
+                                        freq=freq, tz="UTC")[1:]
             y_ts = pd.Series(fut_idx)
 
+            # SEQUENTIAL single-sample calls on purpose: the vendored
+            # KronosPredictor averages the sample dimension before returning
+            # (kronos.py auto_regressive_inference ends with
+            # np.mean(preds, axis=1)), so one batched call with
+            # sample_count=30 yields ONE mean path — P(up) would collapse to
+            # exactly 0/1 and dispersion to 0. Batching requires patching the
+            # vendored model (out of scope; see FLAW_VALIDATION correction #3).
             preds = []
             sample_count = max(1, self.cfg.sample_count)
             for _ in range(sample_count):

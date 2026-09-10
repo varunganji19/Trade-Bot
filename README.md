@@ -99,7 +99,9 @@ python3 main.py dashboard           # → http://127.0.0.1:8000
 #    Evidence tab: the honesty layer, rendered)
 
 # 4. other commands
-python3 main.py status              # journal summary
+python3 main.py status              # journal summary (+ pause state)
+python3 main.py pause "note"        # manual halt: new entries only, nothing force-closed
+python3 main.py resume              # clear the manual pause
 make test / make lint / make demo / make battery   # common tasks
 python3 main.py chat "explain the connors strategy"
 python3 main.py seed-demo           # fill journal with real backtest history for the demo
@@ -140,7 +142,13 @@ chatbot answers from the journal with template logic.
   correlated majors (BTC/ETH/SOL) can't each take a full 1% — the whole book
   stays bounded. Per-symbol share is capped (`max_sym_weight`) and floored.
 - max 25% notional per position, max 4 concurrent positions
-- 3% daily-loss kill switch; per-symbol cooldown after a stop-out
+- 3% daily-loss kill switch (plain-language semantics in
+  [Risk controls](#risk-controls-what-they-do-and-dont-do) below);
+  per-symbol cooldown after a stop-out
+- **gross-notional leverage cap** — total open notional across all books plus
+  the next entry may not exceed 1.0× equity (the bound the 25% × 4 caps used
+  to imply only implicitly, now enforced as one explicit gate across mixed
+  timeframes)
 - 0.55 minimum confidence for any entry
 - R-distance gate: stops wider than 10% of entry price are refused (vol-explosion guard); declared targets below 1.2R are refused
 - positions, their stops and the account's cash survive restarts
@@ -149,6 +157,36 @@ chatbot answers from the journal with template logic.
 - one position per symbol across timeframes; each (symbol, timeframe)
   book manages only its own position — a 4h bar can never stop out a
   1h trade opened seconds ago
+
+## Risk controls: what they do and don't do
+
+Two independent controls can stop the bot from **opening new positions**.
+Neither one ever force-closes anything: open positions always keep their
+hard stops, targets and strategy exits while either is engaged.
+
+- **Automatic daily kill switch.** If the account falls 3% below its
+  start-of-day equity, new entries are blocked for the rest of the UTC day.
+  It resets by itself at the next UTC day — you don't need to do anything.
+  It never closes existing positions; their stops, targets and strategy
+  exits keep running.
+- **Manual pause** — the operator's halt button, completely independent of
+  the kill switch (which is equity-triggered and day-scoped). It stays until
+  you explicitly resume:
+
+  ```bash
+  python3 main.py pause [note]   # e.g. python3 main.py pause "holding over the FOMC"
+  python3 main.py resume         # new entries allowed again (all other risk gates still apply)
+  python3 main.py status         # shows whether the pause flag is set
+  ```
+
+  The same control is a "Pause trading" button on the dashboard (Overview
+  tab) with an amber banner while paused. Semantics, in plain words: **new
+  entries are blocked; open positions (if any) are still managed — stops,
+  targets, strategy exits; nothing is force-closed.** The flag is a small
+  `trading_paused.json` next to the journal, so it survives engine and
+  dashboard restarts; a corrupt/unreadable flag is quarantined and treated
+  as **paused** (a flag we can't read must fail toward "not trading", never
+  toward trading).
 
 ## Honesty rules (backtester & data)
 
@@ -229,7 +267,9 @@ bot/
   llm.py             optional OpenAI/Anthropic client (auto-detected)
   orchestrator.py     regime detection, weighted vote, conflict guard, Kronos
                       earned vote, LLM guardrails
-  risk.py            sizing, caps, kill switch (simulated-clock aware), cooldowns
+  risk.py            sizing, caps, kill switch (simulated-clock aware), cooldowns,
+                     manual pause flag, gross-notional leverage cap
+  pause.py           manual "pause all trading" flag file (entries-only halt)
   allocator.py       skfolio inverse-vol / HRP cross-symbol risk budget
   broker.py          paper fills with fees/slippage; OCO brackets, gap-aware fills
   engine.py          autonomous live loop (journal-recovered positions, Kronos eval)

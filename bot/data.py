@@ -23,10 +23,14 @@ Data quality (the "price caliber" discipline from the research notes):
 
 Backtests also persist frames to data/cache/*.parquet (per symbol+timeframe+day)
 so repeated research runs don't hammer public APIs and stay byte-identical
-between runs.
+between runs. ROLLING windows reuse any cache file fresher than
+CACHE_FRESHNESS_HOURS (mtime-bounded, default 24h) — the day-stamp in the name
+records the fetch day, not a freshness boundary; PINNED --start/--end windows
+keep exact-name byte-identical semantics forever.
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import time
@@ -295,6 +299,41 @@ def _store_cached(path: str, df: pd.DataFrame):
         pass  # caching is best-effort; never block a fetch
 
 
+def _cache_freshness_hours() -> float:
+    """Rolling-cache freshness bound in HOURS, read from env at CALL time.
+
+    Module-level read at import time would freeze tests and shell sessions to
+    the value present at process start; reading at call time lets a one-off
+    `CACHE_FRESHNESS_HOURS=0 python3 main.py backtest ...` force refetches
+    without editing anything. The plain `os.environ.get(...)` default is
+    Python's standard "missing key / malformed value" fallback pattern."""
+    try:
+        return float(os.environ.get("CACHE_FRESHNESS_HOURS", 24.0))
+    except (TypeError, ValueError):
+        return 24.0
+
+
+def _find_fresh_rolling_cache(glob_pattern: str) -> tuple[str, float] | None:
+    """Newest (by mtime) file matching the rolling-cache glob, when it is
+    fresher than the CACHE_FRESHNESS_HOURS window; else None.
+
+    mtime, not the name's date-stamp, decides freshness: the stamp records the
+    fetch DAY (yesterday's file fetched at 23:59 is 1 minute old), and with
+    several fresh hits the newest wins — the most recently fetched frame is
+    the best available approximation of 'now'."""
+    try:
+        matches = glob.glob(os.path.join(CONFIG.data_cache_dir, glob_pattern))
+    except OSError:
+        return None
+    if not matches:
+        return None
+    newest = max(matches, key=os.path.getmtime)
+    age_hours = (time.time() - os.path.getmtime(newest)) / 3600.0
+    if age_hours > _cache_freshness_hours():
+        return None
+    return newest, age_hours
+
+
 def _prune_rolling_cache():
     """Delete ROLLING (date-stamped) parquet entries older than 14 days —
     they re-fetch on demand. Pinned-window caches are never pruned: they are
@@ -371,15 +410,55 @@ def _rows_to_df(rows) -> pd.DataFrame:
 
 def fetch_history(spec: MarketSpec, days: int | None = None,
                   start: str | None = None, end: str | None = None) -> pd.DataFrame:
-    """History for backtests. Either `days` (rolling window ending now,
-    same-day disk cache) or pinned `start`/`end` (date-stable cache —
-    byte-identical reruns). Every successful fetch is recorded in
+    """History for backtests. Either `days` (rolling window ending now —
+    reuses any disk cache fresher than CACHE_FRESHNESS_HOURS, whatever the
+    fetch-day stamp in its name) or pinned `start`/`end` (date-stable cache —
+    byte-identical reruns). Every successful FETCH is recorded in
     data/manifest.json (bars, checksum, source) and rolling cache entries
-    older than 14 days are pruned."""
-    path = _disk_cache_path(spec, days, start, end)
-    cached = _load_cached(path)
-    if cached is not None:
-        return cached
+    older than 14 days are pruned; a fresh reuse mutates nothing."""
+    if start and end:
+        # PINNED window: EXACT-NAME, byte-identical semantics — this is the
+        # reproducibility artifact behind BACKTESTS.md. This branch must
+        # NEVER glob or reuse a differently-named file: a rolling file
+        # (days-form or _now-form for the same symbol) covers a DIFFERENT
+        # window than the pinned one being asked for; freshness-bounded reuse
+        # here would quietly re-roll the pinned numbers.
+        path = _disk_cache_path(spec, days, start, end)
+        cached = _load_cached(path)
+        if cached is not None:
+            return cached
+    else:
+        # ROLLING window (days-form, or start-without-end): the window slides
+        # with now anyway, so reuse is bounded by FRESHNESS, not by the fetch
+        # day embedded in the file name — the old exact-day-stamp lookup
+        # refetched every calendar day even when yesterday's file was minutes
+        # old. (FLAW_VALIDATION Fix 4.1: freshness is the honest bound.) The
+        # glob is the ONLY rolling reuse path on purpose: keeping a same-day
+        # exact-name fallback would let a day-stamped file that aged past the
+        # window sneak back in, defeating CACHE_FRESHNESS_HOURS=0 as a
+        # force-refetch knob. A same-day file is always glob-fresh under the
+        # default 24h window, so nothing is lost.
+        safe = spec.symbol.replace("/", "").replace("=X", "")
+        if start:
+            # normalize through the same dashed-ISO rule _disk_cache_path
+            # applies, so the glob matches exactly the names it writes
+            norm_start = pd.Timestamp(start).strftime("%Y-%m-%d")
+            pattern = f"{safe}_{spec.timeframe}_{norm_start}_now_*.parquet"
+        else:
+            pattern = f"{safe}_{spec.timeframe}_{days}d_*.parquet"
+        fresh = _find_fresh_rolling_cache(pattern)
+        if fresh is not None:
+            fresh_path, age = fresh
+            cached = _load_cached(fresh_path)
+            if cached is not None:
+                # the reuse path must not mutate anything: no manifest record
+                # (it would claim a fetch that never happened), no prune, no
+                # re-store. Read-only, then return.
+                print(f"[data] reusing cached {os.path.basename(fresh_path)} "
+                      f"(age {age:.1f}h ≤ {_cache_freshness_hours():.0f}h "
+                      f"freshness window)")
+                return cached
+        path = _disk_cache_path(spec, days, start, end)
     if spec.kind == "crypto":
         df = fetch_crypto_history(spec.symbol, spec.timeframe, days or 365,
                                   start=start, end=end)

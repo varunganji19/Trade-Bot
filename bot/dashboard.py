@@ -20,11 +20,14 @@ Tabs (hash routing, ~4s polling):
 API: GET /  /api/stats /api/equity /api/trades /api/decisions /api/evidence
      /api/positions (open positions) /api/watchlist /api/account
      /api/account/transactions /api/chat /api/engine/status
+     /api/market/mode (the ACTIVE market universe: forex | india — one at a
+     time, never both; see config.MARKET_MODE)
      POST /api/chat {message}  /api/engine/start {interval}  /api/engine/stop
           /api/watchlist {kind,symbol,timeframe,display?}
           /api/account/deposit {amount}  /api/account/withdraw {amount}
           /api/account/reset {capital}
           /api/trading/pause {note?}  /api/trading/resume {}   (manual halt)
+          /api/market/mode {mode,confirm_close_positions?}     (forex ↔ india)
      DELETE /api/watchlist/{kind}/{symbol}/{timeframe}
 """
 from __future__ import annotations
@@ -50,6 +53,7 @@ from bot.engine import TradingEngine
 from bot.journal import Journal
 from bot.pause import is_paused, set_paused
 from bot.strategies import STRATEGY_CLASSES
+import config as config_mod
 from config import (CONFIG, MarketSpec, VALID_KINDS,
                     VALID_TIMEFRAMES, MAX_WATCHLIST_SPECS,
                     apply_saved_watchlist, save_watchlist, infer_kind)
@@ -190,6 +194,15 @@ class EmptyIn(BaseModel):
     """Body-required marker for POSTs that take no fields: a JSON body forces
     the CORS preflight that defeats form-encoded CSRF (same rule every other
     mutating endpoint already follows)."""
+
+
+class MarketModeIn(BaseModel):
+    """Market-universe switch body. `mode` is the target universe; the
+    optional confirm flag is the ONLY way past the orphan guard (an
+    explicit, second-click "yes, close my open paper positions" — the UI
+    never sends it on the first click)."""
+    mode: str
+    confirm_close_positions: bool = False
 
 
 # --------------------------------------------------------------- engine state
@@ -418,6 +431,11 @@ def api_stats():
         paused = paused or bool(getattr(eng.risk, "paused", False))
     stats["paused"] = paused
     stats["paused_note"] = pause_note
+    # the active market universe rides the same poll as paused (W1's pattern):
+    # the mode badge/banner must flip within one 4s tick, without a second
+    # request. Reported for a stopped engine too — the mode file outlives any
+    # single engine run, so a restart can never silently flip markets.
+    stats["market_mode"] = config_mod.get_market_mode()
     if eng is not None:
         stats["llm_mode"] = eng.llm.provider if eng.llm.enabled else "quant"
         # live-state trio via the shared helper (marks come from the engine's
@@ -920,12 +938,17 @@ def api_engine_status():
                 # degraded-but-alive conditions (e.g. a held position behind a dead
                 # feed) ride here — last_error is reserved for fatal engine errors
                 "health_note": getattr(eng, "health_note", None),
-                "paused": paused}
+                # the ACTIVE market universe rides the same poll so the UI's
+                # mode badge stays live (reported for a stopped engine too:
+                # the mode is a file that outlives any engine run)
+                "paused": paused,
+                "market_mode": config_mod.get_market_mode()}
     return {"running": False, "cycles": 0, "llm": "quant", "positions": 0,
             "interval": CONFIG.live_interval_seconds,
             "alive": bool(th is not None and th.is_alive()),
             "last_error": _last_engine_error, "health_note": None,
-            "paused": paused}
+            "paused": paused,
+            "market_mode": config_mod.get_market_mode()}
 
 
 @app.post("/api/trading/pause")
@@ -960,6 +983,171 @@ def api_trading_resume(body: EmptyIn):
     if eng is not None:
         eng.risk.paused = False
     return {"status": "resumed"}
+
+
+# ---------------------------------------------------------------------------
+# market mode — the forex ↔ india universe toggle (ONE active book at a time;
+# never both: single-currency accounting, USD vs INR books cannot mix)
+_MARKET_MODES = ("forex", "india")
+
+
+def _open_position_dicts(eng: TradingEngine | None) -> list[dict]:
+    """Every open position the switch could orphan, from BOTH holders:
+    the live engine's broker (engine-on case) and the journal's OPEN rows
+    (engine-off case — a stale engine process could still hold rows the
+    dashboard would otherwise miss). Live and journal views are merged and
+    de-duplicated on (symbol, timeframe): a position the engine holds is
+    also a journal row; only a journal row the engine lost (crash window)
+    shows as journal-only."""
+    live: dict[tuple[str, str], dict] = {}
+    if eng is not None:
+        # positions_snapshot + the caller's engine identity check keep this
+        # race-free against the engine's own open/close mutations
+        for p in eng.broker.positions_snapshot():
+            live[(p.symbol, p.timeframe)] = {
+                "symbol": p.symbol, "timeframe": p.timeframe, "side": p.side,
+                "qty": p.qty, "entry": p.entry_price, "held_in": "engine",
+                "kind": infer_kind(p.symbol)}
+    journal_only: dict[tuple[str, str], dict] = {}
+    for t in journal.open_trades():
+        tf = t.get("timeframe") or _LEGACY_TF
+        key = (t["symbol"], tf)
+        if key in live:
+            continue
+        journal_only[key] = {"symbol": t["symbol"], "timeframe": tf,
+                             "side": t["side"], "qty": t["qty"],
+                             "entry": t["entry_price"], "held_in": "journal",
+                             "kind": infer_kind(t["symbol"])}
+    return list(live.values()) + list(journal_only.values())
+
+
+def _close_all_open_positions(eng: TradingEngine | None) -> list[dict]:
+    """Force-close every open paper position at its last mark. Returns the
+    per-position close results.
+
+    LIVE ENGINE: each position goes through eng.close_manual — the engine's
+    OWN sanctioned close path (broker fill with fees/slippage + journal row
+    + risk cooldown, under cycle_lock, identical to the Portfolio tab's
+    close button and to an engine exit).
+
+    NO ENGINE but OPEN JOURNAL ROWS (stale engine process / crash window):
+    the rows are closed DIRECTLY in the journal at their entry price — the
+    last mark the engine-off dashboard has (no data feed is running to
+    produce a fresher one). This is the same restore-anchor discipline the
+    engine itself uses on restart (journal.last_equity_point /
+    closed_cash_delta_since): the next engine start restores cash from the
+    journal's equity points and reconciles trades closed after the anchor,
+    so the close's cash effect is picked up exactly once — closing at entry
+    marks a round-trip P&L of just the fee estimate, the conservative floor
+    for a price we cannot honestly know offline."""
+    closed = []
+    if eng is not None:
+        for key in sorted({(p.symbol, p.timeframe)
+                           for p in eng.broker.positions_snapshot()}):
+            try:
+                result = eng.close_manual(key[0], key[1])
+                closed.append({**result, "symbol": key[0], "timeframe": key[1],
+                               "path": "engine close_manual"})
+            except (KeyError, RuntimeError) as exc:
+                raise HTTPException(
+                    503, f"could not close {key[0]} {key[1]} ({exc}) — the "
+                         f"market is NOT switched; retry, or close it from "
+                         f"the Portfolio tab first")
+        return closed
+    for t in journal.open_trades():
+        tf = t.get("timeframe") or _LEGACY_TF
+        entry = float(t["entry_price"])
+        qty = float(t["qty"])
+        kind = infer_kind(t["symbol"])
+        rate = CONFIG.costs.fee(kind, side=None)   # conservative max per leg
+        notional = entry * qty
+        fees = round(2 * notional * rate, 4)       # entry + exit leg estimate
+        direction = 1.0 if t["side"] == "long" else -1.0
+        # exit at the entry mark: zero gross P&L, the full fee cost — the
+        # honest floor when no live feed is available to price the exit
+        pnl = round(-fees, 2)
+        pnl_pct = round(-fees / notional * 100.0 * direction, 3) if notional else 0.0
+        journal.close_trade(trade_id=t["id"], exit_price=entry, pnl=pnl,
+                            pnl_pct=pnl_pct, fees=fees,
+                            exit_reason="market switch (no live marks)",
+                            rationale_close="closed by the market switch: no "
+                                            "engine was running to fetch a "
+                                            "live mark",
+                            mode=t.get("mode") or "paper",
+                            entry_fee=round(notional * rate, 6))
+        closed.append({"symbol": t["symbol"], "timeframe": tf,
+                       "exit_price": entry, "path": "journal close at entry mark"})
+    return closed
+
+
+@app.get("/api/market/mode")
+def api_market_mode_get():
+    """The ACTIVE market universe: 'forex' (crypto + forex, the historical
+    default) or 'india' (NSE cash equities + the Nifty 50 index). One is
+    active at a time — never both (single-currency accounting)."""
+    mode = config_mod.get_market_mode()
+    return {"mode": mode,
+            "specs": [s.to_dict() for s in config_mod.active_specs(mode)]}
+
+
+@app.post("/api/market/mode")
+def api_market_mode_set(body: MarketModeIn):
+    """Switch the active market universe and rewrite data/watchlist.json in
+    lockstep (the mode is the single source of truth — see config.py).
+
+    THE ORPHAN GUARD: switching while paper positions are open would drop
+    their markets' feeds out of the watchlist — unpriced, unmanaged zombie
+    books. Both holders are checked (live engine positions AND the
+    journal's OPEN rows — a stale engine process could still hold rows).
+    With open positions the switch is refused with 409 +
+    requires_confirm:true; ONLY an explicit confirm_close_positions=true
+    proceeds, and then every position is force-closed FIRST (at its last
+    mark, via the engine's own close path when one is live), and only then
+    does the mode flip. If anything fails mid-close the mode is NOT
+    switched — a half-closed book is recoverable, an orphaned one is not."""
+    mode = body.mode.strip().lower()
+    if mode not in _MARKET_MODES:
+        raise HTTPException(422, f"mode must be one of {list(_MARKET_MODES)} "
+                                 f"(got {body.mode!r})")
+    if mode == config_mod.get_market_mode():
+        specs = config_mod.active_specs(mode)
+        return {"status": "unchanged", "mode": mode, "closed": 0,
+                "specs": [s.to_dict() for s in specs]}
+    eng = _get_engine()
+    open_positions = _open_position_dicts(eng)
+    if open_positions and not body.confirm_close_positions:
+        raise HTTPException(
+            409,
+            {"detail": f"{len(open_positions)} open paper position(s) would be "
+                       f"orphaned by the switch — confirm to close them at "
+                       f"their last prices, or close them yourself first",
+             "open_positions": open_positions,
+             "requires_confirm": True})
+    closed = []
+    if open_positions:
+        # verify the engine identity too: a stop racing this handler could
+        # have cleared it between _get_engine() and the close (a fast
+        # stop/start must never patch a NEW engine with the OLD one's rows)
+        if eng is not None and _get_engine() is not eng:
+            raise HTTPException(409, "engine changed state mid-switch — retry")
+        closed = _close_all_open_positions(eng)
+        # the close must have actually emptied the books (a concurrent entry
+        # could have slipped in under the cycle lock we do NOT hold here)
+        if _open_position_dicts(_get_engine()):
+            raise HTTPException(
+                409, "positions were opened while the switch was closing — "
+                     "the market is NOT switched; retry the switch")
+    if not config_mod.set_market_mode(mode):
+        raise HTTPException(500, f"could not persist market mode {mode!r} "
+                                 "(disk error?) — the market is NOT switched")
+    # hot-install the new universe into CONFIG so a RUNNING engine's next
+    # cycle trades the new book (apply_saved_watchlist mutates
+    # CONFIG.watchlist in place — the same rule the watchlist CRUD uses)
+    with _wl_lock:
+        config_mod.apply_saved_watchlist()
+    return {"status": "switched", "mode": mode, "closed": len(closed),
+            "closes": closed,
+            "specs": [s.to_dict() for s in config_mod.active_specs(mode)]}
 
 
 # ===========================================================================
@@ -1191,6 +1379,42 @@ body { background:var(--color-background); color:var(--color-foreground);
 .pause-banner.show { display:flex; }
 .pause-banner svg { width:17px; height:17px; flex-shrink:0; margin-top:1px; }
 .pause-banner .p-body b { font-weight:700; }
+
+/* market-mode banner + toggle: which universe the bot trades is a FIRST-CLASS
+   visible state (like the pause banner) — a restart must never silently flip
+   markets on the operator. Blue (interactive chrome), not amber (caution:
+   trading India is a choice, not a fault) and not green/red (money in/out). */
+.market-banner { display:none; align-items:flex-start; gap:10px;
+                 background:var(--blue-soft); border:1px solid var(--color-blue);
+                 color:var(--color-blue); border-radius:var(--radius);
+                 padding:12px 14px; font-size:13px; margin-bottom:12px; }
+.market-banner.show { display:flex; }
+.market-banner svg { width:17px; height:17px; flex-shrink:0; margin-top:1px; }
+.market-banner b { font-weight:700; }
+.market-banner .m-sub { display:block; font-size:11.5px; opacity:.85; margin-top:1px; }
+/* the two-state switch: ON = Forex (crypto + forex universe), OFF = India
+   (NSE). A switch (not two buttons) because the state is binary and
+   exclusive — one book at a time, never both. */
+.mkt-row { display:flex; align-items:center; gap:10px; margin-top:12px;
+           border-top:1px dashed var(--color-border); padding-top:10px;
+           flex-wrap:wrap; }
+.mkt-row .lbl { font:500 11px/1.3 var(--font-ui); text-transform:uppercase;
+                letter-spacing:.5px; color:var(--color-muted-foreground); }
+.mkt-switch { position:relative; display:inline-flex; align-items:center;
+              border:1px solid var(--color-border); border-radius:999px;
+              background:var(--color-muted); padding:2px; cursor:pointer;
+              min-height:34px; }
+.mkt-switch button { appearance:none; border:none; cursor:pointer;
+                      border-radius:999px; padding:7px 14px;
+                      font:600 12px/1.3 var(--font-ui); color:var(--color-muted-foreground);
+                      background:transparent;
+                      transition:background var(--trans),color var(--trans),
+                                 box-shadow var(--trans); }
+.mkt-switch button[aria-pressed="true"] { background:var(--color-card);
+  color:var(--color-primary); box-shadow:var(--shadow-sm); }
+.mkt-switch .sep { width:1px; align-self:stretch; margin:4px 2px;
+                   background:var(--color-border); }
+.mkt-row .hint { font-size:11.5px; color:var(--color-muted-foreground); }
 
 /* plain-language risk-controls explanation beside the engine buttons — the
    non-technical reader is the audience (what each halt does AND does not do) */
@@ -1532,7 +1756,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
     </span>
     <div>
       <h1>ALGO TRADING BOT</h1>
-      <div class="sub">crypto + forex · paper trading · IST</div>
+      <div class="sub" id="brandSub">paper trading · IST</div>
     </div>
   </div>
   <div class="topbar-right">
@@ -1585,6 +1809,10 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
   <div class="p-body"><b>Trading paused (manual).</b> Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.<span id="pauseNoteBox"></span> <span style="opacity:.85">Resume from the Overview tab when you want new entries again.</span></div>
 </div>
+<div class="market-banner" id="marketBanner" role="status">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+  <div class="m-body"><b id="marketBannerText">Market: —</b><span class="m-sub" id="marketBannerSub"></span></div>
+</div>
 <div class="health-banner" id="healthBanner" role="alert">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>
   <div><b>Engine degraded:</b> <span id="healthMsg"></span></div>
@@ -1627,6 +1855,15 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
         <b>Risk controls</b> — what they do and don't do
         <div class="rc-row"><b>Daily kill switch (automatic):</b> after a −3% day it blocks new entries for the rest of the UTC day. It resets by itself at the next UTC day. It never force-closes positions — their stops, targets and strategy exits keep running.</div>
         <div class="rc-row"><b>Pause trading (manual):</b> stays until you press Resume. Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.</div>
+      </div>
+      <div class="mkt-row">
+        <span class="lbl" id="mktLabel">Market</span>
+        <div class="mkt-switch" role="group" aria-label="Active market: on = Forex, off = India">
+          <button type="button" id="mktForex" aria-pressed="false">Forex (crypto + forex)</button>
+          <span class="sep" aria-hidden="true"></span>
+          <button type="button" id="mktIndia" aria-pressed="false">India (NSE)</button>
+        </div>
+        <span class="hint" id="mktHint">One market at a time. Your market choice is remembered — restarting the dashboard keeps the same market.</span>
       </div>
     </div>
   </div>
@@ -1676,6 +1913,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       </tr></thead><tbody></tbody></table>
     </div>
     <div class="empty" id="tradeEmpty" hidden>No trades yet — start the engine.</div>
+    <p class="hint" id="tradeModeNote" style="margin-top:10px">Trades from previous market modes remain in the journal history; the bot only opens new positions in the active market.</p>
   </div>
 </section>
 
@@ -1865,6 +2103,20 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   </div>
 </div>
 
+<!-- market-switch confirmation modal: shown ONLY when the switch would close
+     open paper positions (the orphan guard's 409). Plain language, both what
+     it does and what it does NOT do. -->
+<div class="modal-overlay" id="marketModal" role="dialog" aria-modal="true" aria-labelledby="marketTitle">
+  <div class="modal">
+    <h3 id="marketTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>Switch markets and close open positions?</h3>
+    <p id="marketModalMsg"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="marketCancel">Cancel</button>
+      <button class="btn" id="marketGo">Switch &amp; close positions</button>
+    </div>
+  </div>
+</div>
+
 <div id="toasts" aria-live="polite"></div>
 
 <!-- token gate: shown by askForToken() when the API answers 401 with no
@@ -1970,6 +2222,8 @@ async function jreq(u, method, body) {
     const msg = (data && data.detail) ? data.detail : (r.status + ' ' + r.statusText);
     const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
     err.status = r.status;
+    err.data = data;   // full error body (the market-switch 409 carries
+                       // open_positions + requires_confirm the caller reads)
     throw err;
   }
   return data;
@@ -2171,6 +2425,11 @@ async function refreshStats() {
     $('#pauseLabel').textContent = 'Pause trading';
   }
 
+  /* market mode rides the same poll (W1's paused pattern): the banner +
+     toggle must follow the PERSISTED mode within one 4s tick — a restart
+     can never silently flip markets on the operator. */
+  applyMarketMode(s.market_mode === 'india' ? 'india' : 'forex');
+
   renderPositions(s);
   renderStratBars(s.by_strategy || {});
 }
@@ -2270,6 +2529,101 @@ async function togglePause() {
   refreshStats();
 }
 $('#btnPause').addEventListener('click', togglePause);
+
+/* ===================================================== market toggle
+   One market at a time: ON = Forex (crypto + forex universe), OFF = India
+   (NSE). The switch POSTs /api/market/mode; the orphan guard on the server
+   answers 409 + requires_confirm when open paper positions exist — the
+   first click NEVER closes anything, it only opens this dialog, and only
+   the dialog's confirm button sends confirm_close_positions=true. */
+let marketMode = null;        // 'forex' | 'india' — the last state the UI rendered
+let marketPending = null;     // target mode while the confirm dialog is open
+let marketBusy = false;       // in-flight guard: a double-click must not double-POST
+const MARKET_NAMES = {forex: 'the Forex paper universe (crypto + forex)',
+                      india: 'the India (NSE) paper universe'};
+
+function applyMarketMode(mode) {
+  if (mode === marketMode) return;
+  marketMode = mode;
+  $('#mktForex').setAttribute('aria-pressed', String(mode === 'forex'));
+  $('#mktIndia').setAttribute('aria-pressed', String(mode === 'india'));
+  $('#marketBanner').classList.add('show');
+  $('#marketBannerText').textContent = mode === 'india'
+    ? 'Market: India (NSE) — Nifty 50 and NSE shares'
+    : 'Market: Forex — crypto and forex pairs';
+  $('#marketBannerSub').textContent =
+    'One market at a time. Your market choice is remembered — restarting the dashboard keeps the same market.';
+  /* every surface that names the markets follows the mode (the brand line
+     used to say "crypto + forex" statically — wrong in India mode) */
+  $('#brandSub').textContent = (mode === 'india' ? 'India (NSE)' : 'crypto + forex')
+    + ' · paper trading · IST';
+}
+
+function marketSwitchedToast(mode, closed) {
+  toast('Market switched', 'Now trading ' + (MARKET_NAMES[mode] || mode) +
+    (closed ? ' — ' + closed + ' open position' + (closed > 1 ? 's' : '') +
+      ' closed at their last prices' : ''));
+  addMsg('[engine] market switched to ' + mode + ' — now trading ' +
+    (MARKET_NAMES[mode] || mode), 'bot');
+}
+
+async function doMarketSwitch(mode, confirmClose) {
+  if (marketBusy) return false;
+  marketBusy = true;
+  try {
+    const r = await jpost('/api/market/mode',
+                          {mode, confirm_close_positions: !!confirmClose});
+    applyMarketMode(mode);
+    if (r.status === 'switched') marketSwitchedToast(mode, r.closed);
+    else toast('Market unchanged', 'already on ' + (MARKET_NAMES[mode] || mode));
+    refreshWatchlist(); refreshStats(); refreshDecisions();
+    return true;
+  } catch (e) {
+    if (e.status === 409 && e.data && e.data.requires_confirm) {
+      // the orphan guard refused the first click — show the confirmation
+      // dialog (plain language, both what it does and does not do). NOTE:
+      // FastAPI wraps the structured 409 body inside "detail", so the
+      // payload the guard built lives at e.data.detail.
+      const body = e.data.detail && e.data.detail.requires_confirm
+        ? e.data.detail : e.data;
+      const n = (body.open_positions || []).length;
+      $('#marketModalMsg').textContent =
+        'You have ' + n + ' open paper position' + (n === 1 ? '' : 's') + '. ' +
+        'Switching markets will close them at their last prices so none are left orphaned. ' +
+        'Blocks nothing else — this only changes which markets the bot watches.';
+      marketPending = mode;
+      $('#marketModal').classList.add('open');
+      return false;
+    }
+    toastErr('Could not switch market', e);
+    return false;
+  } finally {
+    marketBusy = false;
+  }
+}
+
+$('#mktForex').addEventListener('click', () => {
+  if (marketMode !== 'forex') doMarketSwitch('forex', false);
+});
+$('#mktIndia').addEventListener('click', () => {
+  if (marketMode !== 'india') doMarketSwitch('india', false);
+});
+$('#marketCancel').addEventListener('click', () => {
+  $('#marketModal').classList.remove('open');
+  marketPending = null;
+});
+$('#marketModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') $('#marketModal').classList.remove('open');
+});
+$('#marketGo').addEventListener('click', async () => {
+  const mode = marketPending;
+  $('#marketModal').classList.remove('open');
+  marketPending = null;
+  if (mode) await doMarketSwitch(mode, true);   // explicit confirm: close + switch
+});
 
 /* ===================================================== portfolio */
 function renderPositions(s) {

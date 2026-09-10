@@ -3,6 +3,49 @@
 BACKTESTS.md is the real lab notebook (six measured rounds, negative results
 included). This file maps that history onto the repo, newest first.
 
+## [1.2.0] — 2026-09-10 — India market mode: NSE universe + the forex ↔ india toggle
+
+Wave B1 added the `india` market kind (NSE cash equities + Nifty 50 via
+yfinance, a regulatory cost stack — delivery STT both legs, 0.03% standing
+brokerage, exchange/SEBI/stamp/GST ≈ 0.29% round trip, Zerodha-verified —
+whole-share sizing, an NSE session gate, and a persisted single market mode:
+`data/market_mode.json`, with `data/watchlist.json` kept in lockstep as derived
+state; one active book at a time because the USD and INR books cannot mix).
+Wave B2 (this pass) put the mode in the operator's hands:
+
+- **Dashboard market toggle** (Overview tab, next to the engine controls):
+  On = Forex (crypto + forex), Off = India (NSE). `GET/POST /api/market/mode`
+  switches the persisted mode, rewrites the watchlist and hot-installs the new
+  universe into the running engine's CONFIG; `/api/engine/status` and
+  `/api/stats` report `market_mode` so the blue market banner (the pause-banner
+  pattern) always shows the active universe — a restart can never silently
+  flip markets. CLI equivalent: `python3 main.py market [--mode forex|india]`.
+- **The orphan guard** (the safety core): a switch while paper positions are
+  open (checked in BOTH the live engine and the journal's OPEN rows — a stale
+  engine process could still hold rows) is refused with 409 +
+  `requires_confirm`; only an explicit `confirm_close_positions` closes every
+  position first — via the engine's own `close_manual` path when one is live,
+  via a journal close at the entry mark with the conservative fee estimate
+  when none is — and only then flips the mode. If anything fails mid-close
+  the mode is NOT switched. The UI's first click only opens a plain-language
+  confirmation dialog; nothing is force-closed by one click.
+- **First pinned NSE acceptance runs** (BACKTESTS.md, `data/results/india_90d/`):
+  turtle_trend on 90d of 1h NSE bars — 18 trades across the five equity books,
+  net −0.55% average, four of five books negative. Honest verdict recorded:
+  cost-dominated at delivery rates, no edge claimed; this is the baseline
+  Milestone C's India momentum strategy must beat. Two data caveats pinned:
+  ^NSEI has zero volume on Yahoo (volume-gated strategies must not run on the
+  index), and the 4h books deviate to ~180d because 90d of 4h NSE bars cannot
+  clear the 220-bar warmup — the 4h/1d India books remain essentially
+  unmeasured.
+- v1 scope stated in README: NSE cash/index equities only, NO options/F&O
+  (no options infrastructure exists — deliberately out of scope); journal
+  rows keep no market-mode column (old-market trades stay visible in history,
+  labeled honestly on the Portfolio tab) — flagged for a later schema pass.
+- 147 → 151 tests (four market-toggle tests incl. the orphan-guard non-vacuity
+  proof: guard stripped in place → both guard tests fail → re-applied); ruff
+  zero.
+
 ## [1.1.1] — 2026-09-08 — verification-gap pass
 
 Re-audit of the working tree against the (externally re-derived) JUDGE_REPORT

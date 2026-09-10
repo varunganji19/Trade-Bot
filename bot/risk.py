@@ -89,7 +89,11 @@ class RiskManager:
         max_qty = (equity * self.cfg.risk.max_position_pct) / price
         qty = min(qty, max_qty)
         # round down to a sensible granularity; respect min notional
-        if kind == "forex":
+        # India equities are whole-share, like forex units: fractional
+        # quantities don't exist on NSE cash (NSE's own minimum is the stock
+        # price itself — one share; the bot's generic ₹10/$10 min-notional
+        # floor still guards dust entries).
+        if kind in ("forex", "india"):
             qty = round(qty, 0)
         else:
             qty = round(qty, 6)

@@ -22,6 +22,7 @@ import traceback
 import pandas as pd
 
 from bot.broker import PaperBroker
+from bot.calendar import is_nse_session_open
 from bot.data import MarketData
 from bot.indicators import add_all_indicators
 from bot.journal import Journal
@@ -413,6 +414,14 @@ class TradingEngine:
                 if self._replay_missed_bars(spec, pos, df, summary):
                     return
             self._manage_position(spec, pos, df, i, summary, bar_epoch=bar_epoch)
+            return
+        # NSE session gate (india only, NEW entries only): positions are
+        # FULLY managed above — the gate sits after management, so hard
+        # stops/targets/strategy exits/replays always run on closed bars
+        # regardless of the clock. Entries only: deterministic backtests are
+        # unaffected (they never call this wall-clock path; NSE bars only
+        # exist for open sessions anyway — a bar in the frame IS a session).
+        if spec.kind == "india" and not is_nse_session_open():
             return
         if self.broker.has_position(spec.symbol):
             # one position per symbol across timeframes (risk rule): the 15m

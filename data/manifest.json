@@ -73,10 +73,90 @@
   "bars": 300,
   "cache_file": "TESTUSDT_1h_7d_20260910.parquet",
   "caliber": "unknown",
-  "fetched_at": "2026-09-10T10:58:52+00:00",
+  "fetched_at": "2026-09-10T13:42:17+00:00",
   "first_ts": "2024-01-01 00:00:00+00:00",
   "last_ts": "2024-01-13 11:00:00+00:00",
   "sha256": "8ebf033d411f38fe3f99602ae9d0ed86b2e034698b0e8dcb55b99441d2628009",
   "source": "unknown"
+ },
+ "india:HDFCBANK.NS:1h": {
+  "bars": 454,
+  "cache_file": "HDFCBANK.NS_1h_2026-06-10_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T12:32:49+00:00",
+  "first_ts": "2026-06-10 03:45:00+00:00",
+  "last_ts": "2026-09-09 09:45:00+00:00",
+  "sha256": "775fc94397403c6b82f675f3897350fe1cc33bcd6e5969e56043e7ce06121db7",
+  "source": "yahoo"
+ },
+ "india:ICICIBANK.NS:1h": {
+  "bars": 450,
+  "cache_file": "ICICIBANK.NS_1h_2026-06-10_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T12:32:55+00:00",
+  "first_ts": "2026-06-10 03:45:00+00:00",
+  "last_ts": "2026-09-09 09:45:00+00:00",
+  "sha256": "3b2b78d51cf1fc3b114f9cc35ca4d554bdcffab15064ca1981315cee4a9509ac",
+  "source": "yahoo"
+ },
+ "india:INFY.NS:1h": {
+  "bars": 451,
+  "cache_file": "INFY.NS_1h_2026-06-10_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T12:32:52+00:00",
+  "first_ts": "2026-06-10 03:45:00+00:00",
+  "last_ts": "2026-09-09 09:45:00+00:00",
+  "sha256": "0febce53e978d1b35764a537937fbc488b504c3e5cffca603c8d77bf2f864d77",
+  "source": "yahoo"
+ },
+ "india:RELIANCE.NS:1h": {
+  "bars": 451,
+  "cache_file": "RELIANCE.NS_1h_2026-06-10_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T12:32:42+00:00",
+  "first_ts": "2026-06-10 03:45:00+00:00",
+  "last_ts": "2026-09-09 09:45:00+00:00",
+  "sha256": "552ec6290ca1ddab78b597890b11ece889a6de5a05c5430c7bbed2170d449812",
+  "source": "yahoo"
+ },
+ "india:RELIANCE.NS:4h": {
+  "bars": 362,
+  "cache_file": "RELIANCE.NS_4h_2026-03-14_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T12:33:45+00:00",
+  "first_ts": "2026-03-16 00:00:00+00:00",
+  "last_ts": "2026-09-09 08:00:00+00:00",
+  "sha256": "f103d0cbe1f6ef11af71f98d4e5fafcbde10f5f2aad6a5291b8fcb37da5f2827",
+  "source": "yahoo"
+ },
+ "india:TCS.NS:1h": {
+  "bars": 447,
+  "cache_file": "TCS.NS_1h_2026-06-10_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T12:32:45+00:00",
+  "first_ts": "2026-06-10 03:45:00+00:00",
+  "last_ts": "2026-09-09 08:45:00+00:00",
+  "sha256": "0456a36e5683c99c3206d53621862e096a00d0318621f1b0d23409be9c9915ac",
+  "source": "yahoo"
+ },
+ "india:TCS.NS:4h": {
+  "bars": 362,
+  "cache_file": "TCS.NS_4h_2026-03-14_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T12:33:48+00:00",
+  "first_ts": "2026-03-16 00:00:00+00:00",
+  "last_ts": "2026-09-09 08:00:00+00:00",
+  "sha256": "b8701bb10f6f796b341895c070df39ef650e3b9f6f8d3c303505e96bfd8cac61",
+  "source": "yahoo"
+ },
+ "india:^NSEI:1h": {
+  "bars": 455,
+  "cache_file": "NSEI_1h_2026-06-10_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T12:32:20+00:00",
+  "first_ts": "2026-06-10 03:45:00+00:00",
+  "last_ts": "2026-09-09 09:45:00+00:00",
+  "sha256": "52c5d27a24fd8dd5bc461c962ecdc6a663245e10e54827d69ee11a9309181cc8",
+  "source": "yahoo"
  }
 }

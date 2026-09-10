@@ -185,32 +185,80 @@ def fetch_crypto_history(symbol: str, timeframe: str, days: int,
 
 
 # --------------------------------------------------------------------------- forex
-def fetch_forex_ohlcv(symbol: str, timeframe: str, start: str | None = None,
-                      end: str | None = None) -> pd.DataFrame:
+def _safe_name(symbol: str) -> str:
+    """Deterministic, collision-free cache-file stem from a ticker: crypto
+    'BTC/USDT' -> 'BTCUSDT', forex 'EURUSD=X' -> 'EURUSD', India '^NSEI' ->
+    'NSEI' (caret stripped), 'RELIANCE.NS' kept verbatim ('.NS' is the NSE
+    suffix — collision-free: no other kind's stem can end '.NS'). One shared
+    transform — the cache writer and the rolling-cache glob must agree or
+    freshness reuse silently misses every file."""
+    return symbol.replace("/", "").replace("=X", "").replace("^", "")
+
+
+def _yahoo_ohlcv(symbol: str, interval: str, start: str | None, end: str | None,
+                 period: str | None, origin: str) -> pd.DataFrame:
+    """Shared yfinance download + clean-up for the two Yahoo-backed kinds
+    (forex, india): pinned start/end window when given, else the caller's
+    period; column flattening, UTC index, dedupe/sort; 1h->4h resample is the
+    CALLER's concern (same interval map, different calendars would resample
+    identically but the origin label differs per kind)."""
     import yfinance as yf
-    # no `days` argument: Yahoo's period is fixed per interval (period_map
-    # below) — the old days= param was silently ignored, so it's gone
-    # Yahoo granularity constraints: 5m/15m max 60d back, 1h max 730d.
-    interval = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d"}[timeframe]
     if start:
         # pinned window (reproducible); Yahoo's end is inclusive-exclusive
         df = yf.download(symbol, start=start, end=end, interval=interval,
                          auto_adjust=True, progress=False)
     else:
-        period_map = {"5m": "60d", "15m": "60d", "1h": "730d", "4h": "730d", "1d": "5y"}
-        df = yf.download(symbol, period=period_map[timeframe], interval=interval,
+        df = yf.download(symbol, period=period, interval=interval,
                          auto_adjust=True, progress=False)
     if df is None or df.empty:
-        raise RuntimeError(f"No forex data for {symbol}")
+        raise RuntimeError(f"No {origin} data for {symbol}")
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     df = df.rename(columns=str.lower)[["open", "high", "low", "close", "volume"]]
     df.index = pd.to_datetime(df.index, utc=True)
     df = df[~df.index.duplicated(keep="last")].sort_index()
+    return df
+
+
+def _resample_1h_to_4h(df: pd.DataFrame) -> pd.DataFrame:
+    return df.resample("4h").agg({"open": "first", "high": "max", "low": "min",
+                                  "close": "last", "volume": "sum"}).dropna()
+
+
+def fetch_forex_ohlcv(symbol: str, timeframe: str, start: str | None = None,
+                      end: str | None = None) -> pd.DataFrame:
+    # no `days` argument: Yahoo's period is fixed per interval (period_map
+    # below) — the old days= param was silently ignored, so it's gone
+    # Yahoo granularity constraints: 5m/15m max 60d back, 1h max 730d.
+    interval = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d"}[timeframe]
+    period_map = {"5m": "60d", "15m": "60d", "1h": "730d", "4h": "730d", "1d": "5y"}
+    df = _yahoo_ohlcv(symbol, interval, start, end,
+                      period_map[timeframe], origin="forex")
     if timeframe == "4h":  # resample 1h -> 4h
-        df = df.resample("4h").agg({"open": "first", "high": "max", "low": "min",
-                                    "close": "last", "volume": "sum"}).dropna()
+        df = _resample_1h_to_4h(df)
     df = _validate_ohlcv(df, "forex:yahoo(auto_adjust=True)")
+    df.attrs["caliber"] = "adjusted"
+    df.attrs["source"] = "yahoo"
+    return df
+
+
+# --------------------------------------------------------------------------- india
+# India (NSE cash equities + indices) rides the SAME Yahoo path as forex
+# ('.NS' equity tickers, '^'-prefixed index tickers), with one caliber note:
+# auto_adjust=True is REQUIRED for equities — split/dividend-adjusted prices
+# are the tradable series (a raw unadjusted series breaks across every ex-
+# date; the adjusted series is continuous and is what any backtest must act
+# on). 15m is not fetched for India (yfinance caps 15m intraday at 60d; the
+# 90-day acceptance window needs the history) — the India universe is 1h/4h/1d.
+def fetch_india_ohlcv(symbol: str, timeframe: str, start: str | None = None,
+                      end: str | None = None) -> pd.DataFrame:
+    interval = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d"}[timeframe]
+    period_map = {"5m": "60d", "15m": "60d", "1h": "730d", "4h": "730d", "1d": "5y"}
+    df = _yahoo_ohlcv(symbol, interval, start, end,
+                      period_map[timeframe], origin="india")
+    if timeframe == "4h":  # resample 1h -> 4h (same as forex)
+        df = _resample_1h_to_4h(df)
+    df = _validate_ohlcv(df, "india:yahoo(auto_adjust=True)")
     df.attrs["caliber"] = "adjusted"
     df.attrs["source"] = "yahoo"
     return df
@@ -258,7 +306,7 @@ def _drop_forming_bar(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
 
 def _disk_cache_path(spec: MarketSpec, days: int | None, start: str | None = None,
                      end: str | None = None) -> str:
-    safe = spec.symbol.replace("/", "").replace("=X", "")
+    safe = _safe_name(spec.symbol)
     if start:
         # normalize to dashed ISO: pd.Timestamp happily accepts '20240601',
         # and an undashed pinned name would END in 8 digits — the rolling-prune
@@ -438,7 +486,7 @@ def fetch_history(spec: MarketSpec, days: int | None = None,
         # window sneak back in, defeating CACHE_FRESHNESS_HOURS=0 as a
         # force-refetch knob. A same-day file is always glob-fresh under the
         # default 24h window, so nothing is lost.
-        safe = spec.symbol.replace("/", "").replace("=X", "")
+        safe = _safe_name(spec.symbol)
         if start:
             # normalize through the same dashed-ISO rule _disk_cache_path
             # applies, so the glob matches exactly the names it writes
@@ -463,6 +511,8 @@ def fetch_history(spec: MarketSpec, days: int | None = None,
         df = fetch_crypto_history(spec.symbol, spec.timeframe, days or 365,
                                   start=start, end=end)
         df = _drop_forming_bar(df, spec.timeframe)
+    elif spec.kind == "india":
+        df = fetch_india_ohlcv(spec.symbol, spec.timeframe, start=start, end=end)
     else:
         df = fetch_forex_ohlcv(spec.symbol, spec.timeframe, start=start, end=end)
     _store_cached(path, df)
@@ -497,6 +547,8 @@ class MarketData:
             return hit[1]
         if spec.kind == "crypto":
             df = fetch_crypto_ohlcv(spec.symbol, spec.timeframe, limit)
+        elif spec.kind == "india":
+            df = fetch_india_ohlcv(spec.symbol, spec.timeframe).tail(limit)
         else:
             df = fetch_forex_ohlcv(spec.symbol, spec.timeframe).tail(limit)
         df = _drop_forming_bar(df, spec.timeframe)

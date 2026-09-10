@@ -9,6 +9,7 @@ Usage:
   python3 main.py run [--once]                 # paper-trade (live loop or one cycle)
   python3 main.py pause [note]                 # manual halt: blocks NEW entries only
   python3 main.py resume                       # clear the manual pause (new entries allowed)
+  python3 main.py market [--mode forex|india]  # show or switch the active market universe
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
   python3 main.py status                       # journal summary
   python3 main.py chat "question"              # chatbot from the terminal
@@ -29,12 +30,15 @@ from config import CONFIG, MarketSpec, DEFAULT_WATCHLIST, infer_kind  # noqa: E4
 
 def _spec_from_args(args) -> MarketSpec:
     """CLI symbols arrive unvalidated — infer kind the one shared way and
-    uppercase forex pairs like the dashboard's validator does.
+    uppercase ONLY forex pairs like the dashboard's validator does. India
+    tickers ('RELIANCE.NS', '^NSEI') and crypto ('BTC/USDT') stay verbatim
+    ('.NS' is already uppercase; mangling it would break the yfinance
+    lookup).
     Note: this unifies the old call-site fallbacks. A malformed CLI symbol
-    (no '/' and no '=') used to guess 'forex' here, now guesses 'crypto';
-    no VALID symbol changes behavior — valid ones contain exactly one of
-    the two markers, so only the garbage-input case can shift."""
-    sym = args.symbol if infer_kind(args.symbol) == "crypto" else args.symbol.upper()
+    (no '/', '=' or '.NS'/'^') used to guess 'forex' here, now guesses
+    'crypto'; no VALID symbol changes behavior — valid ones contain exactly
+    one of the kind markers, so only the garbage-input case can shift."""
+    sym = args.symbol if infer_kind(args.symbol) in ("crypto", "india") else args.symbol.upper()
     return MarketSpec(infer_kind(args.symbol), sym, args.timeframe)
 
 
@@ -239,8 +243,8 @@ def cmd_validate(args):
 
 def cmd_run(args):
     from bot.engine import TradingEngine
-    from config import apply_saved_watchlist
-    apply_saved_watchlist()  # data/watchlist.json overrides the default list
+    from config import apply_market_mode
+    apply_market_mode()  # the persisted market mode seeds/normalizes watchlist.json
     engine = TradingEngine(mode="paper")
     if args.once:
         summary = engine.run_cycle()
@@ -270,13 +274,49 @@ def cmd_resume(args):
           "risk gates still apply).")
 
 
+def cmd_market(args):
+    """Show or switch the active market universe (forex default | india).
+    Switching is REFUSED while open paper positions exist: the watchlist is
+    rewritten by the switch, and an open position whose market dropped out
+    of the universe would be orphaned (its feed gone, its books gone)."""
+    from bot.journal import Journal
+    from config import get_market_mode, set_market_mode, active_specs
+    if not args.mode:
+        mode = get_market_mode()
+        print(f"[market] active mode: {mode}")
+        for s in active_specs(mode):
+            print(f"  {s.kind:6s} {s.symbol:14s} {s.timeframe}  {s.display}")
+        return
+    if args.mode not in ("forex", "india"):
+        print(f"[market] unknown mode {args.mode!r} (expected --mode forex|india)")
+        sys.exit(1)
+    open_trades = Journal().open_trades()
+    if open_trades:
+        print(f"[market] REFUSING to switch: {len(open_trades)} open paper "
+              f"position(s) exist:")
+        for t in open_trades:
+            print(f"  {t['side'].upper()} {t['symbol']} qty {t['qty']} @ {t['entry_price']}")
+        print("[market] close them first (dashboard or close_manual) so nothing "
+              "gets orphaned when its market's feed drops out of the watchlist.")
+        sys.exit(1)
+    if not set_market_mode(args.mode):
+        print(f"[market] could not persist mode {args.mode!r} (disk error?) — "
+              "the market is NOT switched")
+        sys.exit(1)
+    print(f"[market] switched to {args.mode} — active universe:")
+    for s in active_specs(args.mode):
+        print(f"  {s.kind:6s} {s.symbol:14s} {s.timeframe}  {s.display}")
+    print("[market] data/watchlist.json rewritten to match; restart run/"
+          "dashboard to load the new universe.")
+
+
 def cmd_dashboard(args):
     import errno
     import socket
     import uvicorn
-    from config import apply_saved_watchlist
+    from config import apply_market_mode
     from bot.dashboard import app
-    apply_saved_watchlist()  # seeds data/watchlist.json on first boot too
+    apply_market_mode()  # the persisted market mode seeds/normalizes watchlist.json
 
     # bind check BEFORE uvicorn starts: a second dashboard on the same port
     # used to surface as a raw "[Errno 48] address already in use" traceback
@@ -532,6 +572,16 @@ def main():
 
     rp = sub.add_parser("resume", help="clear the manual pause (new entries allowed again)")
     rp.set_defaults(fn=cmd_resume)
+
+    mk = sub.add_parser("market",
+                        help="show or switch the active market universe "
+                             "(--mode forex|india; switching refused while "
+                             "paper positions are open)")
+    mk.add_argument("--mode", default=None, choices=["forex", "india"],
+                    help="switch the persisted market mode and rewrite "
+                         "watchlist.json to that mode's universe "
+                         "(omit to just show the active mode)")
+    mk.set_defaults(fn=cmd_market)
 
     va = sub.add_parser("validate",
                         help="honest-statistics battery: purged-CV, PBO, Deflated Sharpe, "

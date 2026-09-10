@@ -138,6 +138,72 @@ filled at a better price. As with Round 8, the purged-CV / PBO / Monte Carlo
 batteries should be re-run on this final path before citing any
 distributional claim.
 
+## India (NSE) — first pinned acceptance runs (2026-09-10)
+
+The India market mode (Wave B1: an NSE universe — Nifty 50 + large-cap cash
+equities — with its own regulatory cost stack, whole-share sizing and an
+NSE session gate) needs a baseline before any India strategy is claimed to
+work. These are the FIRST turtle_trend acceptance runs on NSE data: real
+yfinance bars (auto-adjusted, validated), the same event-driven engine,
+full India costs, $10,000 start, 1% risk. Results live in
+`data/results/india_90d/*.json`.
+
+| Symbol | TF | Window | Bars | Return | MaxDD | Trades | Win% | PF | Sharpe | Fees |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| ^NSEI | 1h | 90d (2026-06-10 → 09-09) | 455 | 0.00% | 0.00% | 0 | — | — | — | 0 |
+| RELIANCE.NS | 1h | 90d | 451 | −0.79% | −1.11% | 4 | 25.0% | 0.02 | −11.45 | 31.91 |
+| TCS.NS | 1h | 90d | 447 | −0.33% | −1.14% | 3 | 33.3% | 0.39 | −3.75 | 21.77 |
+| HDFCBANK.NS | 1h | 90d | 454 | −0.22% | −0.44% | 3 | 66.7% | 0.41 | −0.10 | 22.12 |
+| INFY.NS | 1h | 90d | 451 | +0.20% | −0.68% | 3 | 33.3% | 1.24 | 3.72 | 21.08 |
+| ICICIBANK.NS | 1h | 90d | 450 | −1.64% | −1.65% | 5 | 0.0% | 0.00 | −22.13 | 43.79 |
+| RELIANCE.NS | 4h | ~180d (2026-03-16 → 09-09) | 362 | 0.00% | 0.00% | 0 | — | — | — | 0 |
+| TCS.NS | 4h | ~180d | 362 | −1.87% | −1.33% | 2 | 0.0% | 0.00 | — | 14.64 |
+
+The cost model, spelled out (components are module constants in
+`config.py` so the arithmetic is checkable, not hand-totaled; rates verified
+against the Zerodha charge list, verified 2026-09-10 — broker/exchange
+rates change, re-verify annually):
+
+- **STT: delivery rate, 0.1% on BOTH legs.** The bot's India specs hold
+  multi-day positions on 1h/4h bars — that is delivery in Indian market
+  terms, so delivery STT applies. This is deliberately the MORE expensive
+  choice vs intraday (0.025%, sell side only) — the conservative floor.
+- **Brokerage: 0.03% per leg.** Zerodha retail delivery brokerage is
+  Rs 0, but modeling zero flatters results; 0.03% (the published intraday
+  cap, min(0.03%, Rs 20)) is the conservative standing figure.
+- Plus NSE exchange transaction charges (0.00307%/side), SEBI turnover
+  (Rs 10/crore), stamp duty on the buy leg (0.015%) and 18% GST on the
+  taxable components — **≈ 0.29% round trip** before the 0.05% adverse
+  slippage per market leg. Every leg is a market leg: Indian charges are
+  regulatory per-side taxes, not exchange maker rebates, so a resting
+  limit still pays them (only the slippage differs).
+
+Two data caveats, recorded rather than hidden:
+
+- **^NSEI has zero volume on Yahoo** — every one of the 455 cached 1h
+  bars reports volume 0 (verified against the pinned cache). The turtle
+  itself needs no volume, and the 0-trade Nifty row is not a volume
+  artifact (no Donchian-20 breakout + ADX ≥ 20 regime fired in the window),
+  but any volume-gated strategy (the scalper's RVOL, volume confirmation)
+  must NOT be run on the index as-is.
+- **The 4h books deviate from the 90d protocol**: 90 days of 4h NSE bars
+  (~142 tradable after the 220-bar warmup the mean-reversion/indicator
+  stack needs) is too short to be meaningful, so the 4h runs use ~180d
+  (362 bars). Even so RELIANCE 4h never trades (no qualifying setup after
+  warmup) and TCS 4h trades twice — both 4h cells are too thin to conclude
+  anything. The 4h/1d India books remain essentially UNMEASURED.
+
+The honest reading: **turtle on NSE 1h is cost-dominated at delivery
+rates — no edge is claimed.** The five equity 1h books traded 18 times for
+a net −$277 across five $10k accounts (−0.55% average); four of five are
+negative and the one positive cell (INFY, +0.20%, 3 trades) is noise, not
+evidence. The fee column tells the story: ₹-denominated regulatory costs
+(~0.29% round trip before slippage) eat a trend strategy whose 1h Donchian
+trades on large-cap NSE names simply don't run far enough to pay for the
+stamp. These numbers are the BASELINE Milestone C's India momentum
+strategy must beat — if it can't clear this bar plus costs, it doesn't
+ship.
+
 ## Round 1 (v1) — what the first battery showed
 
 | Symbol | TF | Strategy | Return | MaxDD | Trades | Win% | PF |

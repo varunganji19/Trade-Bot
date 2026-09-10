@@ -1,9 +1,10 @@
-# AI Trading Bot — Crypto & Forex (Paper Trading)
+# AI Trading Bot — Crypto, Forex & India NSE (Paper Trading)
 
 [![CI](https://github.com/Varunsai1930/Algo/actions/workflows/ci.yml/badge.svg)](https://github.com/Varunsai1930/Algo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An autonomous trading bot for **crypto and forex** that reads chart data and news,
+An autonomous trading bot for **crypto and forex** — with a one-click toggle to
+**India's NSE** (Nifty 50 + NSE cash equities) — that reads chart data and news,
 decides **buy / sell / hold** with written reasoning, sizes and manages positions
 by itself — plus a live **dashboard** (equity curve, trade history, strategy
 attribution, decision feed, **evidence view**) and a **chatbot** that answers
@@ -102,6 +103,8 @@ python3 main.py dashboard           # → http://127.0.0.1:8000
 python3 main.py status              # journal summary (+ pause state)
 python3 main.py pause "note"        # manual halt: new entries only, nothing force-closed
 python3 main.py resume              # clear the manual pause
+python3 main.py market              # show the active market universe (forex | india)
+python3 main.py market --mode india # switch to the NSE universe (refused while positions are open)
 make test / make lint / make demo / make battery   # common tasks
 python3 main.py chat "explain the connors strategy"
 python3 main.py seed-demo           # fill journal with real backtest history for the demo
@@ -187,6 +190,67 @@ hard stops, targets and strategy exits while either is engaged.
   dashboard restarts; a corrupt/unreadable flag is quarantined and treated
   as **paused** (a flag we can't read must fail toward "not trading", never
   toward trading).
+
+## Markets: Forex ↔ India toggle
+
+The bot trades **one market universe at a time — never both** (the account
+model is single-currency: the crypto+forex book is kept in US dollars, the
+India book in rupees, and the two books cannot mix). The dashboard's
+Overview tab has a two-state switch next to the engine controls:
+
+- **On = Forex active** — the crypto + forex universe (BTC, ETH, SOL on
+  1h/15m/4h + EUR/USD, GBP/USD on 1h; the historical default)
+- **Off = India active** — the NSE universe (Nifty 50 + Reliance, TCS,
+  HDFC Bank, Infosys, ICICI Bank on 1h; Reliance and TCS also on 4h)
+
+Switching is guarded so nothing is ever silently lost:
+
+- **The orphan guard.** A switch rewrites the watchlist, so an open position
+  whose market dropped out of the universe would be orphaned — its feed
+  gone, its stops never checked again. If any open paper position exists
+  (in the live engine *or* the journal), the switch is **refused** and the
+  dashboard shows a confirmation dialog: *"You have N open paper positions.
+  Switching markets will close them at their last prices so none are left
+  orphaned. Blocks nothing else — this only changes which markets the bot
+  watches."* Positions are force-closed **only** after you explicitly
+  confirm — one click never closes anything by itself. With no open
+  positions the switch is immediate.
+- **Your choice is remembered.** The mode is persisted in
+  `data/market_mode.json` (and `data/watchlist.json` is kept in lockstep —
+  the mode is the single source of truth). Restarting the dashboard — or
+  the whole machine — keeps the same market; the blue banner at the top of
+  every tab always shows which market is active, so a restart can never
+  silently flip markets on you.
+
+The CLI equivalent (no dashboard needed):
+
+```bash
+python3 main.py market                  # show the active universe
+python3 main.py market --mode india     # switch to NSE
+python3 main.py market --mode forex     # switch back
+```
+
+The CLI refuses the switch outright while open positions exist (close them
+first); the dashboard offers the explicit confirm-and-close path above.
+
+**v1 scope, stated honestly:**
+
+- India means **NSE cash equities and indices only** — no options, no
+  futures/F&O. There is no options infrastructure in this repo (pricing,
+  expiry handling, margining); that is deliberately out of scope, not an
+  oversight.
+- Supported watchlist kinds: **`crypto` | `forex` | `india`** — but only
+  one mode's universe is active at a time; the watchlist is derived state
+  of the mode (a hand-edited watchlist that disagrees with the persisted
+  mode is normalized back to the mode's universe on boot).
+- India market data comes from Yahoo Finance (`RELIANCE.NS` equities,
+  `^NSEI` index) with a **conservative regulatory cost stack** (delivery
+  STT both legs, 0.03% standing brokerage, exchange/SEBI/stamp/GST; see
+  `config.py` and BACKTESTS.md's India section — turtle on NSE 1h is
+  cost-dominated at delivery rates, no edge is claimed).
+- Trades from a previous market mode stay visible in the journal history
+  (it is a record, not a dashboard filter); the bot only *opens* new
+  positions in the active market. The Portfolio tab says so in one line.
 
 ## Honesty rules (backtester & data)
 

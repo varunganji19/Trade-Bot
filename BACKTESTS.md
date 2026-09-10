@@ -138,6 +138,59 @@ filled at a better price. As with Round 8, the purged-CV / PBO / Monte Carlo
 batteries should be re-run on this final path before citing any
 distributional claim.
 
+## Milestone C — SSRN-grounded strategy additions (2026-09-10)
+
+Both strategies below are REGISTERED but NOT in any watchlist (not in
+DEFAULT_WATCHLIST, not in SPECS_INDIA) — the Milestone C rule: nothing goes
+near the live/paper-live watchlist until its own measured entry survives
+realistic costs. Neither did. These are valid measurements, not failures to
+tune.
+
+### C1 — India time-series momentum (`ts_momentum`, pinned 2y, delivery costs)
+
+Long-only 1h NSE momentum (trailing 240-bar return > +8%, within 10% of the
+1-year high, close > EMA200; exits on momentum decay / prior-10-bar channel
+break / EMA200 loss), grounded in SSRN 3345280 / 3510433 / 4587697 — the
+single-symbol MVP of the papers' cross-sectional decile ranking (path (a) in
+the plan; the portfolio runner stays deferred). Pinned 2024-09-11→2026-09-10:
+
+| Symbol | Bars | Return | MaxDD | Trades | Win% | PF | Sharpe | Fees |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| ^NSEI | 3446 | 0.00% | 0.00% | 0 | — | None | None | $0 |
+| RELIANCE.NS | 3432 | 0.00% | 0.00% | 0 | — | None | None | $0 |
+| TCS.NS | 3426 | 0.00% | 0.00% | 0 | — | None | None | $0 |
+| HDFCBANK.NS | 3431 | 0.00% | 0.00% | 0 | — | None | None | $0 |
+| INFY.NS | 3432 | 0.00% | 0.00% | 0 | — | None | None | $0 |
+| ICICIBANK.NS | 3430 | −0.37% | −1.40% | 12 | 33.3% | 0.85 | −1.01 | $105 |
+
+The 2452-bar (≈10-month) warmup plus the papers' 6-12-month momentum
+threshold left almost no qualifying bars in-window: the gate fired on 2 of
+~992 evaluated bars on the index and 0 on four of five names. The one active
+book (ICICIBANK) made +0.68% gross and lost −0.37% net — the ~0.29% delivery
+round trip was bigger than the edge. The single-symbol threshold is too
+blunt an analogue of the papers' decile ranking to justify building the
+path-(b) portfolio runner on this evidence.
+
+### C2 — FX regime-conditioned mean reversion (`fx_regime_meanrev`, pinned 1y, full costs)
+
+Single-pair z-score deviation (log(close/EMA20), 100-bar window) gated by
+the AR(1) half-life of the deviation itself (SSRN 6087107), 1.5×ATR stop,
+1.5R declared target, z±0.5 snapback exit, 24-bar time stop. True
+cointegration pairs trading (SSRN 4771108) remains the flagged stretch goal,
+not built. Pinned 2025-09-10→2026-09-10:
+
+| Pair | Bars | Return | MaxDD | Trades | Win% | PF | Sharpe | Fees |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| EURUSD=X 1h | 6142 | −1.53% | −1.61% | 155 | 42.6% | 0.57 | −7.39 | $147 |
+| GBPUSD=X 1h | 6144 | −1.79% | −1.99% | 157 | 45.9% | 0.58 | −7.48 | $151 |
+
+The ~0.06% forex round trip is essentially the whole loss — gross per-trade
+P&L is ~breakeven (−$0.04 EURUSD / −$0.18 GBPUSD), so the snapback edge
+exists (EURUSD snapback exits averaged +$1.16 gross) but does not clear the
+spread on 1h majors. The regime gate did bind (4-6 regime-died exits, plus
+its refusals) — the framework is sound, the magnitude is not there at 1h
+costs.
+
 ## India (NSE) — first pinned acceptance runs (2026-09-10)
 
 The India market mode (Wave B1: an NSE universe — Nifty 50 + large-cap cash

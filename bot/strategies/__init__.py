@@ -5,11 +5,15 @@ from .base import BaseStrategy, Signal
 from .turtle import TurtleTrend
 from .meanrev import ConnorsMeanReversion
 from .scalper import VWAPScalper
+from .fx_regime_meanrev import FXRegimeMeanRev
+from .ts_momentum import TimeSeriesMomentum
 
 STRATEGY_CLASSES = {
     TurtleTrend.name: TurtleTrend,
     ConnorsMeanReversion.name: ConnorsMeanReversion,
     VWAPScalper.name: VWAPScalper,
+    FXRegimeMeanRev.name: FXRegimeMeanRev,
+    TimeSeriesMomentum.name: TimeSeriesMomentum,
 }
 
 _INSTANCE_CACHE: dict = {}
@@ -31,4 +35,5 @@ def get_strategy(name: str, params=None) -> BaseStrategy:
 
 
 __all__ = ["BaseStrategy", "Signal", "TurtleTrend", "ConnorsMeanReversion",
-           "VWAPScalper", "STRATEGY_CLASSES", "get_strategies", "get_strategy"]
+           "VWAPScalper", "FXRegimeMeanRev", "TimeSeriesMomentum",
+           "STRATEGY_CLASSES", "get_strategies", "get_strategy"]

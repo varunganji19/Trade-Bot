@@ -73,50 +73,70 @@
   "bars": 300,
   "cache_file": "TESTUSDT_1h_7d_20260910.parquet",
   "caliber": "unknown",
-  "fetched_at": "2026-09-10T13:42:17+00:00",
+  "fetched_at": "2026-09-10T15:00:34+00:00",
   "first_ts": "2024-01-01 00:00:00+00:00",
   "last_ts": "2024-01-13 11:00:00+00:00",
   "sha256": "8ebf033d411f38fe3f99602ae9d0ed86b2e034698b0e8dcb55b99441d2628009",
   "source": "unknown"
  },
- "india:HDFCBANK.NS:1h": {
-  "bars": 454,
-  "cache_file": "HDFCBANK.NS_1h_2026-06-10_2026-09-10.parquet",
+ "forex:EURUSD=X:1h": {
+  "bars": 6142,
+  "cache_file": "EURUSD_1h_2025-09-10_2026-09-10.parquet",
   "caliber": "adjusted",
-  "fetched_at": "2026-09-10T12:32:49+00:00",
-  "first_ts": "2026-06-10 03:45:00+00:00",
+  "fetched_at": "2026-09-10T14:45:27+00:00",
+  "first_ts": "2025-09-09 23:00:00+00:00",
+  "last_ts": "2026-09-09 22:00:00+00:00",
+  "sha256": "fa02815b2843a0e5ab9235e123a50d1fbd0637c820ca0fdcd94d38b2432cc01b",
+  "source": "yahoo"
+ },
+ "forex:GBPUSD=X:1h": {
+  "bars": 6144,
+  "cache_file": "GBPUSD_1h_2025-09-10_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T14:46:37+00:00",
+  "first_ts": "2025-09-09 23:00:00+00:00",
+  "last_ts": "2026-09-09 22:00:00+00:00",
+  "sha256": "054703ccdca19312e8df77ce04959d451516d00fe502400cb59ac41408be90f4",
+  "source": "yahoo"
+ },
+ "india:HDFCBANK.NS:1h": {
+  "bars": 3431,
+  "cache_file": "HDFCBANK.NS_1h_2024-09-11_2026-09-10.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-10T14:35:48+00:00",
+  "first_ts": "2024-09-11 03:45:00+00:00",
   "last_ts": "2026-09-09 09:45:00+00:00",
-  "sha256": "775fc94397403c6b82f675f3897350fe1cc33bcd6e5969e56043e7ce06121db7",
+  "sha256": "d9ac2f39f5c916fe898482ad1593ade67df53dcf92bd6e4e186888cb56b73277",
   "source": "yahoo"
  },
  "india:ICICIBANK.NS:1h": {
-  "bars": 450,
-  "cache_file": "ICICIBANK.NS_1h_2026-06-10_2026-09-10.parquet",
+  "bars": 3430,
+  "cache_file": "ICICIBANK.NS_1h_2024-09-11_2026-09-10.parquet",
   "caliber": "adjusted",
-  "fetched_at": "2026-09-10T12:32:55+00:00",
-  "first_ts": "2026-06-10 03:45:00+00:00",
+  "fetched_at": "2026-09-10T14:35:49+00:00",
+  "first_ts": "2024-09-11 03:45:00+00:00",
   "last_ts": "2026-09-09 09:45:00+00:00",
-  "sha256": "3b2b78d51cf1fc3b114f9cc35ca4d554bdcffab15064ca1981315cee4a9509ac",
+  "sha256": "e3a074da6ebeb7a505d8fd390827ff95423689bdf93ed831792557d53a222211",
   "source": "yahoo"
  },
  "india:INFY.NS:1h": {
-  "bars": 451,
-  "cache_file": "INFY.NS_1h_2026-06-10_2026-09-10.parquet",
+  "bars": 3432,
+  "cache_file": "INFY.NS_1h_2024-09-11_2026-09-10.parquet",
   "caliber": "adjusted",
-  "fetched_at": "2026-09-10T12:32:52+00:00",
-  "first_ts": "2026-06-10 03:45:00+00:00",
+  "fetched_at": "2026-09-10T14:35:48+00:00",
+  "first_ts": "2024-09-11 03:45:00+00:00",
   "last_ts": "2026-09-09 09:45:00+00:00",
-  "sha256": "0febce53e978d1b35764a537937fbc488b504c3e5cffca603c8d77bf2f864d77",
+  "sha256": "ce6e5fffafd2016d7ba4720ab72b55013c7ebace6aba310b4da9486dc6e7da89",
   "source": "yahoo"
  },
  "india:RELIANCE.NS:1h": {
-  "bars": 451,
-  "cache_file": "RELIANCE.NS_1h_2026-06-10_2026-09-10.parquet",
+  "bars": 3432,
+  "cache_file": "RELIANCE.NS_1h_2024-09-11_2026-09-10.parquet",
   "caliber": "adjusted",
-  "fetched_at": "2026-09-10T12:32:42+00:00",
-  "first_ts": "2026-06-10 03:45:00+00:00",
+  "fetched_at": "2026-09-10T14:35:47+00:00",
+  "first_ts": "2024-09-11 03:45:00+00:00",
   "last_ts": "2026-09-09 09:45:00+00:00",
-  "sha256": "552ec6290ca1ddab78b597890b11ece889a6de5a05c5430c7bbed2170d449812",
+  "sha256": "b6758bc66d424c2089042f2c85abfaa13b497349ddd0e93f29884e806bdb0be1",
   "source": "yahoo"
  },
  "india:RELIANCE.NS:4h": {
@@ -130,13 +150,13 @@
   "source": "yahoo"
  },
  "india:TCS.NS:1h": {
-  "bars": 447,
-  "cache_file": "TCS.NS_1h_2026-06-10_2026-09-10.parquet",
+  "bars": 3426,
+  "cache_file": "TCS.NS_1h_2024-09-11_2026-09-10.parquet",
   "caliber": "adjusted",
-  "fetched_at": "2026-09-10T12:32:45+00:00",
-  "first_ts": "2026-06-10 03:45:00+00:00",
+  "fetched_at": "2026-09-10T14:35:47+00:00",
+  "first_ts": "2024-09-11 03:45:00+00:00",
   "last_ts": "2026-09-09 08:45:00+00:00",
-  "sha256": "0456a36e5683c99c3206d53621862e096a00d0318621f1b0d23409be9c9915ac",
+  "sha256": "524c3c26f62e271d5548b4fedc83840947e786605e9557359bb1dfdc5dee13de",
   "source": "yahoo"
  },
  "india:TCS.NS:4h": {
@@ -150,13 +170,13 @@
   "source": "yahoo"
  },
  "india:^NSEI:1h": {
-  "bars": 455,
-  "cache_file": "NSEI_1h_2026-06-10_2026-09-10.parquet",
+  "bars": 3446,
+  "cache_file": "NSEI_1h_2024-09-11_2026-09-10.parquet",
   "caliber": "adjusted",
-  "fetched_at": "2026-09-10T12:32:20+00:00",
-  "first_ts": "2026-06-10 03:45:00+00:00",
+  "fetched_at": "2026-09-10T14:34:45+00:00",
+  "first_ts": "2024-09-11 03:45:00+00:00",
   "last_ts": "2026-09-09 09:45:00+00:00",
-  "sha256": "52c5d27a24fd8dd5bc461c962ecdc6a663245e10e54827d69ee11a9309181cc8",
+  "sha256": "ce26e8ee696dae364830eee10dc4eaaa3f2df6f668589243ded01e91f6861e91",
   "source": "yahoo"
  }
 }

@@ -207,6 +207,30 @@ class StrategyParams:
     # can't immediately re-trigger and churn fees
     scalper_cooldown_bars: int = 12
 
+    # FX regime-conditioned mean reversion (bot/strategies/fx_regime_meanrev.py,
+    # 1h bars — Milestone C2, grounded in SSRN 6087107). One contiguous block
+    # appended at the END of the dataclass; never reordered (merge rule).
+    # z-score of log(close/EMA20) over fxmr_z_window bars is the deviation.
+    fxmr_z_window: int = 100         # rolling window for the deviation z-score's mean/sigma
+    fxmr_z_entry: float = 2.0        # |z| beyond this = stretched far enough from the mean to fade
+    fxmr_z_exit: float = 0.5         # z crossing back through this toward the mean = snapback complete
+    fxmr_halflife_max: float = 12.0  # AR(1) half-life of the deviation must be <= this (reversion in horizon)
+    fxmr_stop_atr: float = 1.5       # hard stop in ATRs (intraday FX vol scale)
+    fxmr_target_rr: float = 1.5      # declared fixed R-target (reward floor needs >= 1.2R; see module docstring)
+    fxmr_time_stop_bars: int = 24    # 24 x 1h = ~1 trading day; intraday reversion must not become a position trade
+    fxmr_min_atr_pct: float = 0.0002 # ATR >= 0.02% of price: dead-flat markets give the spread the whole edge
+
+    # India time-series momentum (bot/strategies/ts_momentum.py, 1h/4h bars —
+    # Milestone C1, grounded in SSRN 3345280/3510433/4587697). One contiguous
+    # block appended at the END of the dataclass; never reordered (merge rule).
+    # Defaults are the papers' plain reading — no tuning was done.
+    tsmom_lookback: int = 240        # trailing-return window: 240 1h bars ~ 10 months of NSE sessions (papers' 6-12 month momentum horizon)
+    tsmom_min_ret: float = 0.08      # +8% over the lookback: the decile portfolio's top cut as a single-symbol absolute gate (SSRN 3345280)
+    tsmom_52w_bars: int = 2450       # 1-year rolling-high window: ~2450 1h bars ~ 245 NSE sessions (SSRN 4587697)
+    tsmom_52w_prox: float = 0.10     # close within 10% of the 1-year high: anchor proximity (SSRN 4587697)
+    tsmom_stop_atr: float = 2.5      # wide 2.5-ATR stop: a slow 10-month-horizon strategy must not be noise-stopped
+    tsmom_exit_ret: float = 0.0      # exit line: trailing return < 0 = the momentum regime flipped non-positive (signal exit, the papers' monthly re-rank analogue)
+
 
 @dataclass
 class MarketSpec:

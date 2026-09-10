@@ -20,7 +20,7 @@ import pandas as pd
 
 from config import CONFIG, MarketSpec
 from bot.indicators import add_all_indicators, ema, rsi
-from bot.strategies import TurtleTrend, ConnorsMeanReversion, VWAPScalper
+from bot.strategies import TurtleTrend, ConnorsMeanReversion, VWAPScalper, TimeSeriesMomentum
 from bot.risk import RiskManager
 from bot.broker import PaperBroker
 from bot.orchestrator import Orchestrator, detect_regime
@@ -773,7 +773,11 @@ def test_orchestrator_decision_shape():
     assert 0 <= d.confidence <= 0.95
     assert d.regime in ("trending", "ranging", "unknown")
     assert isinstance(d.rationale, str) and len(d.rationale) > 5
-    assert set(d.strategy_signals) <= {"turtle_trend", "connors_meanrev", "vwap_scalper"}
+    # every signal name must be a REGISTERED strategy (Milestones C1/C2 added
+    # ts_momentum/fx_regime_meanrev to the 1h vote — the pre-C assertion froze
+    # the 3-strategy roster and failed the moment the registry grew)
+    from bot.strategies import STRATEGY_CLASSES
+    assert set(d.strategy_signals) <= set(STRATEGY_CLASSES) | {"kronos"}
     if d.action != "HOLD":
         assert d.stop_distance > 0
         assert d.strategy_name
@@ -782,17 +786,24 @@ def test_orchestrator_decision_shape():
 def test_every_valid_timeframe_is_owned():
     """VALID_TIMEFRAMES must all map to a strategy — a spec on an unowned
     timeframe silently HOLDs forever while the UI badges it (the old literal
-    STRATEGY_BY_TF lied for 5m/1d; the derived map must now cover them)."""
+    STRATEGY_BY_TF lied for 5m/1d; the derived map must now cover them).
+    Post-Milestone-C: a timeframe may be OWNED by several strategies
+    (ts_momentum + turtle share 1h) — the orchestrator consults every
+    strategy that prefers the spec's timeframe, so the derived map lists
+    whichever strategy last claimed the tf. What must hold: every valid tf
+    has an owner, and the badge names a strategy that actually prefers
+    that timeframe."""
     import bot.dashboard as dash_mod
     from config import VALID_TIMEFRAMES
     covered = set(dash_mod.STRATEGY_BY_TF)
     assert covered >= set(VALID_TIMEFRAMES), \
         f"unowned timeframes: {sorted(set(VALID_TIMEFRAMES) - covered)}"
-    # the ownership map must agree with what the orchestrator enforces
+    # the ownership map must agree with what the orchestrator enforces: the
+    # badge for each tf names a REGISTERED strategy that prefers that tf
     from bot.strategies import STRATEGY_CLASSES
-    for name, cls in STRATEGY_CLASSES.items():
-        for tf in cls.preferred_timeframes:
-            assert dash_mod.STRATEGY_BY_TF[tf] == name
+    for tf, name in dash_mod.STRATEGY_BY_TF.items():
+        assert name in STRATEGY_CLASSES
+        assert tf in STRATEGY_CLASSES[name].preferred_timeframes
     assert dash_mod.STRATEGY_BY_TF["5m"] == "vwap_scalper"
     assert dash_mod.STRATEGY_BY_TF["1d"] == "connors_meanrev"
 
@@ -4398,6 +4409,411 @@ def test_market_mode_in_engine_status_and_stats():
             assert client.get("/api/stats").json()["market_mode"] == "india"
         finally:
             _restore_market_mode_fixture(dash)
+
+
+# ---------------------------------------------------------------------------
+# Milestone C1: India time-series momentum (bot/strategies/ts_momentum.py)
+# Long-only absolute momentum per symbol — path (a) of the milestone: the
+# SSRN papers rank a whole universe cross-sectionally; BaseStrategy is a
+# single-symbol evaluator, so the decile gate becomes a trailing-return
+# threshold (+8% over 240 1h bars) plus the 52w-high anchor (within 10% of
+# the rolling 1-year high) plus turtle's EMA200 structure discipline.
+# Frames must exceed the 2452-bar warmup (max(240, 2450, 30)+2) — hence the
+# ~2500-bar synthetic constructions throughout this block.
+# ---------------------------------------------------------------------------
+
+def _tsmom_frame(n=2560, drift=0.0008, vol=0.004, seed=5, tail=None):
+    """Uptrend OHLC frame for ts_momentum: geometric walk with positive
+    drift (as a share, not a percent) and optional `tail` prices appended to
+    craft the final bars (reversal / decay cases)."""
+    rng = np.random.default_rng(seed)
+    steps = rng.normal(drift, vol, n)
+    prices = list(100.0 * np.cumprod(1 + steps))
+    if tail:
+        prices += list(tail)
+    return add_all_indicators(make_df(prices, seed=seed))
+
+
+def _tsmom_downtrend(n=2560, drift=-0.0012, vol=0.004, seed=9):
+    """Mirror construction with negative drift: the no-short case."""
+    rng = np.random.default_rng(seed)
+    steps = rng.normal(drift, vol, n)
+    prices = list(100.0 * np.cumprod(1 + steps))
+    return add_all_indicators(make_df(prices, seed=seed))
+
+
+def test_tsmom_warmup_returns_flat():
+    """i below the warmup line (max(lookback, 52w_bars, 30)+2 = 2452) must
+    be FLAT 'warming up' — a 400-bar frame never even reaches evaluation."""
+    df = _tsmom_frame(400, seed=11)
+    ts = TimeSeriesMomentum()
+    for i in (0, 100, len(df) - 1):
+        sig = ts.evaluate(df, i)
+        assert sig.action == "FLAT" and "warm" in (sig.rationale or "").lower()
+
+
+def test_tsmom_uptrend_goes_long():
+    """A genuine uptrend — positive 240-bar trailing return, within 10% of
+    the rolling 1-year high, above EMA200 — must produce a LONG with a
+    positive ATR stop and meta carrying both momentum readings."""
+    df = _tsmom_frame(seed=5)
+    ts = TimeSeriesMomentum()
+    i = len(df) - 1
+    sig = ts.evaluate(df, i)
+    assert sig.action == "LONG", sig.rationale
+    assert 0.30 <= sig.confidence <= 1.0
+    assert sig.stop_distance and sig.stop_distance > 0
+    assert sig.target_rr is None           # signal-exit strategy, no fixed TP
+    assert sig.confidence >= 0.55          # can clear the orchestrator floor
+    assert "momentum" in sig.rationale.lower()
+    assert sig.meta["lookback_ret"] > ts.p.tsmom_min_ret
+    assert sig.meta["high_prox"] > 1.0 - ts.p.tsmom_52w_prox
+
+
+def test_tsmom_flat_when_momentum_below_threshold():
+    """Trailing return under +8%: FLAT, and the reason must name momentum
+    (the gate that fired, not a generic refusal)."""
+    rng = np.random.default_rng(21)
+    n = 2560
+    # sideways chop with a small positive drift: trailing 240-bar return
+    # lands far below +8% while price still sits near its 1-year high
+    steps = rng.normal(0.00002, 0.0025, n)
+    prices = list(100.0 * np.cumprod(1 + steps))
+    df = add_all_indicators(make_df(prices, seed=21))
+    ts = TimeSeriesMomentum()
+    i = len(df) - 1
+    sig = ts.evaluate(df, i)
+    assert sig.action == "FLAT"
+    assert "momentum" in (sig.rationale or "").lower(), sig.rationale
+    # non-vacuous: the frame's trailing return really is below the gate
+    assert ts._trailing_ret(df, i) < ts.p.tsmom_min_ret
+
+
+def test_tsmom_exit_on_momentum_decay():
+    """A held long exits when the trailing 240-bar return decays below
+    tsmom_exit_ret (default 0.0): a 2260-bar rally followed by a 300-bar
+    steady decay, so the DECISION bar sits at the bottom and the 240-bar
+    trailing return is decisively negative — the momentum regime flipped.
+    The momentum condition is checked first in check_exit, so the reason
+    names the decay even though the channel also happens to be breached."""
+    ts = TimeSeriesMomentum()
+    rng = np.random.default_rng(5)
+    steps = rng.normal(0.0008, 0.004, 2260)
+    rally = list(100.0 * np.cumprod(1 + steps))
+    top = rally[-1]
+    tail = [top * (0.996 ** (k + 1)) for k in range(300)]
+    df = add_all_indicators(make_df(rally + tail, seed=5))
+    i = len(df) - 1
+    # non-vacuous: the regime really flipped on this frame
+    assert ts._trailing_ret(df, i) < ts.p.tsmom_exit_ret
+    from bot.broker import Position
+    pos = Position(trade_id=1, symbol="T", side="long", qty=1.0,
+                    entry_price=top, stop=None, target=None, strategy="ts_momentum")
+    reason, _ = ts.check_exit(df, i, pos)
+    assert reason is not None and "momentum" in reason.lower(), reason
+
+
+def test_tsmom_exit_on_prior_channel_break():
+    """The prior-10-bar-low channel exit (turtle's shift=1 convention): the
+    last close must break BELOW the shifted channel. Crafted the same way
+    as the fixed turtle test — force the final close under the prior
+    channel floor, on a frame where momentum is STILL positive and EMA200
+    is still held, so the CHANNEL exit is the one that fires."""
+    ts = TimeSeriesMomentum()
+    df = _tsmom_frame(seed=5)
+    i = len(df) - 1
+    prior_lo = df["low"].rolling(ts.p.turtle_exit_period).min().shift(1)
+    floor = float(prior_lo.iloc[i])
+    assert np.isfinite(floor)
+    forced = df.copy()
+    forced.loc[forced.index[i], "close"] = floor - 1.0
+    forced.loc[forced.index[i], "low"] = min(floor - 1.0, float(forced["low"].iloc[i]))
+    # channel breach is real; momentum decay is NOT (single dip bar can't
+    # flip a 240-bar return), so the exit reason must name the channel
+    assert float(forced["close"].iloc[i]) < floor
+    assert ts._trailing_ret(forced, i) >= ts.p.tsmom_exit_ret
+    from bot.broker import Position
+    pos = Position(trade_id=1, symbol="T", side="long", qty=1.0,
+                   entry_price=float(df["close"].iloc[i - 20]),
+                   stop=None, target=None, strategy="ts_momentum")
+    reason, _ = ts.check_exit(forced, i, pos)
+    assert reason is not None and "channel" in reason.lower(), reason
+    # a close ABOVE the prior channel floor never fires the channel exit
+    reason_hold, _ = ts.check_exit(df, i, pos)
+    assert reason_hold is None or "channel" not in (reason_hold or "").lower()
+
+
+def test_tsmom_never_shorts_a_downtrend():
+    """Long-only by design (NSE cash equities): a relentless downtrend —
+    momentum decisively negative, near 52w LOW, below EMA200 — must be FLAT
+    everywhere, never SHORT."""
+    df = _tsmom_downtrend(seed=9)
+    ts = TimeSeriesMomentum()
+    actions = {}
+    for i in range(len(df) - 40, len(df)):
+        sig = ts.evaluate(df, i)
+        actions.setdefault(sig.action, 0)
+        actions[sig.action] += 1
+    assert set(actions) <= {"FLAT"}, actions
+    # non-vacuous: the frame really is a deep downtrend on every gate
+    i = len(df) - 1
+    assert ts._trailing_ret(df, i) < 0
+    assert df["close"].iloc[i] < df["ema200"].iloc[i]
+
+
+def test_tsmom_causal_no_future_leak():
+    """evaluate(i) on the full frame must equal evaluate(i) on the same
+    frame with all bars > i truncated — the trailing return and the 52w
+    rolling high read only bars <= i. A few i values across a random-ish
+    frame with mixed trend phases."""
+    rng = np.random.default_rng(33)
+    n = 2600
+    # three regimes: rally, chop, renewed rally (each phase ~866 bars)
+    phase1 = rng.normal(0.0012, 0.004, 866)
+    phase2 = rng.normal(-0.0002, 0.003, 866)
+    phase3 = rng.normal(0.0010, 0.004, n - 1732)
+    steps = np.concatenate([phase1, phase2, phase3])
+    df = add_all_indicators(make_df(list(100.0 * np.cumprod(1 + steps)), seed=33))
+    ts = TimeSeriesMomentum()
+    for i in (2460, 2500, len(df) - 100, len(df) - 1):
+        full = ts.evaluate(df, i)
+        trunc = ts.evaluate(df.iloc[: i + 1], i)
+        assert full.action == trunc.action, (i, full.rationale, trunc.rationale)
+        assert abs(full.confidence - trunc.confidence) < 1e-9
+        assert (full.stop_distance is None) == (trunc.stop_distance is None)
+        if full.stop_distance is not None:
+            assert abs(full.stop_distance - trunc.stop_distance) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Milestone C2: FX regime-conditioned mean reversion (fx_regime_meanrev)
+# ---------------------------------------------------------------------------
+# Frames below are hand-crafted so each gate is the ONLY moving part at the
+# decision bar: fast mean-reverting wiggle (AR(1) halflife ~1-4 bars, gate
+# passes), terminal stretch (|z| > 2), and zero-range bars (ATR exactly
+# controlled). See the module docstring in bot/strategies/fx_regime_meanrev.py
+# for the SSRN 6087107 grounding and the pairs-trading stretch-goal flag.
+def _fxmr_zero_range_frame(close, start="2024-01-01"):
+    """Deterministic zero-range bars: open=high=low=close, so ATR is a pure
+    function of the close-to-close moves we craft (the wiggle amplitude)."""
+    close = np.asarray(close, dtype=float)
+    idx = pd.date_range(start, periods=len(close), freq="1h", tz="UTC")
+    return pd.DataFrame({"open": close, "high": close, "low": close,
+                         "close": close, "volume": np.full(len(close), 100.0)},
+                        index=idx)
+
+
+def _fxmr_long_frame(n=210, seed=11):
+    """Stretched BELOW the mean on a fast-reverting wiggle: perpetual noise
+    around a level (AR(1) halflife ~1 bar at the decision bar) plus a 5-bar
+    terminal dip -> z < -2 with the regime gate passing -> LONG."""
+    rng = np.random.default_rng(seed)
+    base = 1.10 + rng.normal(0, 0.0008, n)
+    dip = np.zeros(n)
+    dip[-5:] = np.array([0, -0.0012, -0.0024, -0.0034, -0.0042])
+    return base + dip
+
+
+def _fxmr_short_frame(n=210, seed=11):
+    """Stretched ABOVE the mean on the same fast-reverting wiggle (terminal
+    spike) -> z > +2 with the gate passing -> SHORT (forex allows shorts)."""
+    rng = np.random.default_rng(seed)
+    base = 1.10 + rng.normal(0, 0.0008, n)
+    spike = np.zeros(n)
+    spike[-5:] = np.array([0, 0.0012, 0.0024, 0.0034, 0.0042])
+    return base + spike
+
+
+def _fxmr_rw_frame(n=210, seed=7):
+    """A genuine random-walk stretch (no hand-crafted ramp — a real seeded
+    cumulative walk): the deviation z-score crosses |2| while the window's
+    AR(1) fit reads half-life ~window/5 bars (the finite-window Dickey-Fuller
+    bias documented in indicators.halflife_ar1) — far beyond the 12-bar
+    horizon. This is the regime the paper's conditioning refuses to fade:
+    a stretch in a non-reverting regime. Decision bar 204 on seed 7."""
+    rng = np.random.default_rng(seed)
+    return 1.10 + np.cumsum(rng.normal(0, 0.0011, n))
+
+
+def test_fxmr_warmup_flat():
+    """Below max(z_window, ema, atr) + 2 bars the strategy must be FLAT with
+    a warming-up rationale — even on a frame that would otherwise fire."""
+    from bot.strategies.fx_regime_meanrev import FXRegimeMeanRev
+    s = FXRegimeMeanRev()
+    df = add_all_indicators(make_df(_fxmr_long_frame(210)))
+    assert s.p.fxmr_z_window == 100                       # warmup must cover it
+    for i in (30, 80, 100, 101):
+        sig = s.evaluate(df, i)
+        assert sig.action == "FLAT"
+        assert "warming up" in (sig.rationale or "")
+
+
+def test_fxmr_long_entry_on_reverting_stretch():
+    """z < -2 on a fast-reverting deviation (halflife <= fxmr_halflife_max):
+    LONG fires with in-range confidence, a positive ATR stop, and the fixed
+    1.5R declared target (the reward-floor-honest choice, module docstring)."""
+    from bot.strategies.fx_regime_meanrev import FXRegimeMeanRev
+    s = FXRegimeMeanRev()
+    df = add_all_indicators(make_df(_fxmr_long_frame()))
+    i = len(df) - 1
+    hl = float(df["halflife"].iloc[i])
+    assert hl <= s.p.fxmr_halflife_max          # frame sanity: the gate passes
+    sig = s.evaluate(df, i)
+    assert sig.action == "LONG", sig.rationale
+    assert 0.0 <= sig.confidence <= 0.90
+    assert sig.confidence >= 0.55              # must clear the orchestrator floor
+    assert sig.stop_distance and sig.stop_distance > 0
+    assert sig.target_rr == 1.5                 # declared fixed target
+    assert sig.meta["z"] < -s.p.fxmr_z_entry    # journaled attribution
+
+
+def test_fxmr_regime_gate_refuses_random_walk():
+    """NON-VACUITY of the regime gate: a genuine random-walk stretch (z = +3.4
+    at the decision bar — a real entry-grade stretch on every other gate) where
+    the window's AR(1) fit reads half-life ~13 bars, beyond the strategy's own
+    12-bar horizon, must be FLAT with a regime/half-life rationale — the
+    paper's core claim: don't fade stretches in non-reverting regimes. The
+    identical entry with the gate disabled (fxmr_halflife_max = 0) fires
+    SHORT, proving the gate (not some other gate) is what refuses."""
+    from bot.strategies.fx_regime_meanrev import FXRegimeMeanRev
+    s = FXRegimeMeanRev()
+    df = add_all_indicators(make_df(_fxmr_rw_frame()))
+    i = 204
+    z, hl = s._z_now(df, i), float(df["halflife"].iloc[i])
+    assert z > s.p.fxmr_z_entry                    # frame sanity: real stretch
+    assert hl > s.p.fxmr_halflife_max              # frame sanity: gate must refuse
+    sig = s.evaluate(df, i)
+    assert sig.action == "FLAT"
+    assert "half-life" in (sig.rationale or "") or "regime" in (sig.rationale or "")
+    p = s.p
+    old_max = p.fxmr_halflife_max
+    p.fxmr_halflife_max = 0.0                               # gate disabled
+    try:
+        raw = s.evaluate(df, i)
+        assert raw.action == "SHORT", ("gate-off control must fire on this frame",
+                                      raw.rationale)
+    finally:
+        p.fxmr_halflife_max = old_max
+
+
+def test_fxmr_short_entry_symmetric():
+    """z > +2 with the gate passing -> SHORT, mirror of the long side."""
+    from bot.strategies.fx_regime_meanrev import FXRegimeMeanRev
+    s = FXRegimeMeanRev()
+    df = add_all_indicators(make_df(_fxmr_short_frame()))
+    i = len(df) - 1
+    sig = s.evaluate(df, i)
+    assert sig.action == "SHORT", sig.rationale
+    assert sig.confidence >= 0.55
+    assert sig.stop_distance and sig.stop_distance > 0
+    assert sig.meta["z"] > s.p.fxmr_z_entry
+
+
+def test_fxmr_snapback_exit():
+    """Held long: z crossing back above -fxmr_z_exit means the snapback is
+    complete — the exit fires with a distinct reason. z still deep (< -0.5)
+    holds (the control)."""
+    from bot.strategies.fx_regime_meanrev import FXRegimeMeanRev
+    from bot.broker import Position
+    s = FXRegimeMeanRev()
+    n = 230
+    rng = np.random.default_rng(11)
+    base = 1.10 + rng.normal(0, 0.0008, n)
+    dip = np.zeros(n)
+    dip[205:210] = np.array([0, -0.0012, -0.0024, -0.0034, -0.0042])
+    dip[210:] = np.linspace(-0.0042, -0.0002, n - 210)      # revert toward the level
+    df = add_all_indicators(make_df(base + dip))
+    pos = Position(trade_id=1, symbol="EURUSD=X", side="long", qty=1.0,
+                   entry_price=float(df["close"].iloc[209]), stop=None, target=None,
+                   strategy="fx_regime_meanrev", bars_held=1)
+    deep = s.check_exit(df, 210, pos)          # z ~ -2.8: snapback incomplete
+    assert deep[0] is None
+    z_back = s._z_now(df, 220)
+    assert z_back > -s.p.fxmr_z_exit           # frame sanity: crossing happened
+    reason, _ = s.check_exit(df, 220, pos)
+    assert reason is not None and "snapback" in reason
+
+
+def test_fxmr_time_stop():
+    """Held long with z still stretched (no snapback, regime still reverting):
+    at fxmr_time_stop_bars the time stop fires (~1 trading day — intraday
+    reversion must not become a position trade); below it, the control holds."""
+    from bot.strategies.fx_regime_meanrev import FXRegimeMeanRev
+    from bot.broker import Position
+    s = FXRegimeMeanRev()
+    n = 230
+    rng = np.random.default_rng(11)
+    noise = rng.normal(0, 0.0008, n)
+    dip = np.zeros(n)
+    dip[205:210] = np.array([0, -0.0012, -0.0024, -0.0034, -0.0042])
+    dip[210:] = -0.0042                              # the dip HOLDS: no snapback
+    t = np.arange(n)
+    # a smooth trough around the decision bar keeps z stretched below -0.5
+    # (a flat held dip slowly normalizes into its own window and lets z decay
+    # toward the band — the bump keeps the stretch alive at bar 229)
+    bump = -0.0016 * np.cos((t - 229) * 2 * np.pi / 12.0) * (t >= 210)
+    df = add_all_indicators(make_df(1.10 + noise + dip + bump))
+    i = len(df) - 1
+    assert s._z_now(df, i) < -s.p.fxmr_z_exit            # still stretched
+    assert s._hl_refusal(float(df["halflife"].iloc[i])) is None   # regime alive
+    pos = Position(trade_id=1, symbol="EURUSD=X", side="long", qty=1.0,
+                   entry_price=1.096, stop=None, target=None,
+                   strategy="fx_regime_meanrev", bars_held=s.p.fxmr_time_stop_bars)
+    reason, _ = s.check_exit(df, i, pos)
+    assert reason is not None and "time stop" in reason
+    pos_fresh = Position(trade_id=2, symbol="EURUSD=X", side="long", qty=1.0,
+                          entry_price=1.096, stop=None, target=None,
+                          strategy="fx_regime_meanrev", bars_held=2)
+    assert s.check_exit(df, i, pos_fresh)[0] is None
+
+
+def test_fxmr_atr_floor():
+    """Dead-flat regime: a real stretch (z < -2, gate passing) on bars whose
+    ATR sits below fxmr_min_atr_pct of price must be FLAT with a volatility
+    rationale — the spread eats the whole edge at that vol. Inverting the
+    floor (0.0) lets the identical entry fire: the gate is load-bearing."""
+    from bot.strategies.fx_regime_meanrev import FXRegimeMeanRev
+    s = FXRegimeMeanRev()
+    n = 210
+    t = np.arange(n)
+    # fast wiggle (halflife ~2 bars, gate passes) at an amplitude so small the
+    # ATR lands ~0.009% of price — well under the 0.02% floor — plus a terminal
+    # dip so z < -2 (zero-range bars: ATR is exactly the crafted wiggle)
+    close = 1.10 + 0.00012 * np.sin(t * 2 * np.pi / 6.0)
+    close[-5:] -= np.array([0, 0.0002, 0.00035, 0.00045, 0.0005])
+    df = add_all_indicators(_fxmr_zero_range_frame(close))
+    i = len(df) - 1
+    assert df["atr"].iloc[i] / df["close"].iloc[i] < s.p.fxmr_min_atr_pct  # frame sanity
+    assert s._z_now(df, i) < -s.p.fxmr_z_entry                            # real stretch
+    sig = s.evaluate(df, i)
+    assert sig.action == "FLAT"
+    assert "volatility" in (sig.rationale or "").lower() or "floor" in (sig.rationale or "")
+    p = s.p
+    old_floor = p.fxmr_min_atr_pct
+    p.fxmr_min_atr_pct = 0.0                      # floor inverted (non-vacuity control)
+    try:
+        raw = s.evaluate(df, i)
+        assert raw.action == "LONG", ("floor-off control must fire on this frame",
+                                      raw.rationale)
+    finally:
+        p.fxmr_min_atr_pct = old_floor
+
+
+def test_fxmr_causal_no_lookahead():
+    """evaluate(i) on the full frame must equal evaluate on the frame
+    TRUNCATED at i (action + confidence), on a crafted reverting frame at
+    several decision bars — the same causality contract as every strategy."""
+    from bot.strategies.fx_regime_meanrev import FXRegimeMeanRev
+    s = FXRegimeMeanRev()
+    df = add_all_indicators(make_df(_fxmr_long_frame(260)))
+    for i in (150, 180, 220, 259):
+        full = s.evaluate(df, i)
+        trunc = s.evaluate(df.iloc[: i + 1], i)
+        assert full.action == trunc.action, i
+        assert abs(full.confidence - trunc.confidence) < 1e-9, i
+        assert (full.stop_distance is None) == (trunc.stop_distance is None)
+        if full.stop_distance is not None:
+            assert abs(full.stop_distance - trunc.stop_distance) < 1e-12
 
 
 if __name__ == "__main__":

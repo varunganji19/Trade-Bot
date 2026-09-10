@@ -546,7 +546,8 @@ def main():
     bt.add_argument("--end", default=None,
                     help="pinned window end YYYY-MM-DD (with --start)")
     bt.add_argument("--strategy", default="ensemble",
-                    choices=["ensemble", "turtle_trend", "connors_meanrev", "vwap_scalper"])
+                    choices=["ensemble", "turtle_trend", "connors_meanrev", "vwap_scalper",
+                             "fx_regime_meanrev", "ts_momentum"])
     bt.add_argument("--walk-forward", action="store_true")
     bt.add_argument("--folds", type=int, default=4)
     bt.add_argument("--purged-cv", action="store_true",
@@ -595,7 +596,8 @@ def main():
                     help="pinned window start YYYY-MM-DD (byte-identical reruns; overrides --days)")
     va.add_argument("--end", default=None, help="pinned window end YYYY-MM-DD (with --start)")
     va.add_argument("--strategy", default="turtle_trend",
-                    choices=["ensemble", "turtle_trend", "connors_meanrev", "vwap_scalper"])
+                    choices=["ensemble", "turtle_trend", "connors_meanrev", "vwap_scalper",
+                             "fx_regime_meanrev", "ts_momentum"])
     va.add_argument("--cv-folds", type=int, default=8)
     va.add_argument("--purge-bars", type=int, default=24)
     va.add_argument("--trial-sharpes", type=float, nargs="*", default=None,

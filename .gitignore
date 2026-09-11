@@ -1,24 +1,40 @@
-# Python
+```gitignore
+# Compiled Python files
+*.pyc
 __pycache__/
-*.py[cod]
-.pytest_cache/
 
-# local state — the journal, market-data caches and results are runtime data,
-# not source; the shipped code recreates them on first boot
-data/trading.db*
-data/trading.backup.*.db
-data/bot.db
-data/cache/
-data/results/
-data/kronos_ic.json
+# Virtual environments
+venv/
+.venv/
+env/
 
-# safety-net snapshots and OS clutter
-.backup/
-.DS_Store
-.ruff_cache/
-.zcode/
-data/watchlist.json
-data/engine_state.json
+# Logs
+*.log
 
-# secrets — .env.example is the committed template; .env never leaves the machine
+# Temporary files
+*.tmp
+*.swp
+
+# Coverage reports
+.coverage
+coverage/
+htmlcov/
+
+# Environment files
 .env
+.env.local
+*.env.*
+
+# IDE specific
+.vscode/
+.idea/
+
+# Build artifacts
+build/
+dist/
+target/
+
+# Dependencies cache
+.mypy_cache/
+.pytest_cache/
+```

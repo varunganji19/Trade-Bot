@@ -25,6 +25,7 @@ class Signal:
 class BaseStrategy:
     name: str = "base"
     preferred_timeframes: tuple = ("1h",)
+    enabled: bool = True  # explicit kill-switch; False excludes from vote regardless of REGIME_WEIGHTS
 
     def __init__(self, params=None):
         from config import StrategyParams

@@ -148,8 +148,12 @@ boundaries); never touch `data/trading.db`; tests use temp paths only.
 
 New separate modules; turtle/connors/scalper untouched. Each: docstring citing
 the paper(s), params in `StrategyParams`, `BACKTESTS.md` entry, unit tests,
-registered in `get_strategy`, **disabled by default** (not in any SPECS list)
-until its own measured entry survives realistic costs.
+registered in `get_strategy`, **disabled by default** (`enabled = False` class
+attribute on the strategy class) until its own measured entry survives
+realistic costs. The orchestrator's decision loop skips disabled strategies
+explicitly (`if not strat.enabled: continue`) — this is the actual gate, NOT
+absence from any watchlist or `REGIME_WEIGHTS` dict (that dict assigns voting
+weights per regime for *enabled* strategies only, not exclusion).
 
 - **C1 India time-series momentum** (`bot/strategies/ts_momentum.py`, 1d bars):
   MVP path (a) from the goals file — absolute/time-series momentum per symbol

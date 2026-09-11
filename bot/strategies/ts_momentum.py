@@ -51,6 +51,7 @@ from .base import BaseStrategy, Signal
 
 class TimeSeriesMomentum(BaseStrategy):
     name = "ts_momentum"
+    enabled = False  # disabled: 1h bars yield ~2 qualifying bars over 2y window; see BACKTESTS.md C1
     # momentum needs lookback: 240 1h bars (~10 months of NSE sessions) on 1h,
     # 4h as the coarser alternative. Short timeframes churn a slow strategy
     # into the cost model (see BACKTESTS.md cost studies).

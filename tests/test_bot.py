@@ -4816,6 +4816,53 @@ def test_fxmr_causal_no_lookahead():
             assert abs(full.stop_distance - trunc.stop_distance) < 1e-12
 
 
+def test_disabled_strategy_never_contributes_to_vote():
+    """Regression: ts_momentum and fx_regime_meanrev have enabled=False.
+    Even if their timeframes overlap a spec and even if someone edits
+    REGIME_WEIGHTS to include them, they must NEVER produce a raw signal
+    that reaches long_score/short_score or contribute any nonzero vote weight.
+    This tests the explicit kill-switch mechanism, not an accidental dict miss."""
+    from bot.strategies import TimeSeriesMomentum, FXRegimeMeanRev
+    from bot.orchestrator import Orchestrator, REGIME_WEIGHTS
+    from config import MarketSpec
+
+    # Sanity: both strategies are disabled by default
+    assert TimeSeriesMomentum.enabled is False, "ts_momentum must be disabled"
+    assert FXRegimeMeanRev.enabled is False, "fx_regime_meanrev must be disabled"
+
+    # Build a minimal trending dataframe on 1h (overlaps both disabled strats)
+    df = trending_df(n=300)
+    df = add_all_indicators(df)
+    i = len(df) - 1
+    spec = MarketSpec("forex", "EURUSD=X", "1h", "EUR/USD")
+
+    orch = Orchestrator()
+    decision = orch.decide(df, i, spec, include_sentiment=False)
+
+    # Neither disabled strategy should appear in the signals dict at all
+    assert "ts_momentum" not in decision.strategy_signals, \
+        "ts_momentum should be skipped entirely when enabled=False"
+    assert "fx_regime_meanrev" not in decision.strategy_signals, \
+        "fx_regime_meanrev should be skipped entirely when enabled=False"
+
+    # Even if someone adds them to REGIME_WEIGHTS, they still shouldn't vote
+    # because the gate is strat.enabled, not weights membership.
+    # Temporarily inject them into weights to prove the enabled check is what blocks them.
+    old_weights = dict(REGIME_WEIGHTS["trending"])
+    try:
+        REGIME_WEIGHTS["trending"]["ts_momentum"] = 0.50
+        REGIME_WEIGHTS["trending"]["fx_regime_meanrev"] = 0.50
+        orch2 = Orchestrator()
+        decision2 = orch2.decide(df, i, spec, include_sentiment=False)
+        # Still absent despite being in weights
+        assert "ts_momentum" not in decision2.strategy_signals, \
+            "ts_momentum must stay excluded even with weight assigned (enabled=False)"
+        assert "fx_regime_meanrev" not in decision2.strategy_signals, \
+            "fx_regime_meanrev must stay excluded even with weight assigned (enabled=False)"
+    finally:
+        REGIME_WEIGHTS["trending"] = old_weights
+
+
 if __name__ == "__main__":
     fails = 0
     fns = [(n, f) for n, f in sorted(globals().items())

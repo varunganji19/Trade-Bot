@@ -71,12 +71,12 @@
  },
  "crypto:TEST/USDT:1h": {
   "bars": 300,
-  "cache_file": "TESTUSDT_1h_7d_20260910.parquet",
+  "cache_file": "TESTUSDT_1h_7d_20260911.parquet",
   "caliber": "unknown",
-  "fetched_at": "2026-09-10T15:00:34+00:00",
+  "fetched_at": "2026-09-11T09:26:54+00:00",
   "first_ts": "2024-01-01 00:00:00+00:00",
   "last_ts": "2024-01-13 11:00:00+00:00",
-  "sha256": "8ebf033d411f38fe3f99602ae9d0ed86b2e034698b0e8dcb55b99441d2628009",
+  "sha256": "82f5ba76580177c694db57e840a0c734bf250527da32390eaa47606dfc78ad58",
   "source": "unknown"
  },
  "forex:EURUSD=X:1h": {
@@ -97,6 +97,16 @@
   "first_ts": "2025-09-09 23:00:00+00:00",
   "last_ts": "2026-09-09 22:00:00+00:00",
   "sha256": "054703ccdca19312e8df77ce04959d451516d00fe502400cb59ac41408be90f4",
+  "source": "yahoo"
+ },
+ "forex:USDINR=X:1h": {
+  "bars": 14305,
+  "cache_file": "USDINR_1h_90d_20260911.parquet",
+  "caliber": "adjusted",
+  "fetched_at": "2026-09-11T09:28:27+00:00",
+  "first_ts": "2023-11-27 02:00:00+00:00",
+  "last_ts": "2026-09-11 09:00:00+00:00",
+  "sha256": "e93a755744b0674390329dedc506b596588d26937f6745efb3a0099dc2fc42df",
   "source": "yahoo"
  },
  "india:HDFCBANK.NS:1h": {

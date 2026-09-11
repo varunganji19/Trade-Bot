@@ -1,0 +1,58 @@
+{
+ "specs": [
+  {
+   "kind": "crypto",
+   "symbol": "BTC/USDT",
+   "timeframe": "1h",
+   "display": "Bitcoin"
+  },
+  {
+   "kind": "crypto",
+   "symbol": "ETH/USDT",
+   "timeframe": "1h",
+   "display": "Ethereum"
+  },
+  {
+   "kind": "crypto",
+   "symbol": "SOL/USDT",
+   "timeframe": "1h",
+   "display": "Solana"
+  },
+  {
+   "kind": "crypto",
+   "symbol": "BTC/USDT",
+   "timeframe": "15m",
+   "display": "Bitcoin (scalp)"
+  },
+  {
+   "kind": "crypto",
+   "symbol": "ETH/USDT",
+   "timeframe": "15m",
+   "display": "Ethereum (scalp)"
+  },
+  {
+   "kind": "crypto",
+   "symbol": "BTC/USDT",
+   "timeframe": "4h",
+   "display": "Bitcoin (mean-rev)"
+  },
+  {
+   "kind": "crypto",
+   "symbol": "ETH/USDT",
+   "timeframe": "4h",
+   "display": "Ethereum (mean-rev)"
+  },
+  {
+   "kind": "forex",
+   "symbol": "EURUSD=X",
+   "timeframe": "1h",
+   "display": "EUR/USD"
+  },
+  {
+   "kind": "forex",
+   "symbol": "GBPUSD=X",
+   "timeframe": "1h",
+   "display": "GBP/USD"
+  }
+ ]
+}

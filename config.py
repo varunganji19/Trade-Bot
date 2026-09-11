@@ -300,6 +300,9 @@ DEFAULT_WATCHLIST: list[MarketSpec] = [
     # forex 1h
     MarketSpec("forex", "EURUSD=X", "1h", "EUR/USD"),
     MarketSpec("forex", "GBPUSD=X", "1h", "GBP/USD"),
+    # USD/INR: rupee exposure for NSE positions (SSRN 4753359 SARIMA model;
+    # SSRN 5155597 macro factors — we use only the pair, not the full model)
+    MarketSpec("forex", "USDINR=X", "1h", "USD/INR"),
 ]
 
 # INDIA-mode universe: NSE cash equities + the Nifty 50 index. One active

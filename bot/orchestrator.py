@@ -84,10 +84,12 @@ class Orchestrator:
         weights = dict(REGIME_WEIGHTS.get(regime, REGIME_WEIGHTS["ranging"]))
 
         # Only run strategies suited to this timeframe (scalper on 5m/15m, etc.)
+        # AND explicitly enabled — the kill-switch is strat.enabled, NOT absence
+        # from REGIME_WEIGHTS (that dict is voting weights only, not a gate).
         tf = spec.timeframe
         raw_signals: dict[str, Signal] = {}
         for name, strat in self.strategies.items():
-            if tf not in strat.preferred_timeframes:
+            if tf not in strat.preferred_timeframes or not strat.enabled:
                 continue
             raw_signals[name] = strat.evaluate(df, i)
 

@@ -62,6 +62,7 @@ from .base import BaseStrategy, Signal
 
 class FXRegimeMeanRev(BaseStrategy):
     name = "fx_regime_meanrev"
+    enabled = False  # disabled: 1h round-trip cost (~0.06%) eats the snapback edge; see BACKTESTS.md C2
     # 1h: matches the paper's intraday framing and the bot's forex books
     # (EURUSD=X / GBPUSD=X trade 1h specs).
     preferred_timeframes = ("1h",)

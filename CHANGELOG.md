@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.4.1] 2026-09-13 — UI pass + HFT latency minimization
+
+- **Layout**: the Strategy Lab is two-column — equity chart LEFT, the
+  stock picker RIGHT; scrolling down puts the trade history on the right
+  and a new "how much each strategy made" P&L bar card on the left (best
+  on top, single-strategy runs show their row). Single column under 980px.
+- **Engine start/stop moved into the nav bar** — reachable from every tab
+  (same button ids, so all existing logic is unchanged); the Overview card
+  keeps the interval selector and pause button.
+- **Theme**: the grayish dark palette is gone — dark is now TRUE black
+  (one dark theme; a stored "black" preference maps to it).
+- **HFT latency package** (it's paper — poll as fast as the exchange
+  allows): default poll 20s -> **2s** (API floor 5s -> 1s), data-cache TTL
+  override 2s (was 30s on 1m), 0.25s loop wake, and a new-bar gate so the
+  same closed candle is never re-decided (applies per market AND the
+  TRI-ETH monitor; the standard book keeps its behavior). End-to-end:
+  ~1-3s from bar close to a paper fill. Measured and documented in
+  HFT.md's latency budget table.
+- Candlestick charts: possible (TradingView lightweight-charts or Chart.js
+  financial plugin over the already-fetched OHLCV) — noted, not implemented.
+- 188 -> 191 tests (latency profile, new-bar gate, monitor gate).
+
 ## [1.4.0] 2026-09-13 — the Strategy Lab (pick a stock, apply strategies, backtest)
 
 A new dashboard tab serving BOTH books (standard forex+crypto+NSE and the

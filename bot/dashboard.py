@@ -170,6 +170,13 @@ class EngineIn(BaseModel):
     interval: int = Field(default=60, ge=5, le=3600)
 
 
+class HftEngineIn(BaseModel):
+    """The HFT book's interval floor is 1s (paper trading: the whole point is
+    minimal bar-close -> decision -> fill latency). The standard engine keeps
+    its ge=5 floor."""
+    interval: int = Field(default=2, ge=1, le=3600)
+
+
 class WatchlistIn(BaseModel):
     kind: str
     symbol: str = Field(min_length=1, max_length=24)
@@ -358,7 +365,7 @@ def _spawn_hft_engine(interval: int) -> dict:
             while _t.monotonic() < deadline:
                 if _get_hft_engine() is not eng_ref:
                     return
-                _t.sleep(min(1.0, max(0.0, deadline - _t.monotonic())))
+                _t.sleep(min(0.25, max(0.0, deadline - _t.monotonic())))
             if _get_hft_engine() is not eng_ref:
                 break
 
@@ -1021,7 +1028,7 @@ def _auto_resume_hft_engine():
         interval = int(state.get("interval", CONFIG.hft.live_interval_seconds))
     except (OSError, ValueError, TypeError, OverflowError):
         return
-    interval = max(5, min(3600, interval))
+    interval = max(1, min(3600, interval))
     result = _spawn_hft_engine(interval)
     if result["status"] == "started":
         _HFT_AUTO_RESUMED_AT_BOOT = True
@@ -1109,7 +1116,7 @@ def api_hft_decisions(limit: int = Query(default=50, ge=1, le=200)):
 
 
 @app.post("/api/hft/engine/start")
-def api_hft_engine_start(body: EngineIn):
+def api_hft_engine_start(body: HftEngineIn):
     if not CONFIG.hft.enabled:
         raise HTTPException(409, "HFT book disabled via HFT_ENABLED=0")
     existing = _get_hft_engine()
@@ -1420,11 +1427,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <title>Algo Trading Bot — Dashboard</title>
 <script>
 /* theme boot — runs before first paint so a saved theme never flashes.
-   light (white-blue/green) is the default; first-time visitors follow the
-   OS preference. values: light · dark (grayish) · black (AMOLED). */
+   light is the default; first-time visitors follow the OS preference.
+   values: light · dark (TRUE black — the old grayish dark was folded into
+   it; a stored 'black' maps to 'dark'). */
 (function(){var t='light';
 try{t=localStorage.getItem('algo-theme')||t;
-if(t!=='light'&&t!=='dark'&&t!=='black')
+if(t==='black')t='dark';
+if(t!=='light'&&t!=='dark')
   t=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
 }catch(e){t='light';}
 document.documentElement.setAttribute('data-theme',t);})();
@@ -1434,7 +1443,7 @@ document.documentElement.setAttribute('data-theme',t);})();
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 
 /* ============================================================= themes
-   three full palettes, swapped by [data-theme] on <html> (set before
+   two full palettes (light + true-black dark), swapped by [data-theme] on <html> (set before
    first paint by the boot script in <head>):
      light (default) — white-blue/green: blue = interactive chrome
        (tabs, buttons, focus), green = money-in/success/engine, red =
@@ -1492,40 +1501,6 @@ document.documentElement.setAttribute('data-theme',t);})();
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --color-background:#0F1218; --color-foreground:#E8ECF3;
-  --color-card:#161A22; --color-card-foreground:#E8ECF3;
-  --color-muted:#1D222C; --color-muted-foreground:#98A2B3;
-  --color-border:#2A3140;
-  --color-primary:#2563EB; --color-on-primary:#FFFFFF; --color-primary-hover:#3B82F6;
-  --color-accent:#22C55E; --color-on-accent:#052E16; --color-accent-hover:#4ADE80;
-  --color-secondary:#1D4ED8; --color-on-secondary:#FFFFFF;
-  --color-destructive:#DC2626; --color-on-destructive:#FFFFFF;
-  --color-destructive-hover:#EF4444;
-  --color-pos:#4ADE80; --color-neg:#F87171; --color-blue:#60A5FA;
-  --color-ring:#60A5FA;
-  --ring-soft:rgba(96,165,250,.22);
-  --pos-soft:rgba(74,222,128,.13); --neg-soft:rgba(248,113,113,.13);
-  --blue-soft:rgba(96,165,250,.13); --hold-soft:rgba(152,162,179,.14);
-  --amber:#F59E0B; --amber-soft:rgba(245,158,11,.16);
-  --row-hover:rgba(148,163,184,.07);
-  --hover-border:rgba(96,165,250,.45);
-  --header-bg:rgba(19,23,31,.86);
-  --overlay:rgba(2,6,16,.62);
-  --glow-pos:rgba(34,197,94,.45);
-  --shimmer:rgba(152,162,179,.10);
-  --shadow-sm:0 1px 2px rgba(0,0,0,.35);
-  --shadow-md:0 1px 2px rgba(0,0,0,.35),0 4px 16px -4px rgba(0,0,0,.45);
-  --shadow-lg:0 12px 28px -8px rgba(0,0,0,.55);
-  --shadow-xl:0 24px 56px -16px rgba(0,0,0,.65);
-  --hero-grad:radial-gradient(90% 140% at 88% -20%,rgba(37,99,235,.16),transparent 55%),
-              radial-gradient(90% 140% at 8% -30%,rgba(34,197,94,.12),transparent 52%);
-  --grad-pos:linear-gradient(90deg,#16A34A,#4ADE80);
-  --grad-neg:linear-gradient(90deg,#DC2626,#F87171);
-  --chart-line:#4ADE80; --chart-fill:rgba(74,222,128,.09); --chart-grid:rgba(148,163,184,.13);
-  --scrollbar:rgba(152,162,179,.30); --scrollbar-hover:rgba(152,162,179,.50);
-}
-:root[data-theme="black"] {
-  color-scheme: dark;
   --color-background:#000000; --color-foreground:#F4F5F7;
   --color-card:#0B0B0D; --color-card-foreground:#F4F5F7;
   --color-muted:#151518; --color-muted-foreground:#A1A6B0;
@@ -1558,6 +1533,11 @@ document.documentElement.setAttribute('data-theme',t);})();
   --chart-line:#4ADE80; --chart-fill:rgba(74,222,128,.08); --chart-grid:rgba(255,255,255,.09);
   --scrollbar:rgba(161,166,176,.28); --scrollbar-hover:rgba(161,166,176,.48);
 }
+/* Strategy Lab: chart LEFT, picker RIGHT; scrolled down: strategy P&L LEFT,
+   trade history RIGHT (single column under 980px) */
+.lab-grid { display:grid; grid-template-columns:1.15fr 1fr; gap:14px; align-items:start; }
+.lab-col { display:grid; gap:14px; min-width:0; }
+@media (max-width:980px){ .lab-grid { grid-template-columns:1fr; } }
 * { box-sizing:border-box; margin:0; padding:0; }
 html { scroll-behavior:smooth; scroll-padding-top:118px; scrollbar-gutter:stable; }
 body { background:var(--color-background); color:var(--color-foreground);
@@ -2017,6 +1997,15 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
     </div>
   </div>
   <div class="topbar-right">
+    <!-- engine start/stop live IN THE NAV (moved out of the Overview card):
+         the ids are the same ones the JS has always wired, so the enable/
+         disable logic in refreshStats keeps working unchanged -->
+    <button class="btn" id="btnStart" style="padding:7px 12px" title="Start the standard paper engine">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+      Start</button>
+    <button class="btn btn-secondary" id="btnStop" disabled style="padding:7px 12px" title="Stop the standard paper engine">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+      Stop</button>
     <div class="engine-pill" role="status" title="">
       <span class="dot" id="engineDot"></span>
       <span id="enginePillText">engine: checking…</span>
@@ -2025,11 +2014,8 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       <button type="button" data-theme="light" aria-pressed="false" title="Light" aria-label="Light theme">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
       </button>
-      <button type="button" data-theme="dark" aria-pressed="false" title="Dark (gray)" aria-label="Dark theme">
+      <button type="button" data-theme="dark" aria-pressed="false" title="Dark (true black)" aria-label="Dark theme">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      </button>
-      <button type="button" data-theme="black" aria-pressed="false" title="Black (AMOLED)" aria-label="AMOLED black theme">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
       </button>
     </div>
   </div>
@@ -2100,15 +2086,10 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
             <option value="900">15 min</option>
           </select>
         </div>
-        <button class="btn" id="btnStart">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
-          Start</button>
-        <button class="btn btn-secondary" id="btnStop" disabled>
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
-          Stop</button>
         <button class="btn btn-warn" id="btnPause" title="Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
           <span id="pauseLabel">Pause trading</span></button>
+        <span class="hint">start/stop live in the top bar — reachable from every tab</span>
       </div>
       <div class="engine-state" style="margin-top:12px">
         <span class="st" id="engineStateText">stopped</span>
@@ -2291,12 +2272,47 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 
 <!-- ================================================================ LAB -->
 <section class="view" id="view-lab">
-  <div class="card">
+  <div class="hint" id="labIntro" style="margin:-6px 0 10px">Pick any stock or pair, apply every strategy registered for it, and backtest on real data with full costs. <b>Standard</b> = the forex+crypto+NSE book's strategies and kind-aware cost stacks; <b>HFT</b> = the high-frequency book's 1m strategies and fee tiers. Pure backtest — your open paper positions are never touched. Chart on the left, controls on the right; scroll down for the trade history (right) and the per-strategy P&amp;L (left).</div>
+  <div class="lab-grid">
+    <div class="lab-col">
+<div class="card" id="labResultCard" hidden>
+    <div class="card-head">
+      <h2 id="labResultTitle">Result</h2>
+      <span class="hint" id="labResultMeta"></span>
+    </div>
+    <div class="stat-grid" id="labStats"></div>
+    <div class="card-head" style="margin-top:8px"><h2>Equity curve</h2><span class="hint" id="labCurveHint"></span></div>
+    <div class="chart-wrap"><canvas id="labEquityChart" aria-label="Lab equity curve" role="img"></canvas></div>
+    <div class="card-head" style="margin-top:8px"><h2>Exit reasons</h2></div>
+    <div id="labExits" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  </div>
+    <div class="card" id="labPnlCard" hidden>
+    <div class="card-head">
+      <h2>How much each strategy made</h2>
+      <span class="hint">total P&amp;L, full costs — best on top</span>
+    </div>
+    <div id="labStratBars"></div>
+  </div>
+<div class="card" id="labCompareCard" hidden>
+    <div class="card-head">
+      <h2>Strategy comparison</h2>
+      <span class="hint">every registered strategy on the same frame — best total P&amp;L drives the charts above</span>
+    </div>
+    <div class="tbl-wrap">
+      <table id="labCompareTable"><thead><tr>
+        <th>Strategy</th><th class="num">Return</th><th class="num">P&amp;L</th>
+        <th class="num">Trades</th><th class="num">Win rate</th><th class="num">PF</th>
+        <th class="num">Max DD</th><th class="num">Sharpe</th><th class="num">Fees</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+      </div>
+    <div class="lab-col">
+<div class="card">
     <div class="card-head">
       <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V2"/><line x1="8.5" y1="2" x2="15.5" y2="2"/><line x1="7" y1="16" x2="17" y2="16"/></svg>Strategy Lab <span class="badge">pick · apply · backtest</span></h2>
       <span class="hint">any stock/pair, both books</span>
     </div>
-    <p class="hint" style="margin:0 0 12px">Pick any stock or pair, apply every strategy registered for it, and backtest on real data with full costs. <b>Standard</b> = the forex+crypto+NSE book's strategies and kind-aware cost stacks; <b>HFT</b> = the high-frequency book's 1m strategies and fee tiers. Pure backtest — your open paper positions are never touched.</p>
     <div style="display:grid;gap:12px" id="labForm">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
         <label class="fld">Book
@@ -2339,31 +2355,9 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
     </div>
     <div class="empty" id="labStatus" hidden></div>
   </div>
-  <div class="card" id="labResultCard" hidden>
-    <div class="card-head">
-      <h2 id="labResultTitle">Result</h2>
-      <span class="hint" id="labResultMeta"></span>
-    </div>
-    <div class="stat-grid" id="labStats"></div>
-    <div class="card-head" style="margin-top:8px"><h2>Equity curve</h2><span class="hint" id="labCurveHint"></span></div>
-    <div class="chart-wrap"><canvas id="labEquityChart" aria-label="Lab equity curve" role="img"></canvas></div>
-    <div class="card-head" style="margin-top:8px"><h2>Exit reasons</h2></div>
-    <div id="labExits" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      </div>
   </div>
-  <div class="card" id="labCompareCard" hidden>
-    <div class="card-head">
-      <h2>Strategy comparison</h2>
-      <span class="hint">every registered strategy on the same frame — best total P&amp;L drives the charts above</span>
-    </div>
-    <div class="tbl-wrap">
-      <table id="labCompareTable"><thead><tr>
-        <th>Strategy</th><th class="num">Return</th><th class="num">P&amp;L</th>
-        <th class="num">Trades</th><th class="num">Win rate</th><th class="num">PF</th>
-        <th class="num">Max DD</th><th class="num">Sharpe</th><th class="num">Fees</th>
-      </tr></thead><tbody></tbody></table>
-    </div>
-  </div>
-  <div class="card" id="labTradesCard" hidden>
+<div class="card" id="labTradesCard" hidden>
     <div class="card-head"><h2>Trades</h2><span class="hint" id="labTradesHint"></span></div>
     <div class="tbl-wrap">
       <table id="labTradeTable"><thead><tr>
@@ -2372,6 +2366,8 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       </tr></thead><tbody></tbody></table>
     </div>
   </div>
+</section>
+
 </section>
 
 <!-- ============================================================ EVIDENCE -->
@@ -2697,7 +2693,7 @@ function refreshVisible(name) {
    section only wires the switcher, mirrors state onto the buttons,
    updates the mobile browser chrome color and recolors the chart. */
 const THEME_KEY = 'algo-theme';
-const THEMES = ['light', 'dark', 'black'];
+const THEMES = ['light', 'dark'];   // legacy stored 'black' maps to dark at boot
 function applyChartTheme() {
   for (const chart of [equityChart, hftChart, labChart]) {
     if (!chart) continue;
@@ -3251,6 +3247,21 @@ function labRenderResult(r) {
   /* comparison table (the "apply strategies" plural view) */
   const cmp = r.comparison;
   $('#labCompareCard').hidden = !cmp;
+  /* how much each strategy made — bars under the chart (left column);
+     single-strategy runs show the one row, comparisons show all, best on top */
+  const pnlRows = (cmp && cmp.length ? cmp.slice() : [st]).map(c => ({
+    name: c.strategy, pnl: c.total_pnl, trades: c.trades }));
+  $('#labPnlCard').hidden = false;
+  const maxAbs = Math.max(...pnlRows.map(p => Math.abs(p.pnl || 0)), 1);
+  $('#labStratBars').innerHTML = pnlRows.sort((a, b) => b.pnl - a.pnl).map(p => {
+    const pos = (p.pnl || 0) >= 0;
+    const w = Math.max(2, Math.abs(p.pnl || 0) / maxAbs * 100);
+    return '<div class="sbar" title="' + esc(p.name) + ': ' + p.trades + ' trades">' +
+      '<span class="name">' + esc(p.name) + '</span>' +
+      '<span class="track"><span class="fill ' + (pos ? 'pos' : 'neg') +
+      '" style="width:' + w.toFixed(1) + '%"></span></span>' +
+      '<span class="val ' + (pos ? 'pos' : 'neg') + '">' + fmtPnl(p.pnl) + '</span></div>';
+  }).join('');
   if (cmp) {
     const sorted = [...cmp].sort((a, b) => b.total_pnl - a.total_pnl);
     $('#labCompareTable tbody').innerHTML = sorted.map(c =>

@@ -410,7 +410,12 @@ class HFTConfig:
     HFT trade history is one filtered query)."""
     enabled: bool = _env_int("HFT_ENABLED", 1) == 1
     paper_capital: float = _env_float("HFT_PAPER_CAPITAL", 10_000.0)
-    live_interval_seconds: int = _env_int("HFT_INTERVAL", 20)  # 1m bars close every 60s
+    # 2s default poll: it's PAPER — minimize bar-close -> decision -> fill
+    # latency. The engine pairs this with a 2s data-TTL override and a
+    # new-bar gate (duplicate candles are skipped, not re-decided), so the
+    # end-to-end budget is ~1-3s from bar close to a paper fill. Set
+    # HFT_INTERVAL to raise it; the API floor is 1s.
+    live_interval_seconds: int = _env_int("HFT_INTERVAL", 2)
     lookback_bars: int = 400
     risk_per_trade: float = 0.005          # 0.5% per trade — faster book, tighter risk
     daily_loss_kill_switch: float = 0.02   # -2% day halts new HFT entries

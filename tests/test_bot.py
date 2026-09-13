@@ -5429,6 +5429,108 @@ def test_orchestrator_flat_votes_do_not_dilute():
     assert d.limit_price == 99.0        # the maker entry rides through ensemble mode
 
 
+def test_hft_low_latency_profile():
+    """The HFT book's latency package: 2s poll default, 2s data TTL, and the
+    standard book untouched (timeframe-scaled TTL, 60s default)."""
+    import bot.engine as engine_mod
+    from bot.hft import build_hft_config
+    from bot.journal import Journal
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        CONFIG.db_path = os.path.join(td, "t.db")
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            hft = engine_mod.TradingEngine(cfg=build_hft_config(), mode="hft",
+                                           journal=Journal(), quiet=True)
+            assert hft.market_data._ttl_override == 2.0
+            assert hft.cfg.live_interval_seconds == 2
+            std = engine_mod.TradingEngine(mode="paper", quiet=True)
+            assert std.market_data._ttl_override is None
+            assert std.cfg.live_interval_seconds >= 5   # the standard book keeps its floor
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+
+
+def test_hft_new_bar_gate():
+    """With a 2s poll on 1m bars, most cycles see the SAME closed bar: the
+    HFT book must not re-decide (duplicate HOLD rows) — the standard book
+    keeps its evaluate-every-cycle behavior."""
+    import bot.engine as engine_mod
+    from bot.hft import build_hft_config
+    from bot.journal import Journal
+    df = add_all_indicators(make_df(100 * np.cumprod(
+        1 + np.random.default_rng(21).normal(0, 0.002, 300)), freq="1min"))
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        CONFIG.db_path = os.path.join(td, "t.db")
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            j = Journal()
+            eng = engine_mod.TradingEngine(cfg=build_hft_config(), mode="hft",
+                                           journal=j, quiet=True)
+            eng.market_data = type("M", (), {"latest": lambda self, spec, limit=None: df.copy()})()
+            eng.run_cycle()
+            n_after_first = len(j.recent_decisions(limit=1000, mode="hft"))
+            eng.run_cycle()
+            n_after_second = len(j.recent_decisions(limit=1000, mode="hft"))
+            assert n_after_second == n_after_first, \
+                "same closed bar must not be re-decided (duplicate rows)"
+            # a NEW closed bar is processed
+            df2 = df.copy()
+            extra = df2.iloc[[-1]].copy()
+            extra.index = [df2.index[-1] + pd.Timedelta("1min")]
+            eng.market_data = type("M", (), {"latest": lambda self, spec, limit=None:
+                                             pd.concat([df2, extra])})()
+            eng.run_cycle()
+            assert len(j.recent_decisions(limit=1000, mode="hft")) > n_after_second
+            # the standard book still evaluates every cycle
+            std = engine_mod.TradingEngine(mode="paper", quiet=True)
+            std.market_data = type("M", (), {"latest": lambda self, spec, limit=None: df.copy()})()
+            std.run_cycle()
+            n1 = len(j.recent_decisions(limit=1000, mode="paper"))
+            std.run_cycle()
+            n2 = len(j.recent_decisions(limit=1000, mode="paper"))
+            assert n2 > n1, "standard book re-evaluates (existing behavior)"
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+
+
+def test_hft_triangular_scan_gate():
+    """The TRI-ETH monitor obeys the same new-bar gate: an unchanged
+    synchronized triple is NOT re-observed (no duplicate decision rows)."""
+    import bot.engine as engine_mod
+    from bot.hft import build_hft_config
+    from bot.journal import Journal
+    idx = pd.date_range("2024-01-01", periods=200, freq="1min", tz="UTC")
+    def leg(price):
+        return pd.DataFrame({"open": price, "high": price * 1.001, "low": price * 0.999,
+                             "close": price, "volume": 10.0}, index=idx)
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        CONFIG.db_path = os.path.join(td, "t.db")
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            j = Journal()
+            eng = engine_mod.TradingEngine(cfg=build_hft_config(), mode="hft",
+                                           journal=j, quiet=True)
+            histories = {("ETH/USDT", "1m"): leg(3000.0), ("ETH/BTC", "1m"): leg(0.05),
+                         ("BTC/USDT", "1m"): leg(60000.0)}
+            eng._triangular_scan(histories, {"holds": 0, "errors": []})
+            n1 = len(j.recent_decisions(limit=10, mode="hft"))
+            assert n1 == 1, "one synchronized observation -> one monitor row"
+            eng._triangular_scan(histories, {"holds": 0, "errors": []})
+            assert len(j.recent_decisions(limit=10, mode="hft")) == n1, \
+                "unchanged triple must not be re-observed"
+            # a new bar on every leg re-arms the monitor
+            idx2 = idx.append(pd.DatetimeIndex([idx[-1] + pd.Timedelta("1min")]))
+            histories2 = {k: pd.concat([v, leg(v["close"].iloc[-1]).iloc[[-1]].set_index(idx2[[-1]])])
+                          for k, v in histories.items()}
+            eng._triangular_scan(histories2, {"holds": 0, "errors": []})
+            assert len(j.recent_decisions(limit=10, mode="hft")) == n1 + 1
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+
+
 if __name__ == "__main__":
     fails = 0
     fns = [(n, f) for n, f in sorted(globals().items())

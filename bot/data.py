@@ -528,24 +528,32 @@ class MarketData:
 
     Always drops the still-forming candle: the engine must only ever evaluate
     closed bars (backtest/live parity).
+
+    `ttl_seconds` overrides the default timeframe-scaled TTL (max(tf/2, 15s)):
+    the HFT book passes a small value (2s) — at 1m cadence the default 30s
+    cache would be the dominant latency between a bar closing and the bot
+    acting on it, and paper trading lets us poll as fast as we like.
     """
 
-    def __init__(self):
+    def __init__(self, ttl_seconds: float | None = None):
         self._cache: dict = {}
+        self._ttl_override = ttl_seconds
 
     def latest(self, spec: MarketSpec, limit: int | None = None) -> pd.DataFrame:
         limit = limit or CONFIG.lookback_bars
         # TTL scales with the timeframe: a 1d-bar fetch needs far fewer
         # refreshes than a 5m one. (The old ttl_by_tf=False -> 30s branch was
-        # unreachable — no constructor ever passed it.)
-        ttl = TIMEFRAME_SECONDS[spec.timeframe]
+        # unreachable — no constructor ever passed it.) An explicit
+        # ttl_seconds beats the scale (the HFT book's low-latency mode).
+        ttl = (self._ttl_override if self._ttl_override is not None
+               else max(TIMEFRAME_SECONDS[spec.timeframe] * 0.5, 15))
         # limit is part of the key: the dashboard's marks fetch with limit=2,
         # and caching that 2-bar frame under the engine's key made the next
         # cycle skip the market entirely (len(df) < 60 -> silent no-trade)
         key = (spec.kind, spec.symbol, spec.timeframe, limit)
         now = time.time()
         hit = self._cache.get(key)
-        if hit and now - hit[0] < max(ttl * 0.5, 15):
+        if hit and now - hit[0] < ttl:
             return hit[1]
         if spec.kind == "crypto":
             df = fetch_crypto_ohlcv(spec.symbol, spec.timeframe, limit)

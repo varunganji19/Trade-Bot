@@ -137,6 +137,25 @@ Env: `HFT_PAPER_CAPITAL` (default 10000), `HFT_INTERVAL` (20s), `HFT_FEE_TIER`
 (perp|spot), `HFT_PENETRATION_BPS` (0), `HFT_ENABLED` (1), `ALGO_NO_AUTO_RESUME`
 (also keeps the HFT engine from auto-resuming on dashboard boot).
 
+## The latency budget (paper = poll as fast as the exchange allows)
+
+The book is PAPER, so every artificial wait is pure loss — the loop is tuned
+for minimal bar-close -> fill latency:
+
+| Stage | Standard book | HFT book |
+|---|---|---|
+| Poll interval | 60 s default | **2 s** (`HFT_INTERVAL`, floor 1 s via the API) |
+| Data cache TTL | max(tf/2, 15 s) = 30 s on 1m | **2 s override** (`MarketData(ttl_seconds=2.0)`) |
+| Wake granularity | 1 s sleep slices | **0.25 s** |
+| Duplicate candles | re-evaluated every cycle | **skipped** (new-bar gate: one decision per closed bar, per market AND the TRI-ETH monitor) |
+| Fill | decision price + slippage in the same cycle | same |
+
+End-to-end: a 1m bar closes -> the engine wakes within <=2 s -> fetches a
+fresh frame (~200-500 ms) -> decides -> fills in that cycle. **~1-3 s from
+bar close to a paper fill.** Backtests keep the conservative next-open fill
+for market orders (maker fills are sub-bar by construction) — the gap
+between the two is exactly the latency cost live trading pays.
+
 ## The Strategy Lab (pick a stock -> apply strategies -> backtest)
 
 The dashboard's **Lab** tab serves BOTH books: toggle Standard / HFT, pick a

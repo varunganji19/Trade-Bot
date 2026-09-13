@@ -42,6 +42,17 @@ class TradingEngine:
     FETCH_FAIL_WARN = 3
     FETCH_FAIL_CLOSE = 10
 
+    def _build_market_data(self) -> MarketData:
+        """Latency profile per book. The HFT book polls 1m bars every ~2s, so
+        the default 30s TTL cache (1m) would dominate the decision latency —
+        it runs with a 2s TTL instead. The standard book keeps the default.
+        Paper trading lets us poll as fast as the exchange allows; the REAL
+        latency budget: bar close -> <=interval wake -> fresh fetch -> decide
+        -> fill in the same cycle (~1-3s end to end for the HFT book)."""
+        if self.mode == "hft":
+            return MarketData(ttl_seconds=2.0)
+        return MarketData()
+
     def __init__(self, cfg=None, mode: str = "paper", quiet: bool = False,
                  journal=None):
         self.cfg = cfg or CONFIG
@@ -64,7 +75,7 @@ class TradingEngine:
         self.sentiment = SentimentOverlay(self.llm if self.llm.enabled else None)
         self.orchestrator = Orchestrator(llm_client=self.llm, sentiment_overlay=self.sentiment,
                                           cfg=self.cfg, kronos_engine=None)
-        self.market_data = MarketData()
+        self.market_data = self._build_market_data()
         self.cycles = 0
         # per-spec health state (see _note_fetch_fail / _refresh_health_note):
         # a held position whose feed keeps failing is UNGUARDED — visible and
@@ -79,6 +90,10 @@ class TradingEngine:
         # {decision, qty, limit, side, waited, decision_bar_ts}. Un-journaled
         # by design — a pending order that dies with the process just expires.
         self._pending: dict[tuple[str, str], dict] = {}
+        # last PROCESSED closed-bar timestamp per (symbol, timeframe) — the
+        # HFT book's low-latency gate (see _build_market_data / _run_cycle)
+        self._last_bar_ts: dict[tuple[str, str], str] = {}
+        self._last_tri_ts: tuple | None = None   # tri monitor: same gate
         self.kronos = None
         self._kronos_last_bar: dict[tuple[str, str], int] = {}
         self._kronos_promoted = False
@@ -204,6 +219,16 @@ class TradingEngine:
                 self._fetch_fails[key] = 0
                 self._last_good_price[key] = float(df["close"].iloc[-1])
                 histories[key] = df
+                # HFT low-latency gate: with a 2s poll against 1m bars, most
+                # cycles see the SAME closed bar. Processing it again would
+                # journal duplicate HOLD decisions and re-run management for
+                # nothing — act only when a NEW closed bar prints. (The
+                # standard book keeps its evaluate-every-cycle behavior.)
+                bar_ts = str(df.index[-1])
+                if self.mode == "hft":
+                    if self._last_bar_ts.get(key) == bar_ts:
+                        continue
+                    self._last_bar_ts[key] = bar_ts
                 self._process_market(spec, summary, df)
 
             # triangular-arb monitor (HFT book only): runs before the equity
@@ -422,6 +447,13 @@ class TradingEngine:
             return
         d_last = float(d["d"].iloc[-1])
         ts_last = str(d.index[-1])
+        # same new-bar discipline as the per-market gate: with a 2s poll the
+        # synchronized triple is unchanged most cycles — re-observing would
+        # journal duplicate monitor rows without new information
+        gate = tuple(str(legs[s_].index[-1]) for s_ in legs)
+        if gate == self._last_tri_ts:
+            return
+        self._last_tri_ts = gate
         cost = tri_cost_rate(self.cfg.costs)
         threshold = cost + self.cfg.hft.tri_min_edge_bps / 1e4
 

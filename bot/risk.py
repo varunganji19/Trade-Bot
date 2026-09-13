@@ -64,7 +64,6 @@ class RiskManager:
         # drawdown throttle state (see note_equity): peak equity, current DD,
         # and the risk multiplier it implies (1.0 -> 0.5 -> 0.25)
         self.peak_equity: float = 0.0
-        self.current_drawdown: float = 0.0
         self.dd_risk_scale: float = 1.0
 
     def set_allocation(self, weights: dict[str, float]):
@@ -134,7 +133,6 @@ class RiskManager:
         if equity is not None and equity > 0:
             self.peak_equity = max(self.peak_equity, equity)
             dd = 1.0 - equity / self.peak_equity
-            self.current_drawdown = dd
             if dd >= self.cfg.risk.drawdown_quarter_risk_at:
                 self.dd_risk_scale = 0.25
             elif dd >= self.cfg.risk.drawdown_half_risk_at:

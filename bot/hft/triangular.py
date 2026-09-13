@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from config import CostConfig
+from config import TRIANGULAR_LEGS, CostConfig
 
 
 def tri_cost_rate(costs: CostConfig, kind: str = "crypto") -> float:
@@ -50,7 +50,7 @@ def tri_backtest(dfs: dict[str, pd.DataFrame], costs: CostConfig,
     """Replay the arb over aligned 1m history. A round trip fires when
     |d| clears the 3-leg cost + buffer; fills happen at the NEXT bar's
     synchronized open (no same-bar fills). Returns trades + a summary."""
-    legs = ["ETH/USDT", "ETH/BTC", "BTC/USDT"]
+    legs = list(TRIANGULAR_LEGS)
     frames = [dfs.get(sym) for sym in legs]
     if any(f is None or f.empty for f in frames):
         return {"trades": [], "error": "missing leg data"}

@@ -262,9 +262,8 @@ def _spawn_engine(interval: int) -> dict:
 
     def _loop(eng_ref, interval):
         global _engine, _last_engine_error
-        import time as _t
         while _get_engine() is eng_ref:
-            cycle_t0 = _t.monotonic()
+            cycle_t0 = time.monotonic()
             try:
                 eng_ref.run_cycle()
             except Exception as exc:
@@ -283,12 +282,12 @@ def _spawn_engine(interval: int) -> dict:
             # Kronos cycle at interval=60 used to land one decision burst every
             # ~2.5 min), and wake the SECOND the identity check flips so a stop
             # is near-instant instead of stranding the UI for up to interval-300s
-            remaining = max(0.0, interval - (_t.monotonic() - cycle_t0))
-            deadline = _t.monotonic() + remaining
-            while _t.monotonic() < deadline:
+            remaining = max(0.0, interval - (time.monotonic() - cycle_t0))
+            deadline = time.monotonic() + remaining
+            while time.monotonic() < deadline:
                 if _get_engine() is not eng_ref:
                     return
-                _t.sleep(min(1.0, max(0.0, deadline - _t.monotonic())))
+                time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
             if _get_engine() is not eng_ref:
                 break
 
@@ -346,9 +345,8 @@ def _spawn_hft_engine(interval: int) -> dict:
 
     def _hft_loop(eng_ref, interval):
         global _hft_engine, _last_hft_error
-        import time as _t
         while _get_hft_engine() is eng_ref:
-            cycle_t0 = _t.monotonic()
+            cycle_t0 = time.monotonic()
             try:
                 eng_ref.run_cycle()
             except Exception as exc:
@@ -360,12 +358,12 @@ def _spawn_hft_engine(interval: int) -> dict:
                     if _hft_engine is eng_ref:
                         _hft_engine = None
                 break
-            remaining = max(0.0, interval - (_t.monotonic() - cycle_t0))
-            deadline = _t.monotonic() + remaining
-            while _t.monotonic() < deadline:
+            remaining = max(0.0, interval - (time.monotonic() - cycle_t0))
+            deadline = time.monotonic() + remaining
+            while time.monotonic() < deadline:
                 if _get_hft_engine() is not eng_ref:
                     return
-                _t.sleep(min(0.25, max(0.0, deadline - _t.monotonic())))
+                time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
             if _get_hft_engine() is not eng_ref:
                 break
 
@@ -992,7 +990,7 @@ def _auto_resume_engine():
         return
     if os.environ.get("ALGO_NO_AUTO_RESUME", "") not in ("", "0", "false"):
         print("[dashboard] auto-resume disabled via ALGO_NO_AUTO_RESUME — "
-              "start the engine from the UI when you want it trading")
+              "start the engine from the top bar when you want it trading")
         return
     try:
         with open(_engine_state_path()) as f:
@@ -1009,7 +1007,7 @@ def _auto_resume_engine():
     if result["status"] == "started":
         _AUTO_RESUMED_AT_BOOT = True
         print(f"[dashboard] engine auto-resumed (interval {interval}s) — stop it "
-              f"from the Overview tab, or set ALGO_NO_AUTO_RESUME=1 before boot")
+              f"from the top bar, or set ALGO_NO_AUTO_RESUME=1 before boot")
 
 
 def _auto_resume_hft_engine():
@@ -1048,7 +1046,7 @@ def api_engine_status():
         return {"running": True, "cycles": eng.cycles,
                 "llm": eng.llm.provider if eng.llm.enabled else "quant",
                 "positions": len(eng.broker.positions_snapshot()),
-                "interval": CONFIG.live_interval_seconds,
+                "interval": _engine_interval,
                 "alive": bool(th is not None and th.is_alive()),
                 "last_error": eng.last_error or _last_engine_error,
                 # degraded-but-alive conditions (e.g. a held position behind a dead
@@ -1208,9 +1206,9 @@ def api_lab_meta():
         "suggestions": lab.SUGGESTIONS,
         "timeframes": {b: {k: lab.timeframes_for(b, k) for k in kinds} for b in books},
         "strategies": {b: {tf: lab.strategies_for(b, tf) for tf in tfs_all} for b in books},
-        "days_default": {b: {k: {tf: lab.default_days(b, k, tf) for tf in tfs_all}
+        "days_default": {b: {k: {tf: lab.default_days(k, tf) for tf in tfs_all}
                              for k in kinds} for b in books},
-        "days_cap": {b: {k: {tf: lab.days_cap(b, k, tf) for tf in tfs_all}
+        "days_cap": {b: {k: {tf: lab.days_cap(k, tf) for tf in tfs_all}
                          for k in kinds} for b in books},
     }
 
@@ -1538,6 +1536,13 @@ document.documentElement.setAttribute('data-theme',t);})();
 .lab-grid { display:grid; grid-template-columns:1.15fr 1fr; gap:14px; align-items:start; }
 .lab-col { display:grid; gap:14px; min-width:0; }
 @media (max-width:980px){ .lab-grid { grid-template-columns:1fr; } }
+/* sized wrapper for the HFT/Lab equity canvases (maintainAspectRatio:false
+   needs an explicit height — without this rule they fell back to ~150px) */
+.chart-wrap { position:relative; height:260px; }
+/* small pill used by the HFT/Lab card headers */
+.badge { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px;
+         font-size:11px; font-family:var(--font-code, monospace); color:var(--color-muted-foreground);
+         border:1px solid var(--color-border); vertical-align:middle; }
 * { box-sizing:border-box; margin:0; padding:0; }
 html { scroll-behavior:smooth; scroll-padding-top:118px; scrollbar-gutter:stable; }
 body { background:var(--color-background); color:var(--color-foreground);
@@ -1578,7 +1583,7 @@ body { background:var(--color-background); color:var(--color-foreground);
 .dot.on { background:var(--color-pos); box-shadow:0 0 10px var(--glow-pos); }
 .dot.off { background:var(--color-neg); }
 
-/* theme switch — 3-state segmented control (light · dark · AMOLED black) */
+/* theme switch — 2-state segmented control (light · true-black dark) */
 .theme-switch { display:inline-flex; gap:2px; padding:3px;
                 border:1px solid var(--color-border); border-radius:999px;
                 background:var(--color-muted); }
@@ -2157,7 +2162,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       </tr></thead><tbody></tbody></table>
     </div>
     <div class="empty" id="tradeEmpty" hidden>No trades yet — start the engine.</div>
-    <p class="hint" id="tradeModeNote" style="margin-top:10px">Trades from previous market modes remain in the journal history; the bot only opens new positions in the active market.</p>
+    <p class="hint" style="margin-top:10px">Trades from previous market modes remain in the journal history; the bot only opens new positions in the active market.</p>
   </div>
 </section>
 
@@ -2169,10 +2174,10 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       <span class="hint" id="hftFeeHint"></span>
     </div>
     <p class="hint" style="margin:0 0 10px">A SECOND paper account trading 1-minute bars (crypto + forex) with its own capital, risk dials and fee tier — the standard book above is untouched. HFT strategies: <b>hft_market_maker</b> (Avellaneda–Stoikov-inspired maker quotes), <b>hft_exhaustion_fade</b> (volume-spike reversion, maker entry), <b>hft_micro_breakout</b> (2R micro-range breakout, taker) + the <b>TRI-ETH</b> triangular-arb monitor. Research + fee math: <code>HFT.md</code>.</p>
-    <div class="stat-grid" id="hftStats"></div>
+    <div class="stats-grid" id="hftStats"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px" id="hftEngineControls">
       <button class="btn primary" id="hftStartBtn">Start HFT engine</button>
-      <button class="btn danger" id="hftStopBtn" disabled>Stop</button>
+      <button class="btn btn-danger" id="hftStopBtn" disabled>Stop</button>
       <span class="engine-pill"><span class="dot" id="hftEngineDot"></span><span id="hftPillText">hft: checking…</span></span>
     </div>
     <p class="hint" id="hftEngineNote" style="margin:8px 0 0" hidden></p>
@@ -2272,7 +2277,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 
 <!-- ================================================================ LAB -->
 <section class="view" id="view-lab">
-  <div class="hint" id="labIntro" style="margin:-6px 0 10px">Pick any stock or pair, apply every strategy registered for it, and backtest on real data with full costs. <b>Standard</b> = the forex+crypto+NSE book's strategies and kind-aware cost stacks; <b>HFT</b> = the high-frequency book's 1m strategies and fee tiers. Pure backtest — your open paper positions are never touched. Chart on the left, controls on the right; scroll down for the trade history (right) and the per-strategy P&amp;L (left).</div>
+  <div class="hint" style="margin:-6px 0 10px">Pick any stock or pair, apply every strategy registered for it, and backtest on real data with full costs. <b>Standard</b> = the forex+crypto+NSE book's strategies and kind-aware cost stacks; <b>HFT</b> = the high-frequency book's 1m strategies and fee tiers. Pure backtest — your open paper positions are never touched. Chart on the left, controls on the right; scroll down for the trade history (right) and the per-strategy P&amp;L (left).</div>
   <div class="lab-grid">
     <div class="lab-col">
 <div class="card" id="labResultCard" hidden>
@@ -2280,7 +2285,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       <h2 id="labResultTitle">Result</h2>
       <span class="hint" id="labResultMeta"></span>
     </div>
-    <div class="stat-grid" id="labStats"></div>
+    <div class="stats-grid" id="labStats"></div>
     <div class="card-head" style="margin-top:8px"><h2>Equity curve</h2><span class="hint" id="labCurveHint"></span></div>
     <div class="chart-wrap"><canvas id="labEquityChart" aria-label="Lab equity curve" role="img"></canvas></div>
     <div class="card-head" style="margin-top:8px"><h2>Exit reasons</h2></div>
@@ -2368,12 +2373,11 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   </div>
 </section>
 
-</section>
 
 <!-- ============================================================ EVIDENCE -->
 <section class="view" id="view-evidence">
   <div class="stats-grid" id="evCards"></div>
-  <div class="hint" id="evHint" style="margin:-6px 0 10px">The honesty layer, rendered: every card and chart here is a GENERATED artifact (<code>make validate</code>, <code>python3 main.py shadow</code>, the fetch manifest) — never hand-edited. Empty cards mean the command hasn't been run on this machine yet.</div>
+  <div class="hint" style="margin:-6px 0 10px">The honesty layer, rendered: every card and chart here is a GENERATED artifact (<code>make validate</code>, <code>python3 main.py shadow</code>, the fetch manifest) — never hand-edited. Empty cards mean the command hasn't been run on this machine yet.</div>
   <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
     <div class="card chart-card">
       <div class="card-head"><h2>Kronos rolling rank-IC vs its promotion hurdle</h2><span class="hint" id="krMeta"></span></div>
@@ -2560,7 +2564,7 @@ const tag = (cls, text) => '<span class="tag ' + esc(cls) + '">' + esc(text) + '
 const sideTag = s => tag((s || '').toLowerCase(), String(s).toUpperCase());
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 /* read a CSS custom property off :root — lets the Chart.js canvas follow
-   the active theme (light/dark/black) without rebuilding it */
+   the active theme (light/dark) without rebuilding it */
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 /* journal timestamps are ISO-UTC; the UI reads IST (+05:30 fixed, no DST) —
    shift by 330min and read via getUTC* so the browser's own zone never leaks in.
@@ -2715,6 +2719,14 @@ function applyChartTheme() {
 }
 function applyTheme(t, persist) {
   if (!THEMES.includes(t)) t = 'light';
+  /* the Evidence charts are built once per session — drop them on a theme
+     switch so the next visit rebuilds in the new palette (they used to keep
+     stale colors until reload) */
+  if (evLoaded.v) {
+    if (kronosChart) { kronosChart.destroy(); kronosChart = null; }
+    if (cvChart) { cvChart.destroy(); cvChart = null; }
+    evLoaded.v = false;
+  }
   document.documentElement.setAttribute('data-theme', t);
   if (persist) { try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* private mode */ } }
   $$('.theme-switch button').forEach(b =>
@@ -2726,13 +2738,65 @@ function applyTheme(t, persist) {
 $$('.theme-switch button').forEach(b =>
   b.addEventListener('click', () => applyTheme(b.dataset.theme, true)));
 
+/* ---- shared render helpers (the Overview/HFT/Lab tabs render the same
+   payload shapes; these were four copy-paste blocks each) ---- */
+function syncStrategyFilter(sel, strategies) {
+  const current = sel.value;
+  if (sel.options.length - 1 !== strategies.length ||
+      [...sel.options].slice(1).map(o => o.value).join(',') !== strategies.join(',')) {
+    sel.innerHTML = '<option value="">all strategies</option>' +
+      strategies.map(x => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('');
+    sel.value = current;
+  }
+}
+function renderStatCards(el, cards) {
+  el.innerHTML = cards.map(c =>
+    '<div class="stat"><div class="label">' + STAT_ICON + esc(c[0]) + '</div>' +
+    '<div class="value ' + c[2] + '">' + esc(c[1]) + '</div>' +
+    '<div class="sub">' + esc(c[3]) + '</div></div>').join('');
+}
+function renderDecisionRows(el, rows, extraBadge) {
+  if (!rows.length) { el.innerHTML = '<div class="empty" style="padding:16px">No decisions journaled yet.</div>'; return; }
+  el.innerHTML = rows.map(d => {
+    const a = (d.action || '').toLowerCase();
+    return '<div class="term-row">' +
+      '<span class="term-ts">' + esc(fmtTs(d.ts)) + '</span>' +
+      '<div class="term-body"><div class="term-line">' +
+      '<span class="tag ' + esc(a === 'hold' ? 'hold' : a) + '">' + esc(d.action) + '</span>' +
+      '<span class="term-mkt">' + esc(d.symbol) + ' <span class="tag tf">' + esc(d.timeframe) + '</span>' +
+      (extraBadge ? extraBadge(d) : '') + '</span>' +
+      '<span class="term-meta">regime ' + esc(d.regime || '—') + ' · conf ' +
+        Math.round((d.confidence || 0) * 100) + '% · @ ' + fmtPx(d.price, d.symbol) + '</span>' +
+      '</div><div class="term-why">' + esc(d.rationale || '') + '</div></div></div>';
+  }).join('');
+  el.scrollTop = 0;
+}
+function renderBars(el, rows) {
+  const entries = rows.filter(r => Math.abs(r.pnl || 0) > 0 || r.trades > 0);
+  if (!entries.length) {
+    el.innerHTML = '<div class="empty" style="padding:16px">No closed trades yet.</div>';
+    return;
+  }
+  const maxAbs = Math.max(...entries.map(r => Math.abs(r.pnl || 0)), 1);
+  el.innerHTML = entries.map(r => {
+    const pos = (r.pnl || 0) >= 0;
+    const w = Math.max(2, Math.abs(r.pnl || 0) / maxAbs * 100);
+    const title = r.name + ': ' + r.trades + ' trades' + (r.wins != null ? ', ' + r.wins + ' wins' : '');
+    return '<div class="sbar" title="' + esc(title) + '">' +
+      '<span class="name">' + esc(r.name) + '</span>' +
+      '<span class="track"><span class="fill ' + (pos ? 'pos' : 'neg') +
+      '" style="width:' + w.toFixed(1) + '%"></span></span>' +
+      '<span class="val ' + (pos ? 'pos' : 'neg') + '">' + fmtPnl(r.pnl) + '</span></div>';
+  }).join('');
+}
+
 /* ===================================================== overview */
-let equityChart = null;
-function buildEquityChart() {
-  /* colors come from the live theme's CSS variables (see applyChartTheme) */
-  equityChart = new Chart($('#equityChart'), {
+function buildLineChart(canvasSel, label) {
+  /* the three equity curves (Overview / HFT / Lab) are the same chart: one
+     factory, three calls — colors come from the live theme's CSS variables */
+  return new Chart($(canvasSel), {
     type: 'line',
-    data: {labels: [], datasets: [{label: 'Equity', data: [],
+    data: {labels: [], datasets: [{label: label, data: [],
       borderColor: cssVar('--chart-line'), backgroundColor: cssVar('--chart-fill'),
       fill: true, tension: .15, pointRadius: 0, borderWidth: 2}]},
     options: {responsive: true, maintainAspectRatio: false, animation: reduceMotion ? false : {duration: 250},
@@ -2749,6 +2813,10 @@ function buildEquityChart() {
                            callback: v => '$' + v.toLocaleString()},
                    grid: {color: cssVar('--chart-grid')}}}}
   });
+}
+let equityChart = null;
+function buildEquityChart() {
+  equityChart = buildLineChart('#equityChart', 'Equity');
 }
 
 const STAT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>';
@@ -2769,10 +2837,7 @@ async function refreshStats() {
     ['Cycles', String(s.cycles ?? 0), '', s.engine_running ? ('llm: ' + (s.llm_mode || 'quant')) : 'engine stopped'],
     ['Watchlist', String(s.watchlist_count ?? 0), '', 'markets traded'],
   ];
-  $('#ovStats').innerHTML = cards.map(c =>
-    '<div class="stat"><div class="label">' + STAT_ICON + esc(c[0]) + '</div>' +
-    '<div class="value ' + c[2] + '">' + esc(c[1]) + '</div>' +
-    '<div class="sub">' + esc(c[3]) + '</div></div>').join('');
+  renderStatCards($('#ovStats'), cards);
 
   const demoN = (s.trade_modes || {}).demo || 0;
   const paperN = (s.trade_modes || {}).paper || 0;
@@ -2803,7 +2868,7 @@ async function refreshStats() {
   if (s.health_note && s.health_note !== healthDismissedMsg) healthDismissed = false;
   if (s.auto_resumed && !autoResumeToasted) {
     autoResumeToasted = true;
-    toast('Engine auto-resumed', 'the last session left it running — it is paper-trading now (stop it from this tab)');
+    toast('Engine auto-resumed', 'the last session left it running — it is paper-trading now (stop it from the top bar)');
   }
   $('#engineStateText').textContent = s.engine_running ? 'running' : 'stopped';
   $('#engineStateText').className = 'st ' + (s.engine_running ? 'pos' : 'neg');
@@ -2835,22 +2900,8 @@ async function refreshStats() {
 }
 
 function renderStratBars(by) {
-  const el = $('#stratBars');
-  const entries = Object.entries(by);
-  if (!entries.length) {
-    el.innerHTML = '<div class="empty" style="padding:16px">No closed trades yet.</div>';
-    return;
-  }
-  const maxAbs = Math.max(...entries.map(([, v]) => Math.abs(v.pnl || 0)), 1);
-  el.innerHTML = entries.map(([name, v]) => {
-    const pos = (v.pnl || 0) >= 0;
-    const w = Math.max(2, Math.abs(v.pnl || 0) / maxAbs * 100);
-    return '<div class="sbar" title="' + esc(name) + ': ' + v.trades + ' trades, ' + v.wins + ' wins">' +
-      '<span class="name">' + esc(name) + '</span>' +
-      '<span class="track"><span class="fill ' + (pos ? 'pos' : 'neg') +
-      '" style="width:' + w.toFixed(1) + '%"></span></span>' +
-      '<span class="val ' + (pos ? 'pos' : 'neg') + '">' + fmtPnl(v.pnl) + '</span></div>';
-  }).join('');
+  renderBars($('#stratBars'), Object.entries(by)
+    .map(([name, v]) => ({name, pnl: v.pnl, trades: v.trades, wins: v.wins})));
 }
 
 async function refreshEquity() {
@@ -2868,21 +2919,7 @@ async function refreshEquity() {
 async function refreshDecisions() {
   let ds;
   try { ds = await jget('/api/decisions?limit=30'); } catch (e) { return; }
-  const el = $('#decisionFeed');
-  if (!ds.length) { el.innerHTML = '<div class="empty" style="padding:16px">No decisions journaled yet.</div>'; return; }
-  el.innerHTML = ds.map(d => {
-    const a = (d.action || '').toLowerCase();
-    return '<div class="term-row">' +
-      '<span class="term-ts">' + esc(fmtTs(d.ts)) + '</span>' +
-      '<div class="term-body"><div class="term-line">' +
-      '<span class="tag ' + esc(a === 'hold' ? 'hold' : a) + '">' + esc(d.action) + '</span>' +
-      '<span class="term-mkt">' + esc(d.symbol) + ' <span class="tag tf">' + esc(d.timeframe) + '</span>' +
-      (d.mode === 'demo' ? ' <span class="tag demo">demo</span>' : '') + '</span>' +
-      '<span class="term-meta">regime ' + esc(d.regime || '—') + ' · conf ' +
-        Math.round((d.confidence || 0) * 100) + '% · @ ' + fmtPx(d.price, d.symbol) + '</span>' +
-      '</div><div class="term-why">' + esc(d.rationale || '') + '</div></div></div>';
-  }).join('');
-  el.scrollTop = 0;
+  renderDecisionRows($('#decisionFeed'), ds, d => (d.mode === 'demo' ? ' <span class="tag demo">demo</span>' : ''));
 }
 
 /* engine controls */
@@ -2891,7 +2928,7 @@ async function startEngine() {
   try {
     const r = await jpost('/api/engine/start', {interval});
     toast('Engine ' + (r.status === 'started' ? 'started' : r.status),
-          'cycle interval ' + interval + 's', r.status !== 'error');
+          'cycle interval ' + interval + 's', true);
     addMsg('[engine] started — interval ' + interval + 's', 'bot');
   } catch (e) { toastErr('Could not start engine', e); }
   refreshStats();
@@ -2938,25 +2975,7 @@ let hftChart = null;
 let hftAutoResumeToasted = false;
 let hftDefaultInterval = 20;
 function buildHftEquityChart() {
-  hftChart = new Chart($('#hftEquityChart'), {
-    type: 'line',
-    data: {labels: [], datasets: [{label: 'HFT equity', data: [],
-      borderColor: cssVar('--chart-line'), backgroundColor: cssVar('--chart-fill'),
-      fill: true, tension: .15, pointRadius: 0, borderWidth: 2}]},
-    options: {responsive: true, maintainAspectRatio: false, animation: reduceMotion ? false : {duration: 250},
-      plugins: {legend: {display: false}, tooltip: {backgroundColor: cssVar('--color-card'),
-        borderColor: cssVar('--color-border'), borderWidth: 1,
-        titleColor: cssVar('--color-foreground'), bodyColor: cssVar('--color-muted-foreground'),
-        titleFont: {family: 'Fira Code'}, bodyFont: {family: 'Fira Code'},
-        callbacks: {label: c => ' ' + fmt$(c.parsed.y)}}},
-      scales: {x: {ticks: {maxTicksLimit: 8, color: cssVar('--color-muted-foreground'),
-                           font: {family: 'Fira Code', size: 10}},
-                   grid: {color: cssVar('--chart-grid')}},
-               y: {ticks: {color: cssVar('--color-muted-foreground'),
-                           font: {family: 'Fira Code', size: 10},
-                           callback: v => '$' + v.toLocaleString()},
-                   grid: {color: cssVar('--chart-grid')}}}}
-  });
+  hftChart = buildLineChart('#hftEquityChart', 'HFT equity');
 }
 
 async function refreshHft() {
@@ -2980,10 +2999,7 @@ async function refreshHft() {
     ['Cycles', String(s.cycles ?? 0), '', s.engine_running ? 'running' : 'engine stopped'],
     ['Total fees', fmt$(s.total_fees ?? 0), 'neg', 'the HFT cost autopsy'],
   ];
-  $('#hftStats').innerHTML = cards.map(c =>
-    '<div class="stat"><div class="label">' + STAT_ICON + esc(c[0]) + '</div>' +
-    '<div class="value ' + c[2] + '">' + esc(c[1]) + '</div>' +
-    '<div class="sub">' + esc(c[3]) + '</div></div>').join('');
+  renderStatCards($('#hftStats'), cards);
 
   $('#hftEngineDot').className = 'dot ' + (s.engine_running ? 'on' : 'off');
   $('#hftPillText').textContent = 'hft: ' +
@@ -2996,7 +3012,7 @@ async function refreshHft() {
   else note.hidden = true;
   if (s.auto_resumed && !hftAutoResumeToasted) {
     hftAutoResumeToasted = true;
-    toast('HFT book auto-resumed', 'the last session left it running (stop it from this tab)');
+    toast('HFT book auto-resumed', 'the last session left it running (stop it from the top bar)');
   }
 
   if (hftChart) {
@@ -3014,14 +3030,7 @@ async function refreshHft() {
   let trades;
   try { trades = await jget('/api/hft/trades?limit=1000'); } catch (e) { trades = []; }
   const sel = $('#hftStratFilter');
-  const current = sel.value;
-  const strategies = [...new Set(trades.map(t => t.strategy))].sort();
-  if (sel.options.length - 1 !== strategies.length ||
-      [...sel.options].slice(1).map(o => o.value).join(',') !== strategies.join(',')) {
-    sel.innerHTML = '<option value="">all strategies</option>' +
-      strategies.map(x => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('');
-    sel.value = current;
-  }
+  syncStrategyFilter(sel, [...new Set(trades.map(t => t.strategy))].sort());
   const filter = sel.value;
   const rows = filter ? trades.filter(t => t.strategy === filter) : trades;
   const tbody = $('#hftTradeTable tbody');
@@ -3041,23 +3050,8 @@ async function refreshHft() {
   /* decision feed (HOLDs included — TRI-ETH monitor rows land here too) */
   let ds;
   try { ds = await jget('/api/hft/decisions?limit=30'); } catch (e) { ds = []; }
-  const el = $('#hftDecisions');
-  if (!ds.length) { el.innerHTML = '<div class="empty" style="padding:16px">No HFT decisions yet.</div>'; }
-  else {
-    el.innerHTML = ds.map(d => {
-      const a = (d.action || '').toLowerCase();
-      return '<div class="term-row">' +
-        '<span class="term-ts">' + esc(fmtTs(d.ts)) + '</span>' +
-        '<div class="term-body"><div class="term-line">' +
-        '<span class="tag ' + esc(a === 'hold' ? 'hold' : a) + '">' + esc(d.action) + '</span>' +
-        '<span class="term-mkt">' + esc(d.symbol) + ' <span class="tag tf">' + esc(d.timeframe) + '</span>' +
-        (d.symbol === 'TRI-ETH' ? ' <span class="tag demo">arb</span>' : '') + '</span>' +
-        '<span class="term-meta">regime ' + esc(d.regime || '—') + ' · conf ' +
-          Math.round((d.confidence || 0) * 100) + '% · @ ' + fmtPx(d.price, d.symbol) + '</span>' +
-        '</div><div class="term-why">' + esc(d.rationale || '') + '</div></div></div>';
-    }).join('');
-    el.scrollTop = 0;
-  }
+  renderDecisionRows($('#hftDecisions'), ds,
+    d => (d.symbol === 'TRI-ETH' ? ' <span class="tag demo">arb</span>' : ''));
 }
 $('#hftStratFilter').addEventListener('change', refreshHft);
 
@@ -3091,25 +3085,7 @@ let labMeta = null;
 let labPollTimer = null;
 
 function buildLabEquityChart() {
-  labChart = new Chart($('#labEquityChart'), {
-    type: 'line',
-    data: {labels: [], datasets: [{label: 'Equity', data: [],
-      borderColor: cssVar('--chart-line'), backgroundColor: cssVar('--chart-fill'),
-      fill: true, tension: .15, pointRadius: 0, borderWidth: 2}]},
-    options: {responsive: true, maintainAspectRatio: false, animation: reduceMotion ? false : {duration: 250},
-      plugins: {legend: {display: false}, tooltip: {backgroundColor: cssVar('--color-card'),
-        borderColor: cssVar('--color-border'), borderWidth: 1,
-        titleColor: cssVar('--color-foreground'), bodyColor: cssVar('--color-muted-foreground'),
-        titleFont: {family: 'Fira Code'}, bodyFont: {family: 'Fira Code'},
-        callbacks: {label: c => ' ' + fmt$(c.parsed.y)}}},
-      scales: {x: {ticks: {maxTicksLimit: 8, color: cssVar('--color-muted-foreground'),
-                           font: {family: 'Fira Code', size: 10}},
-                   grid: {color: cssVar('--chart-grid')}},
-               y: {ticks: {color: cssVar('--color-muted-foreground'),
-                           font: {family: 'Fira Code', size: 10},
-                           callback: v => '$' + v.toLocaleString()},
-                   grid: {color: cssVar('--chart-grid')}}}}
-  });
+  labChart = buildLineChart('#labEquityChart', 'Lab equity');
 }
 
 async function refreshLab() {
@@ -3119,6 +3095,7 @@ async function refreshLab() {
   }
   /* while a run is in flight, poll its status (the form's 4s poll is too
      slow for a 10s backtest — poll fast ONLY while running) */
+  if (labPollTimer) return;   // the 1.5s run-poller owns status while active
   const st = await jget('/api/lab/status').catch(() => null);
   if (st) labRenderStatus(st);
 }
@@ -3152,7 +3129,6 @@ function labStrategyRefresh() {
     '<option value="' + esc(s) + '">' + (s === 'all' ? 'ALL strategies (comparison)' : esc(s)) + '</option>').join('');
   if (strats.includes(prev)) $('#labStrategy').value = prev;
   const cap = ((labMeta.days_cap[book] || {})[$('#labKind').value] || {})[tf];
-  const def = ((labMeta.days_default[book] || {})[$('#labKind').value] || {})[tf];
   const note = [];
   if (cap != null) note.push('history cap ' + cap + 'd');
   if (tf === '1m' && $('#labKind').value !== 'crypto') note.push('yfinance caps 1m at 7d');
@@ -3208,8 +3184,13 @@ function labRenderStatus(st) {
   } else if (st.status === 'error') {
     el.textContent = '✗ ' + (st.error || 'run failed');
   } else if (st.status === 'done') {
-    el.hidden = true;
-    labRenderResult(st.result);
+    /* render ONCE per completed run: status stays 'done' on every later
+       poll, and re-rendering re-fired the completion toast every 4s tick */
+    if ($('#labResultCard').hidden || $('#labResultTitle').dataset.run !== st.result.generated_at) {
+      el.hidden = true;
+      labRenderResult(st.result);
+      $('#labResultTitle').dataset.run = st.result.generated_at;
+    }
   }
 }
 
@@ -3231,10 +3212,7 @@ function labRenderResult(r) {
     ['Sharpe', st.sharpe == null ? '—' : st.sharpe, '', 'annualized'],
     ['Fees paid', fmt$(st.fees), 'neg', 'the cost autopsy'],
   ];
-  $('#labStats').innerHTML = cards.map(c =>
-    '<div class="stat"><div class="label">' + STAT_ICON + esc(c[0]) + '</div>' +
-    '<div class="value ' + c[2] + '">' + esc(c[1]) + '</div>' +
-    '<div class="sub">' + esc(c[3]) + '</div></div>').join('');
+  renderStatCards($('#labStats'), cards);
   $('#labCurveHint').textContent = r.stats.strategy + ' · ' + r.equity_curve.length + ' pts';
   if (labChart) {
     labChart.data.labels = r.equity_curve.map(p => fmtTs(p.ts));
@@ -3252,16 +3230,7 @@ function labRenderResult(r) {
   const pnlRows = (cmp && cmp.length ? cmp.slice() : [st]).map(c => ({
     name: c.strategy, pnl: c.total_pnl, trades: c.trades }));
   $('#labPnlCard').hidden = false;
-  const maxAbs = Math.max(...pnlRows.map(p => Math.abs(p.pnl || 0)), 1);
-  $('#labStratBars').innerHTML = pnlRows.sort((a, b) => b.pnl - a.pnl).map(p => {
-    const pos = (p.pnl || 0) >= 0;
-    const w = Math.max(2, Math.abs(p.pnl || 0) / maxAbs * 100);
-    return '<div class="sbar" title="' + esc(p.name) + ': ' + p.trades + ' trades">' +
-      '<span class="name">' + esc(p.name) + '</span>' +
-      '<span class="track"><span class="fill ' + (pos ? 'pos' : 'neg') +
-      '" style="width:' + w.toFixed(1) + '%"></span></span>' +
-      '<span class="val ' + (pos ? 'pos' : 'neg') + '">' + fmtPnl(p.pnl) + '</span></div>';
-  }).join('');
+  renderBars($('#labStratBars'), pnlRows.sort((a, b) => b.pnl - a.pnl));
   if (cmp) {
     const sorted = [...cmp].sort((a, b) => b.total_pnl - a.total_pnl);
     $('#labCompareTable tbody').innerHTML = sorted.map(c =>
@@ -3385,8 +3354,11 @@ $('#marketCancel').addEventListener('click', () => {
 $('#marketModal').addEventListener('click', e => {
   if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
 });
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') $('#marketModal').classList.remove('open');
+document.addEventListener('keydown', e => {   // one handler closes any open modal
+  if (e.key === 'Escape') {
+    $('#marketModal').classList.remove('open');
+    $('#resetModal').classList.remove('open');
+  }
 });
 $('#marketGo').addEventListener('click', async () => {
   const mode = marketPending;
@@ -3443,14 +3415,7 @@ async function refreshTrades() {
   let trades;
   try { trades = await jget('/api/trades?limit=1000'); } catch (e) { return; }
   const sel = $('#stratFilter');
-  const current = sel.value;
-  const strategies = [...new Set(trades.map(t => t.strategy))].sort();
-  if (sel.options.length - 1 !== strategies.length ||
-      [...sel.options].slice(1).map(o => o.value).join(',') !== strategies.join(',')) {
-    sel.innerHTML = '<option value="">all strategies</option>' +
-      strategies.map(s => '<option value="' + esc(s) + '">' + esc(s) + '</option>').join('');
-    sel.value = current;
-  }
+  syncStrategyFilter(sel, [...new Set(trades.map(t => t.strategy))].sort());
   const filter = sel.value;
   const rows = filter ? trades.filter(t => t.strategy === filter) : trades;
   const tbody = $('#tradeTable tbody');
@@ -3779,7 +3744,6 @@ $('#btnResetOpen').addEventListener('click', () => {
 });
 $('#resetCancel').addEventListener('click', () => resetModal.classList.remove('open'));
 resetModal.addEventListener('click', e => { if (e.target === resetModal) resetModal.classList.remove('open'); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') resetModal.classList.remove('open'); });
 $('#resetConfirm').addEventListener('input', e => {
   $('#resetGo').disabled = e.target.value.trim() !== 'RESET';
 });

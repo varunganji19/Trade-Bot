@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.4.2] 2026-09-13 — dead-code / duplicate-logic / complexity cleanup
+
+Three parallel audits (core modules, dashboard, CLI/tests/config) plus
+vulture; every finding grep-verified before fixing. 191/191 tests green.
+
+- **Fixed real UI bugs the audit surfaced**: `.stat-grid` was a typo of
+  `.stats-grid` (HFT and Lab stat cards rendered stacked, not gridded);
+  `.chart-wrap` had no CSS rule (HFT/Lab charts fell back to ~150px
+  default height — now 260px); the HFT Stop button used a nonexistent
+  `danger` class (now `btn-danger`); a stray duplicate `</section>` tag;
+  the Lab result re-rendered and re-fired its completion toast on EVERY
+  4s poll (now renders once per run); Evidence charts kept stale colors
+  after a theme switch (now rebuilt on next visit); `/api/engine/status`
+  reported the configured interval instead of the running engine's.
+- **Dead code removed**: `StrategyParams.hft_mm_sigma_window` (zero
+  readers), `RiskManager.current_drawdown` (write-only),
+  `lab.sorted_strategies_for` (forwarding wrapper), the unused
+  `use_confidence` branch in `validation.signal_ic_series`, unused `book`
+  params on `lab.days_cap/default_days`, dead "30m" entry in
+  TIMEFRAME_SECONDS, `_watchlist_to_dicts` (≡ `MarketSpec.to_dict`),
+  redundant re-imports in main.py/scripts, dead toast condition, unused
+  JS variable, two shadowing local time imports, orphaned element ids.
+- **Duplicates unified**: TRIANGULAR_LEGS (4 hardcoded copies -> one
+  constant), true-range formula (2 copies in indicators.py -> one
+  `_true_range`), the three equity-chart builders (-> one
+  `buildLineChart` factory), strategy-filter sync / stat cards /
+  decision rows / P&L bars renderers (copy-paste blocks -> shared JS
+  helpers), one Escape-key handler instead of two.
+- **Simplification**: the allocator no longer builds the unused aligned
+  returns matrix on the default inverse-vol path (was rebuilt and
+  discarded every engine cycle / backtest bar); `/api/lab/status` is no
+  longer double-polled.
+- **Left as-is, deliberately**: the engine-book spawn/state mirrors in
+  dashboard.py (documented, concurrency-sensitive), Journal.stats vs
+  BTResult.stats arithmetic (different input shapes/keys), scalper
+  long/short mirrors (the asymmetry is the point), run_battery DAYS
+  future entries.
+- Lint now covers scripts/ (Makefile + CI) — its one unused import was
+  the reason it was excluded. Makefile .PHONY: phantom `report` removed.
+
 ## [1.4.1] 2026-09-13 — UI pass + HFT latency minimization
 
 - **Layout**: the Strategy Lab is two-column — equity chart LEFT, the

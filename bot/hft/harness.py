@@ -22,7 +22,7 @@ from bot.backtest import Backtester
 from bot.hft import build_hft_config
 from bot.hft.triangular import tri_backtest
 from bot.strategies import HFT_STRATEGY_NAMES
-from config import MarketSpec
+from config import TRIANGULAR_LEGS, MarketSpec
 
 BATTERY_SPECS = [
     MarketSpec("crypto", "BTC/USDT", "1m", "Bitcoin HFT"),
@@ -91,7 +91,7 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
     try:
         cfg = build_hft_config(fee_tier=tiers[0] if tiers else "perp")
         legs = {}
-        for sym in ("ETH/USDT", "ETH/BTC", "BTC/USDT"):
+        for sym in TRIANGULAR_LEGS:
             if frames.get(sym) is not None:
                 legs[sym] = frames[sym]
         if len(legs) == 3:

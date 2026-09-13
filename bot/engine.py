@@ -435,8 +435,9 @@ class TradingEngine:
         position). Published mispricings last seconds and are 1-5bp, so the
         expected finding is a measured absence — the monitor is the point."""
         from bot.hft.triangular import tri_cost_rate, triangular_edge
+        from config import TRIANGULAR_LEGS
         legs = {}
-        for sym in ("ETH/USDT", "ETH/BTC", "BTC/USDT"):
+        for sym in TRIANGULAR_LEGS:
             for (symbol, _tf), frame in histories.items():
                 if symbol == sym and frame is not None and len(frame) >= 2:
                     legs[sym] = frame

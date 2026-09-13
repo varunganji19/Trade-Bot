@@ -145,15 +145,15 @@ def strategies_for(book: str, timeframe: str) -> list[str]:
     return (["ensemble"] if names else []) + names
 
 
-def days_cap(book: str, kind: str, timeframe: str) -> int:
+def days_cap(kind: str, timeframe: str) -> int:
     cap = _LAB_DAYS_CAP.get(timeframe, 365)
     if kind in ("forex", "india"):
         cap = min(cap, _YAHOO_DAYS_CAP.get(timeframe, cap))
     return cap
 
 
-def default_days(book: str, kind: str, timeframe: str) -> int:
-    cap = days_cap(book, kind, timeframe)
+def default_days(kind: str, timeframe: str) -> int:
+    cap = days_cap(kind, timeframe)
     default = {"1m": 3, "5m": 30, "15m": 60, "1h": 180, "4h": 365, "1d": 730}.get(timeframe, 180)
     if kind == "india" and timeframe == "1h":
         default = 90          # ~630 NSE 1h bars: clears the 220-bar warmup
@@ -206,8 +206,8 @@ def _validate(spec: LabSpec) -> LabSpec:
     if spec.start and spec.end:
         spec.days = 0
     else:
-        cap = days_cap(spec.book, spec.kind, spec.timeframe)
-        spec.days = spec.days or default_days(spec.book, spec.kind, spec.timeframe)
+        cap = days_cap(spec.kind, spec.timeframe)
+        spec.days = spec.days or default_days(spec.kind, spec.timeframe)
         if spec.days > cap:
             raise LabError(
                 f"days={spec.days} exceeds the {timeframe_cap_note(spec.kind, spec.timeframe, cap)}")
@@ -249,7 +249,8 @@ def run_lab(spec: LabSpec) -> dict:
     fetch_s = round(time.time() - t0, 1)
 
     bt = Backtester(cfg)
-    strategies = (sorted_strategies_for(spec) if spec.strategy == "all" else [spec.strategy])
+    strategies = (strategies_for(spec.book, spec.timeframe)
+                  if spec.strategy == "all" else [spec.strategy])
     runs, comparison = [], []
     for name in strategies:
         t1 = time.time()
@@ -287,10 +288,6 @@ def run_lab(spec: LabSpec) -> dict:
     }
     _write_artifact(payload)
     return payload
-
-
-def sorted_strategies_for(spec: LabSpec) -> list[str]:
-    return strategies_for(spec.book, spec.timeframe)
 
 
 def _exit_histogram(trades: list) -> dict:

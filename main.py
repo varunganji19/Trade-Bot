@@ -25,7 +25,7 @@ import sys
 # make project importable when run from anywhere
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import CONFIG, MarketSpec, DEFAULT_WATCHLIST, infer_kind  # noqa: E402
+from config import CONFIG, MarketSpec, DEFAULT_WATCHLIST, TRIANGULAR_LEGS, infer_kind  # noqa: E402
 
 
 def _spec_from_args(args) -> MarketSpec:
@@ -38,8 +38,9 @@ def _spec_from_args(args) -> MarketSpec:
     (no '/', '=' or '.NS'/'^') used to guess 'forex' here, now guesses
     'crypto'; no VALID symbol changes behavior — valid ones contain exactly
     one of the kind markers, so only the garbage-input case can shift."""
-    sym = args.symbol if infer_kind(args.symbol) in ("crypto", "india") else args.symbol.upper()
-    return MarketSpec(infer_kind(args.symbol), sym, args.timeframe)
+    kind = infer_kind(args.symbol)
+    sym = args.symbol if kind in ("crypto", "india") else args.symbol.upper()
+    return MarketSpec(kind, sym, args.timeframe)
 
 
 def cmd_backtest(args):
@@ -129,11 +130,10 @@ def cmd_hft_backtest(args):
     if args.triangular:
         from bot.hft import build_hft_config
         from bot.hft.triangular import tri_backtest
-        from bot.data import fetch_history as _fh
         cfg = build_hft_config(fee_tier=args.fee_tier)
         legs = {}
-        for sym in ("ETH/USDT", "ETH/BTC", "BTC/USDT"):
-            legs[sym] = _fh(MarketSpec("crypto", sym, "1m"), days=args.days)
+        for sym in TRIANGULAR_LEGS:
+            legs[sym] = fetch_history(MarketSpec("crypto", sym, "1m"), days=args.days)
         out = tri_backtest(legs, cfg.costs, min_edge_bps=cfg.hft.tri_min_edge_bps)
         s = out.get("summary", {})
         print(f"[hft] triangular arb ETH/USDT x ETH/BTC x BTC/USDT — {s.get('bars_aligned')} aligned bars")
@@ -301,7 +301,7 @@ def cmd_validate(args):
     #    honest as the config history grows. The primary run's equity returns
     #    feed the moment-aware SE (skew/kurtosis widen the SE on fat-tailed
     #    assets; the normal-only SE overstated confidence there).
-    sharpes = [s for s in (args.trial_sharpes or [])]
+    sharpes = list(args.trial_sharpes or [])
     if sharpes:
         import pandas as pd
         eq = pd.Series([p["equity"] for p in res.equity_curve]) if res.equity_curve else None
@@ -545,7 +545,6 @@ def cmd_shadow(args):
     from bot.journal import Journal
     from bot.shadow import behavior_profile, rule_adherence, shadow_compare
     from bot.data import fetch_history
-    from config import CONFIG
 
     j = Journal()
     trades = j.recent_trades(limit=2000, mode=None if args.include_demo else "paper")

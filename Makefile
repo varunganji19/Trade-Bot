@@ -1,4 +1,4 @@
-.PHONY: setup setup-kronos test lint backtest validate battery report run dashboard demo clean-cache
+.PHONY: setup setup-kronos test lint backtest validate battery run dashboard demo clean-cache ui hft-battery hft-status
 
 setup:
 	python3 -m pip install -r requirements.txt
@@ -11,7 +11,7 @@ test:
 	python3 -m pytest tests/ -q
 
 lint:
-	python3 -m ruff check bot main.py config.py run_battery.py tests
+	python3 -m ruff check bot main.py config.py run_battery.py tests scripts
 
 # one-off backtest (needs network; disk-cached per day after the first run)
 backtest:

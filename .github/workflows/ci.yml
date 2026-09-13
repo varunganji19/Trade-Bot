@@ -21,6 +21,6 @@ jobs:
       # (requirements-kronos.txt); the bot and the whole test suite run without them
       - run: pip install -r requirements.txt ruff
       - name: Lint (ruff)
-        run: ruff check bot main.py config.py run_battery.py tests
+        run: ruff check bot main.py config.py run_battery.py tests scripts
       - name: Tests (offline, network mocked)
         run: python -m pytest tests/ -q

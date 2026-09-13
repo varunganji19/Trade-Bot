@@ -31,7 +31,7 @@ def main() -> int:
     os.makedirs(outdir, exist_ok=True)
     from bot.backtest import Backtester, results_to_json
     from bot.data import fetch_history
-    from config import CONFIG, MarketSpec
+    from config import MarketSpec
 
     for symbol, tf, start, end, strategy, name in RUNS:
         spec = MarketSpec("crypto", symbol, tf)

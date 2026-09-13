@@ -45,14 +45,20 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     return out
 
 
-def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    high, low, close = df["high"], df["low"], df["close"]
-    prev_close = close.shift(1)
-    tr = pd.concat([
-        high - low,
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
+def _true_range(df: pd.DataFrame) -> pd.Series:
+    """True range: the greatest of high-low, |high-prev close|, |low-prev
+    close|. One definition, two consumers (atr, adx) — the formula used to
+    live twice in this module."""
+    prev_close = df["close"].shift(1)
+    return pd.concat([
+        df["high"] - df["low"],
+        (df["high"] - prev_close).abs(),
+        (df["low"] - prev_close).abs(),
     ], axis=1).max(axis=1)
+
+
+def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    tr = _true_range(df)
     return _rma(tr, period)
 
 
@@ -63,17 +69,12 @@ def donchian(df: pd.DataFrame, period: int) -> tuple[pd.Series, pd.Series]:
 
 
 def adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    high, low, close = df["high"], df["low"], df["close"]
+    high, low = df["high"], df["low"]
     up = high.diff()
     down = -low.diff()
     plus_dm = up.where((up > down) & (up > 0), 0.0)
     minus_dm = down.where((down > up) & (down > 0), 0.0)
-    prev_close = close.shift(1)
-    tr = pd.concat([
-        high - low,
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
+    tr = _true_range(df)
     atr_ = _rma(tr, period)
     plus_di = 100.0 * _rma(plus_dm, period) / atr_.replace(0.0, np.nan)
     minus_di = 100.0 * _rma(minus_dm, period) / atr_.replace(0.0, np.nan)

@@ -98,7 +98,6 @@ def allocation_weights(specs: list[MarketSpec], histories: dict[str, pd.DataFram
     if not symbols:
         return {}
 
-    rets = returns_matrix(specs, histories)
     weights: dict[str, float] = {}
 
     if method == "inverse_vol":
@@ -113,14 +112,22 @@ def allocation_weights(specs: list[MarketSpec], histories: dict[str, pd.DataFram
         if not weights:
             share = 1.0 / len(symbols)
             weights = {s: share for s in symbols}
-    elif method == "hrp" and not rets.empty:
-        try:
-            from skfolio.optimization import HierarchicalRiskParity
-            model = HierarchicalRiskParity().fit(rets)
-            w = np.asarray(model.weights_, dtype=float)
-            cols = list(rets.columns)
-            weights = {c: float(x) for c, x in zip(cols, w)}
-        except Exception:
+    elif method == "hrp":
+        # only HRP needs the aligned returns matrix (it drops ~28% of crypto
+        # rows in a mixed book — building it for the default inverse_vol path
+        # was wasted work every engine cycle / backtest bar)
+        rets = returns_matrix(specs, histories)
+        if not rets.empty:
+            try:
+                from skfolio.optimization import HierarchicalRiskParity
+                model = HierarchicalRiskParity().fit(rets)
+                w = np.asarray(model.weights_, dtype=float)
+                cols = list(rets.columns)
+                weights = {c: float(x) for c, x in zip(cols, w)}
+            except Exception:
+                share = 1.0 / len(symbols)
+                weights = {s: share for s in symbols}
+        else:
             share = 1.0 / len(symbols)
             weights = {s: share for s in symbols}
     else:

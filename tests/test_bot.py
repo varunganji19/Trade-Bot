@@ -5262,9 +5262,9 @@ def test_lab_validate_and_guardrails():
     """Windows clamp to the data source's real caps and the HFT book's
     strategies never leak into the standard book's runs."""
     from bot.lab import LabError, LabSpec, days_cap
-    assert days_cap("standard", "forex", "1m") == 7      # yfinance cap
-    assert days_cap("standard", "crypto", "1m") == 14    # lab compute cap
-    assert days_cap("standard", "crypto", "1h") == 730
+    assert days_cap("forex", "1m") == 7      # yfinance cap
+    assert days_cap("crypto", "1m") == 14    # lab compute cap
+    assert days_cap("crypto", "1h") == 730
     spec = LabSpec(book="standard", kind="crypto", symbol="BTCUSDT",
                    timeframe="1h", strategy="turtle_trend", days=99_999)
     try:

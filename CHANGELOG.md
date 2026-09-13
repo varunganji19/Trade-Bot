@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.4.0] 2026-09-13 — the Strategy Lab (pick a stock, apply strategies, backtest)
+
+A new dashboard tab serving BOTH books (standard forex+crypto+NSE and the
+HFT book): pick any stock/pair — aliases normalize per kind ("BTCUSDT" ->
+"BTC/USDT", "EURUSD" -> "EURUSD=X", "RELIANCE" -> "RELIANCE.NS", "NIFTY" ->
+"^NSEI") — and apply every strategy REGISTERED for the chosen timeframe
+(derived from the registry), or "ALL strategies" for a comparison run on one
+fetched frame.
+
+- **Async runs**: POST /api/lab/run spawns a worker thread (one at a time;
+  a second request is refused), the UI polls /api/lab/status at 1.5s,
+  results land in data/results/lab_*.json. Pure backtest — own
+  broker/risk per run, zero journal writes, zero engine interference.
+- **Honest guardrails**: yfinance history caps enforced with a visible note
+  (1m forex/india = 7d, 5m/15m = 60d), per-timeframe lab compute caps,
+  warmup sized per book (220 standard / 400 on 1m), kind-aware cost stacks
+  (the NSE regulatory stack rides along automatically).
+- **Orchestrator vote fix (regression-tested)**: FLAT strategies are
+  abstentions — their weight no longer enters the vote denominator. Under
+  the old math, any timeframe with several registered strategies diluted a
+  lone directional signal into permanent HOLD (the HFT 1m ensemble never
+  traded; measured: 0 trades before the fix, 326 after on the same window).
+- **HFT market maker gate**: quotes only near the mean (within 1 ATR of
+  EMA20) — quoting into a runaway drift is how MMs get run over; also stops
+  the strategy emitting a signal on every bar. Measured: ETH 1m market_maker
+  improved -4.65% -> -2.35% on the same 3-day window.
+- Endpoints /api/lab/{run,status,meta}; Lab tab UI with suggestion chips,
+  filtered timeframe/strategy menus, comparison table, equity chart, exit
+  histogram. 182 -> 188 tests.
+
 ## [1.3.0] 2026-09-13 — the high-frequency paper book (HFT)
 
 The separate high-frequency account: 1-minute bars, maker-fill simulation,

@@ -187,6 +187,16 @@ class HFTMarketMaker(BaseStrategy):
         hw = self._half_width(df, i, close)
         if hw is None or hw <= 0:
             return Signal(self.name, "FLAT", 0.0, rationale="no vol to quote")
+        # quote ONLY near the mean: a market maker steps aside when price has
+        # run > 1 ATR off the mid (the drift is too strong to lean against —
+        # quoting then is how MMs get run over). This gate also keeps the
+        # strategy's signal informative: without it the MM emits a quote on
+        # EVERY bar and its constant confidence permanently trips the
+        # orchestrator's conflict guard, silencing the whole 1m ensemble.
+        atr = self._at(df, "atr", i)
+        if not self._ok(atr) or atr <= 0 or abs(close - ema20) > atr:
+            return Signal(self.name, "FLAT", 0.0,
+                          rationale="price far from mid — stepping aside")
         # quote the side that fades the drift: drift up -> rest an ask above
         # (short at mid + hw); drift down -> rest a bid below (long at mid - hw)
         if close > ema20:

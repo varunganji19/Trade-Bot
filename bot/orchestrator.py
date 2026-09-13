@@ -126,7 +126,13 @@ class Orchestrator:
         # weighted vote
         long_score = sum(weights.get(n, 0.0) * s.confidence for n, s in raw_signals.items() if s.action == "LONG")
         short_score = sum(weights.get(n, 0.0) * s.confidence for n, s in raw_signals.items() if s.action == "SHORT")
-        total_weight = sum(weights.get(n, 0.0) for n in raw_signals) or 1.0
+        # the denominator counts only DIRECTIONAL votes: a FLAT strategy is an
+        # abstention, not a vote against — counting its weight diluted every
+        # lone signal to silence on any timeframe where several strategies are
+        # registered (the HFT book's 1m trio never traded; the standard book
+        # would hit the same the day ts_momentum/fx_regime_meanrev join one)
+        total_weight = sum(weights.get(n, 0.0) for n, s in raw_signals.items()
+                           if s.action in ("LONG", "SHORT")) or 1.0
 
         action = "HOLD"
         confidence = 0.0

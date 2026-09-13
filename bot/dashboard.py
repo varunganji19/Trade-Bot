@@ -13,6 +13,11 @@ Tabs (hash routing, ~4s polling):
                 feed incl. the TRI-ETH triangular-arb monitor (mode='hft')
   #watchlist  — full CRUD of what the bot trades (persisted data/watchlist.json;
                 hot-reloads into a RUNNING engine's CONFIG)
+  #lab        — Strategy Lab: pick ANY stock/pair (crypto, forex, NSE —
+                aliases normalized), apply the strategies registered for it,
+                backtest on real data — in BOTH books (standard + HFT);
+                async runs with status polling, comparison mode, artifacts
+                in data/results/lab_*.json
   #evidence   — the honesty layer, rendered: Kronos rolling IC vs its promotion
                 hurdle, purged-CV path distribution, PBO/Deflated-Sharpe/MinTRL
                 verdict cards, shadow adherence, pinned-data manifest (reads
@@ -1152,6 +1157,57 @@ def api_hft_engine_status():
             "paused": is_paused()[0]}
 
 
+# ------------------------------------------------------------- Strategy Lab
+# Pick any stock/pair, apply the strategies registered for it, backtest —
+# in BOTH books (standard forex+crypto+NSE and the HFT book). Pure backtest:
+# own broker/risk per run, zero journal writes, zero engine interference.
+class LabIn(BaseModel):
+    book: str = Field(default="standard", max_length=16)
+    kind: str = Field(default="crypto", max_length=16)
+    symbol: str = Field(min_length=1, max_length=24)
+    timeframe: str = Field(default="1h", max_length=8)
+    strategy: str = Field(default="ensemble", max_length=32)
+    days: int = Field(default=0, ge=0, le=3650)
+    start: str | None = Field(default=None, max_length=10)
+    end: str | None = Field(default=None, max_length=10)
+    fee_tier: str | None = Field(default=None, max_length=8)
+
+
+@app.post("/api/lab/run")
+def api_lab_run(body: LabIn):
+    from bot import lab
+    try:
+        return lab.start_lab_run(body.model_dump())
+    except lab.LabError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.get("/api/lab/status")
+def api_lab_status():
+    from bot import lab
+    return lab.lab_status()
+
+
+@app.get("/api/lab/meta")
+def api_lab_meta():
+    """One source of truth for the Lab form: suggestions, the timeframes
+    offered per book+kind, and the strategies REGISTERED per book+timeframe
+    (derived from the registry, never hand-maintained)."""
+    from bot import lab
+    books = ("standard", "hft")
+    kinds = ("crypto", "forex", "india")
+    tfs_all = sorted(set(lab._STANDARD_TFS) | set(lab._HFT_TFS))
+    return {
+        "suggestions": lab.SUGGESTIONS,
+        "timeframes": {b: {k: lab.timeframes_for(b, k) for k in kinds} for b in books},
+        "strategies": {b: {tf: lab.strategies_for(b, tf) for tf in tfs_all} for b in books},
+        "days_default": {b: {k: {tf: lab.default_days(b, k, tf) for tf in tfs_all}
+                             for k in kinds} for b in books},
+        "days_cap": {b: {k: {tf: lab.days_cap(b, k, tf) for tf in tfs_all}
+                         for k in kinds} for b in books},
+    }
+
+
 @app.post("/api/trading/pause")
 def api_trading_pause(body: PauseIn):
     """Set the manual pause. The file write persists the halt for a future
@@ -1992,6 +2048,9 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   <button class="tab" data-view="watchlist" id="tab-watchlist">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-clock"/></svg>
     Watchlist</button>
+  <button class="tab" data-view="lab" id="tab-lab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V2"/><line x1="8.5" y1="2" x2="15.5" y2="2"/><line x1="7" y1="16" x2="17" y2="16"/></svg>
+    Lab</button>
   <button class="tab" data-view="evidence" id="tab-evidence">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
     Evidence</button>
@@ -2227,6 +2286,91 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       (BACKTESTS.md) — pull it back by reverting the scalper's timeframes.
       One position per symbol across timeframes (risk rule). Max 12 specs.
     </p>
+  </div>
+</section>
+
+<!-- ================================================================ LAB -->
+<section class="view" id="view-lab">
+  <div class="card">
+    <div class="card-head">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V2"/><line x1="8.5" y1="2" x2="15.5" y2="2"/><line x1="7" y1="16" x2="17" y2="16"/></svg>Strategy Lab <span class="badge">pick · apply · backtest</span></h2>
+      <span class="hint">any stock/pair, both books</span>
+    </div>
+    <p class="hint" style="margin:0 0 12px">Pick any stock or pair, apply every strategy registered for it, and backtest on real data with full costs. <b>Standard</b> = the forex+crypto+NSE book's strategies and kind-aware cost stacks; <b>HFT</b> = the high-frequency book's 1m strategies and fee tiers. Pure backtest — your open paper positions are never touched.</p>
+    <div style="display:grid;gap:12px" id="labForm">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+        <label class="fld">Book
+          <select id="labBook">
+            <option value="standard">Standard (forex + crypto + NSE)</option>
+            <option value="hft">HFT (high-frequency, 1m)</option>
+          </select>
+        </label>
+        <label class="fld">Market
+          <select id="labKind">
+            <option value="crypto">Crypto</option>
+            <option value="forex">Forex</option>
+            <option value="india">NSE India</option>
+          </select>
+        </label>
+        <label class="fld" style="flex:1;min-width:200px">Symbol
+          <input id="labSymbol" type="text" placeholder="BTC/USDT" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div id="labChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+        <label class="fld">Timeframe
+          <select id="labTimeframe"></select>
+        </label>
+        <label class="fld">Strategy
+          <select id="labStrategy"></select>
+        </label>
+        <label class="fld">History
+          <select id="labDays"></select>
+        </label>
+        <label class="fld" id="labFeeWrap" hidden>Fee tier
+          <select id="labFee">
+            <option value="perp">perp (maker 2bp / taker 5bp)</option>
+            <option value="spot">spot (10bp / 10bp)</option>
+          </select>
+        </label>
+        <button class="btn primary" id="labRunBtn">Backtest</button>
+      </div>
+      <div class="hint" id="labNote"></div>
+    </div>
+    <div class="empty" id="labStatus" hidden></div>
+  </div>
+  <div class="card" id="labResultCard" hidden>
+    <div class="card-head">
+      <h2 id="labResultTitle">Result</h2>
+      <span class="hint" id="labResultMeta"></span>
+    </div>
+    <div class="stat-grid" id="labStats"></div>
+    <div class="card-head" style="margin-top:8px"><h2>Equity curve</h2><span class="hint" id="labCurveHint"></span></div>
+    <div class="chart-wrap"><canvas id="labEquityChart" aria-label="Lab equity curve" role="img"></canvas></div>
+    <div class="card-head" style="margin-top:8px"><h2>Exit reasons</h2></div>
+    <div id="labExits" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  </div>
+  <div class="card" id="labCompareCard" hidden>
+    <div class="card-head">
+      <h2>Strategy comparison</h2>
+      <span class="hint">every registered strategy on the same frame — best total P&amp;L drives the charts above</span>
+    </div>
+    <div class="tbl-wrap">
+      <table id="labCompareTable"><thead><tr>
+        <th>Strategy</th><th class="num">Return</th><th class="num">P&amp;L</th>
+        <th class="num">Trades</th><th class="num">Win rate</th><th class="num">PF</th>
+        <th class="num">Max DD</th><th class="num">Sharpe</th><th class="num">Fees</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+  <div class="card" id="labTradesCard" hidden>
+    <div class="card-head"><h2>Trades</h2><span class="hint" id="labTradesHint"></span></div>
+    <div class="tbl-wrap">
+      <table id="labTradeTable"><thead><tr>
+        <th>Opened</th><th>Side</th><th class="num">Qty</th><th class="num">Entry</th>
+        <th class="num">Exit</th><th class="num">P&amp;L</th><th>Exit reason</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
   </div>
 </section>
 
@@ -2514,7 +2658,7 @@ $('#healthDismiss').addEventListener('click', () => {
 $('#tokenCancel').addEventListener('click', () => $('#tokenGate').classList.remove('open'));
 
 /* ===================================================== routing */
-const VIEWS = ['overview', 'portfolio', 'hft', 'watchlist', 'evidence', 'account', 'chat'];
+const VIEWS = ['overview', 'portfolio', 'hft', 'watchlist', 'lab', 'evidence', 'account', 'chat'];
 function setView(name) {
   if (!VIEWS.includes(name)) name = 'overview';
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
@@ -2539,6 +2683,7 @@ function refreshVisible(name) {
   else if (name === 'portfolio') { refreshStats(); refreshTrades(); }
   else if (name === 'hft') { refreshHft(); }
   else if (name === 'watchlist') refreshWatchlist();
+  else if (name === 'lab') { refreshLab(); }
   /* evidence loads ONCE per tab entry, not on every 4s poll: the payload is
      generated artifacts (slow to change) and rebuilding both charts each tick
      churned ~0.7s CPU while the tab was merely open */
@@ -2554,7 +2699,7 @@ function refreshVisible(name) {
 const THEME_KEY = 'algo-theme';
 const THEMES = ['light', 'dark', 'black'];
 function applyChartTheme() {
-  for (const chart of [equityChart, hftChart]) {
+  for (const chart of [equityChart, hftChart, labChart]) {
     if (!chart) continue;
     const ds = chart.data.datasets[0];
     ds.borderColor = cssVar('--chart-line');
@@ -2939,6 +3084,210 @@ async function stopHftEngine() {
 }
 $('#hftStartBtn').addEventListener('click', startHftEngine);
 $('#hftStopBtn').addEventListener('click', stopHftEngine);
+
+/* ===================================================== Strategy Lab
+   Pick any stock/pair -> apply the strategies registered for it -> backtest
+   on real data. Works for BOTH books (standard + HFT) via the book toggle.
+   The form options are derived from the server's registry (one source of
+   truth), never hand-maintained in JS. */
+let labChart = null;
+let labMeta = null;
+let labPollTimer = null;
+
+function buildLabEquityChart() {
+  labChart = new Chart($('#labEquityChart'), {
+    type: 'line',
+    data: {labels: [], datasets: [{label: 'Equity', data: [],
+      borderColor: cssVar('--chart-line'), backgroundColor: cssVar('--chart-fill'),
+      fill: true, tension: .15, pointRadius: 0, borderWidth: 2}]},
+    options: {responsive: true, maintainAspectRatio: false, animation: reduceMotion ? false : {duration: 250},
+      plugins: {legend: {display: false}, tooltip: {backgroundColor: cssVar('--color-card'),
+        borderColor: cssVar('--color-border'), borderWidth: 1,
+        titleColor: cssVar('--color-foreground'), bodyColor: cssVar('--color-muted-foreground'),
+        titleFont: {family: 'Fira Code'}, bodyFont: {family: 'Fira Code'},
+        callbacks: {label: c => ' ' + fmt$(c.parsed.y)}}},
+      scales: {x: {ticks: {maxTicksLimit: 8, color: cssVar('--color-muted-foreground'),
+                           font: {family: 'Fira Code', size: 10}},
+                   grid: {color: cssVar('--chart-grid')}},
+               y: {ticks: {color: cssVar('--color-muted-foreground'),
+                           font: {family: 'Fira Code', size: 10},
+                           callback: v => '$' + v.toLocaleString()},
+                   grid: {color: cssVar('--chart-grid')}}}}
+  });
+}
+
+async function refreshLab() {
+  if (!labMeta) {
+    try { labMeta = await jget('/api/lab/meta'); } catch (e) { return; }
+    labFormRefresh();
+  }
+  /* while a run is in flight, poll its status (the form's 4s poll is too
+     slow for a 10s backtest — poll fast ONLY while running) */
+  const st = await jget('/api/lab/status').catch(() => null);
+  if (st) labRenderStatus(st);
+}
+
+function labFormRefresh() {
+  if (!labMeta) return;
+  const book = $('#labBook').value, kind = $('#labKind').value;
+  const tfs = (labMeta.timeframes[book] || {})[kind] || [];
+  const sym = $('#labSymbol').value;
+  const tfPrev = $('#labTimeframe').value;
+  $('#labTimeframe').innerHTML = tfs.map(t => '<option value="' + t + '">' + t + '</option>').join('');
+  $('#labTimeframe').value = tfs.includes(tfPrev) ? tfPrev : tfs[0];
+  labStrategyRefresh();
+  labDaysRefresh();
+  $('#labFeeWrap').hidden = book !== 'hft';
+  /* suggestion chips for the picked market */
+  const chips = (labMeta.suggestions || {})[kind] || [];
+  $('#labChips').innerHTML = chips.map(s =>
+    '<button type="button" class="tag tf" style="cursor:pointer;border:1px solid var(--color-border)"' +
+    ' data-sym="' + esc(s) + '">' + esc(s) + '</button>').join('');
+  if (!sym) $('#labSymbol').value = chips[0] || '';
+  $('#labSymbol').placeholder = kind === 'crypto' ? 'BTC/USDT'
+    : kind === 'forex' ? 'EURUSD' : 'RELIANCE or ^NSEI';
+}
+
+function labStrategyRefresh() {
+  const book = $('#labBook').value, tf = $('#labTimeframe').value;
+  const strats = (labMeta.strategies[book] || {})[tf] || [];
+  const prev = $('#labStrategy').value;
+  $('#labStrategy').innerHTML = strats.map(s =>
+    '<option value="' + esc(s) + '">' + (s === 'all' ? 'ALL strategies (comparison)' : esc(s)) + '</option>').join('');
+  if (strats.includes(prev)) $('#labStrategy').value = prev;
+  const cap = ((labMeta.days_cap[book] || {})[$('#labKind').value] || {})[tf];
+  const def = ((labMeta.days_default[book] || {})[$('#labKind').value] || {})[tf];
+  const note = [];
+  if (cap != null) note.push('history cap ' + cap + 'd');
+  if (tf === '1m' && $('#labKind').value !== 'crypto') note.push('yfinance caps 1m at 7d');
+  $('#labNote').textContent = note.join(' · ');
+}
+
+function labDaysRefresh() {
+  const book = $('#labBook').value, kind = $('#labKind').value, tf = $('#labTimeframe').value;
+  const cap = ((labMeta.days_cap[book] || {})[kind] || {})[tf] || 365;
+  const def = ((labMeta.days_default[book] || {})[kind] || {})[tf] || 180;
+  const opts = [1, 3, 7, 14, 30, 60, 90, 180, 365, 730, 1825, 3650].filter(d => d <= cap);
+  if (!opts.includes(def)) opts.push(def);
+  opts.sort((a, b) => a - b);
+  const prev = parseInt($('#labDays').value, 10);
+  $('#labDays').innerHTML = opts.map(d =>
+    '<option value="' + d + '"' + (d === (prev || def) ? ' selected' : '') + '>' + d + ' days</option>').join('');
+}
+
+async function labRun() {
+  const body = {
+    book: $('#labBook').value, kind: $('#labKind').value,
+    symbol: $('#labSymbol').value.trim(), timeframe: $('#labTimeframe').value,
+    strategy: $('#labStrategy').value,
+    days: parseInt($('#labDays').value, 10) || 0,
+    fee_tier: $('#labBook').value === 'hft' ? $('#labFee').value : null,
+  };
+  if (!body.symbol) { toastErr('Pick a symbol first', 'type one or tap a suggestion chip'); return; }
+  $('#labRunBtn').disabled = true;
+  try {
+    await jpost('/api/lab/run', body);
+    if (labPollTimer) clearInterval(labPollTimer);
+    labPollTimer = setInterval(async () => {
+      const st = await jget('/api/lab/status').catch(() => null);
+      if (!st) return;
+      labRenderStatus(st);
+      if (st.status !== 'running') {
+        clearInterval(labPollTimer); labPollTimer = null;
+        $('#labRunBtn').disabled = false;
+      }
+    }, 1500);
+  } catch (e) {
+    $('#labRunBtn').disabled = false;
+    toastErr('Lab refused the run', e);
+  }
+  labRenderStatus(await jget('/api/lab/status').catch(() => ({})));
+}
+
+function labRenderStatus(st) {
+  const el = $('#labStatus');
+  el.hidden = false;
+  if (st.status === 'running') {
+    el.textContent = '⏳ ' + (st.note || 'running…');
+  } else if (st.status === 'error') {
+    el.textContent = '✗ ' + (st.error || 'run failed');
+  } else if (st.status === 'done') {
+    el.hidden = true;
+    labRenderResult(st.result);
+  }
+}
+
+function labRenderResult(r) {
+  if (!r) return;
+  const s = r.spec;
+  $('#labResultCard').hidden = false;
+  $('#labResultTitle').textContent = s.symbol + ' ' + s.timeframe + ' · ' + r.stats.strategy;
+  $('#labResultMeta').textContent = '[' + s.book + (s.fee_tier ? ' · ' + s.fee_tier : '') +
+    '] ' + r.bars + ' bars · ' + r.window.first.slice(0, 10) + ' → ' + r.window.last.slice(0, 10) +
+    ' · taker RT ~' + r.taker_round_trip_bps + 'bp';
+  const st = r.stats;
+  const cards = [
+    ['Return', fmtPct(st.return_pct), st.return_pct > 0 ? 'pos' : st.return_pct < 0 ? 'neg' : '', 'full costs'],
+    ['Total P&L', fmtPnl(st.total_pnl), st.total_pnl > 0 ? 'pos' : st.total_pnl < 0 ? 'neg' : '', 'on ' + fmt$(10000) + ' basis'],
+    ['Trades', String(st.trades), '', 'win rate ' + st.win_rate_pct + '%'],
+    ['Profit factor', st.profit_factor == null ? '∞' : st.profit_factor, '', 'gross win ÷ loss'],
+    ['Max drawdown', fmtPct(st.max_drawdown_pct), 'neg', 'peak-to-trough'],
+    ['Sharpe', st.sharpe == null ? '—' : st.sharpe, '', 'annualized'],
+    ['Fees paid', fmt$(st.fees), 'neg', 'the cost autopsy'],
+  ];
+  $('#labStats').innerHTML = cards.map(c =>
+    '<div class="stat"><div class="label">' + STAT_ICON + esc(c[0]) + '</div>' +
+    '<div class="value ' + c[2] + '">' + esc(c[1]) + '</div>' +
+    '<div class="sub">' + esc(c[3]) + '</div></div>').join('');
+  $('#labCurveHint').textContent = r.stats.strategy + ' · ' + r.equity_curve.length + ' pts';
+  if (labChart) {
+    labChart.data.labels = r.equity_curve.map(p => fmtTs(p.ts));
+    labChart.data.datasets[0].data = r.equity_curve.map(p => p.equity);
+    labChart.update(reduceMotion ? 'none' : undefined);
+  }
+  $('#labExits').innerHTML = Object.entries(r.exit_reasons || {}).map(([k, v]) =>
+    '<span class="tag tf">' + esc(k) + ' × ' + v + '</span>').join('') ||
+    '<span class="hint">no exits</span>';
+  /* comparison table (the "apply strategies" plural view) */
+  const cmp = r.comparison;
+  $('#labCompareCard').hidden = !cmp;
+  if (cmp) {
+    const sorted = [...cmp].sort((a, b) => b.total_pnl - a.total_pnl);
+    $('#labCompareTable tbody').innerHTML = sorted.map(c =>
+      '<tr><td class="mono" style="color:var(--color-blue)">' + esc(c.strategy) + '</td>' +
+      '<td class="num ' + (c.return_pct > 0 ? 'pos' : c.return_pct < 0 ? 'neg' : '') + '">' + fmtPct(c.return_pct) + '</td>' +
+      '<td class="num ' + (c.total_pnl > 0 ? 'pos' : c.total_pnl < 0 ? 'neg' : '') + '">' + fmtPnl(c.total_pnl) + '</td>' +
+      '<td class="num">' + c.trades + '</td>' +
+      '<td class="num">' + c.win_rate_pct + '%</td>' +
+      '<td class="num">' + esc(c.profit_factor == null ? '∞' : c.profit_factor) + '</td>' +
+      '<td class="num neg">' + fmtPct(c.max_drawdown_pct) + '</td>' +
+      '<td class="num">' + esc(c.sharpe == null ? '—' : c.sharpe) + '</td>' +
+      '<td class="num">' + fmt$(c.fees) + '</td></tr>').join('');
+  }
+  /* trades of the best strategy (last 200) */
+  const trades = r.trades || [];
+  $('#labTradesCard').hidden = trades.length === 0;
+  $('#labTradesHint').textContent = trades.length + ' most recent (of ' + st.trades + ')';
+  $('#labTradeTable tbody').innerHTML = trades.slice().reverse().map(t =>
+    '<tr><td class="mono" style="color:var(--color-muted-foreground)">' + esc(fmtTs(t.entry_ts)) + '</td>' +
+    '<td>' + sideTag(t.side) + '</td>' +
+    '<td class="num">' + fmtQty(t.qty) + '</td>' +
+    '<td class="num">' + fmtPx(t.entry_price, t.symbol) + '</td>' +
+    '<td class="num">' + fmtPx(t.exit_price, t.symbol) + '</td>' +
+    '<td class="num ' + posCls(t.pnl) + '">' + fmtPnl(t.pnl) + '</td>' +
+    '<td style="color:var(--color-muted-foreground)">' + esc(t.exit_reason || '—') + '</td></tr>').join('');
+  toast('Lab run complete', r.stats.strategy + ': ' + fmtPct(r.stats.return_pct) +
+        ' over ' + st.trades + ' trades', r.stats.return_pct >= 0);
+}
+
+$('#labBook').addEventListener('change', labFormRefresh);
+$('#labKind').addEventListener('change', () => { labFormRefresh(); });
+$('#labTimeframe').addEventListener('change', labStrategyRefresh);
+$('#labChips').addEventListener('click', e => {
+  const b = e.target.closest('[data-sym]');
+  if (b) { $('#labSymbol').value = b.dataset.sym; }
+});
+$('#labRunBtn').addEventListener('click', labRun);
 
 /* ===================================================== market toggle
    One market at a time: ON = Forex (crypto + forex universe), OFF = India
@@ -3513,6 +3862,7 @@ if (typeof Chart === 'undefined') {
 } else {
   buildEquityChart();
   buildHftEquityChart();
+  buildLabEquityChart();
 }
 /* sync the switcher + browser chrome with the theme <head> already applied;
    runs after buildEquityChart so applyChartTheme sees a live chart */

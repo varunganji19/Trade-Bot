@@ -5213,6 +5213,222 @@ def test_hft_triangular_scan_journals_and_settles():
 
 
 
+# ================================================================== Strategy Lab
+def test_lab_symbol_normalization():
+    """Every kind's aliases normalize; garbage is refused with a helpful
+    message, never guessed (a wrong symbol is a wrong trade)."""
+    from bot.lab import LabError, normalize_symbol
+    assert normalize_symbol("crypto", "btcusdt") == "BTC/USDT"
+    assert normalize_symbol("crypto", "BTC-USDT") == "BTC/USDT"
+    assert normalize_symbol("crypto", "eth/btc") == "ETH/BTC"
+    assert normalize_symbol("forex", "eurusd") == "EURUSD=X"
+    assert normalize_symbol("forex", "EUR/USD") == "EURUSD=X"
+    assert normalize_symbol("forex", "usdjpy=x") == "USDJPY=X"
+    assert normalize_symbol("india", "reliance") == "RELIANCE.NS"
+    assert normalize_symbol("india", "TCS.NS") == "TCS.NS"
+    assert normalize_symbol("india", "nifty") == "^NSEI"
+    assert normalize_symbol("india", "banknifty") == "^NSEBANK"
+    for kind, bad in [("crypto", "NOTACOIN"), ("forex", "EUR"), ("india", "!!")]:
+        try:
+            normalize_symbol(kind, bad)
+            raise AssertionError(f"{bad} should have been refused")
+        except LabError:
+            pass
+
+
+def test_lab_registry_derivation():
+    """The lab's strategy/timeframe menus derive from the registry: every
+    strategy offered for a timeframe actually owns it."""
+    from bot.lab import strategies_for, timeframes_for
+    from bot.strategies import STRATEGY_CLASSES
+    for book in ("standard", "hft"):
+        for kind in ("crypto", "forex", "india"):
+            for tf in timeframes_for(book, kind):
+                for name in strategies_for(book, tf):
+                    if name == "ensemble":
+                        continue
+                    assert tf in STRATEGY_CLASSES[name].preferred_timeframes, (book, kind, tf, name)
+    # the books stay separated: no HFT strategy in the standard menus
+    for tf in timeframes_for("standard", "crypto"):
+        assert not [s for s in strategies_for("standard", tf) if s.startswith("hft_")]
+    for tf in timeframes_for("hft", "crypto"):
+        for s in strategies_for("hft", tf):
+            assert s == "ensemble" or s.startswith("hft_")
+    # india 15m excluded for the standard book (yfinance 60d cap vs warmup)
+    assert "15m" not in timeframes_for("standard", "india")
+
+
+def test_lab_validate_and_guardrails():
+    """Windows clamp to the data source's real caps and the HFT book's
+    strategies never leak into the standard book's runs."""
+    from bot.lab import LabError, LabSpec, days_cap
+    assert days_cap("standard", "forex", "1m") == 7      # yfinance cap
+    assert days_cap("standard", "crypto", "1m") == 14    # lab compute cap
+    assert days_cap("standard", "crypto", "1h") == 730
+    spec = LabSpec(book="standard", kind="crypto", symbol="BTCUSDT",
+                   timeframe="1h", strategy="turtle_trend", days=99_999)
+    try:
+        from bot.lab import _validate
+        _validate(spec)
+        raise AssertionError("days over cap should be refused")
+    except LabError as exc:
+        assert "730d cap" in str(exc)
+    spec = LabSpec(book="standard", kind="crypto", symbol="BTCUSDT",
+                   timeframe="1h", strategy="hft_market_maker")
+    try:
+        from bot.lab import _validate
+        _validate(spec)
+        raise AssertionError("hft strategy in the standard book should be refused")
+    except LabError:
+        pass
+    spec = LabSpec(book="hft", kind="crypto", symbol="BTC/USDT",
+                   timeframe="1h", strategy="hft_market_maker")
+    from bot.lab import _validate
+    try:
+        _validate(spec)
+        raise AssertionError("1h is not an HFT timeframe")
+    except LabError:
+        pass
+
+
+def test_lab_end_to_end_hermetic_run():
+    """Full flow on synthetic data (fetch monkeypatched): run + status polling
+    + result payload + artifact written — without touching the network."""
+    from bot import lab
+    df = add_all_indicators(make_df(100 * np.cumprod(
+        1 + np.random.default_rng(11).normal(0.0008, 0.004, 500))))
+    calls = []
+
+    def fake_fetch(spec, days=None, start=None, end=None):
+        calls.append((spec.symbol, spec.timeframe, days))
+        return df.copy()
+
+    old_fetch = None
+    import bot.data as data_mod
+    old_fetch = data_mod.fetch_history
+    data_mod.fetch_history = fake_fetch
+    old_results_dir = os.getcwd()
+    try:
+        res = lab.start_lab_run({"book": "standard", "kind": "crypto",
+                                 "symbol": "btcusdt", "timeframe": "1h",
+                                 "strategy": "turtle_trend", "days": 180})
+        assert res["status"] == "started" and res["spec"]["symbol"] == "BTC/USDT"
+        for _ in range(200):
+            st = lab.lab_status()
+            if st["status"] in ("done", "error"):
+                break
+            time.sleep(0.05)
+        assert st["status"] == "done", st.get("error")
+        r = st["result"]
+        assert r["spec"]["symbol"] == "BTC/USDT" and r["bars"] == 500
+        assert r["stats"]["strategy"] == "turtle_trend"
+        assert isinstance(r["trades"], list) and isinstance(r["equity_curve"], list)
+        assert calls and calls[0][0] == "BTC/USDT"
+
+        # busy: a second run while one is in flight is refused (422 at the API)
+        lab.start_lab_run({"book": "standard", "kind": "crypto", "symbol": "ETH/USDT",
+                           "timeframe": "1h", "strategy": "turtle_trend"})
+        try:
+            lab.start_lab_run({"book": "standard", "kind": "crypto", "symbol": "XRP/USDT",
+                               "timeframe": "1h", "strategy": "turtle_trend"})
+            raise AssertionError("concurrent run should be refused")
+        except lab.LabError as exc:
+            assert "already in progress" in str(exc)
+        for _ in range(200):
+            if not lab.lab_running():
+                break
+            time.sleep(0.05)
+
+        # comparison mode: 'all' runs every registered strategy
+        lab.start_lab_run({"book": "standard", "kind": "crypto", "symbol": "BTC/USDT",
+                                  "timeframe": "1h", "strategy": "all", "days": 180})
+        for _ in range(400):
+            st2 = lab.lab_status()
+            if st2["status"] in ("done", "error"):
+                break
+            time.sleep(0.05)
+        assert st2["status"] == "done", st2.get("error")
+        cmp = st2["result"]["comparison"]
+        assert cmp and len(cmp) >= 2 and all("return_pct" in c for c in cmp)
+        # the chart payload comes from the best-PnL strategy
+        best = max(cmp, key=lambda c: c["total_pnl"])
+        assert st2["result"]["stats"]["strategy"] == best["strategy"]
+    finally:
+        data_mod.fetch_history = old_fetch
+        os.chdir(old_results_dir)
+        lab._lab_state.update(status="idle", result=None, error=None, note="")
+
+
+def test_lab_dashboard_endpoints():
+    """The Lab API surface: meta is registry-derived, bad input is 422 with a
+    helpful message, and the tab renders."""
+    from fastapi.testclient import TestClient
+    import config as config_mod
+    import bot.dashboard as dash_mod
+    with tempfile.TemporaryDirectory() as td:
+        saved = (CONFIG.db_path, config_mod.WATCHLIST_PATH, dash_mod.journal, dash_mod.chatbot)
+        CONFIG.db_path = os.path.join(td, "t.db")
+        config_mod.WATCHLIST_PATH = os.path.join(td, "watchlist.json")
+        try:
+            dash_mod.journal = dash_mod.Journal(CONFIG.db_path)
+            dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
+            client = TestClient(dash_mod.app)
+            meta = client.get("/api/lab/meta").json()
+            assert set(meta["suggestions"]) == {"crypto", "forex", "india"}
+            assert "1m" in meta["timeframes"]["hft"]["crypto"]
+            assert "15m" not in meta["timeframes"]["standard"]["india"]
+            assert "turtle_trend" in meta["strategies"]["standard"]["1h"]
+            assert "hft_market_maker" in meta["strategies"]["hft"]["1m"]
+            assert client.get("/api/lab/status").json()["status"] == "idle"
+            r = client.post("/api/lab/run", json={"book": "standard", "kind": "crypto",
+                                                  "symbol": "NOTACOIN", "timeframe": "1h",
+                                                  "strategy": "turtle_trend"})
+            assert r.status_code == 422 and "BASE/QUOTE" in r.json()["detail"]
+            r = client.post("/api/lab/run", json={"book": "standard", "kind": "india",
+                                                  "symbol": "RELIANCE", "timeframe": "15m",
+                                                  "strategy": "turtle_trend"})
+            assert r.status_code == 422
+            html = client.get("/").text
+            assert 'data-view="lab"' in html and 'id="labRunBtn"' in html
+            assert "/api/lab/meta" in html
+        finally:
+            (CONFIG.db_path, config_mod.WATCHLIST_PATH, dash_mod.journal, dash_mod.chatbot) = saved
+
+
+def test_orchestrator_flat_votes_do_not_dilute():
+    """A FLAT strategy is an ABSTENTION, not a vote against: its weight must
+    not enter the vote denominator. The old total_weight counted abstaining
+    voters, so a lone directional signal on any timeframe with several
+    registered strategies (the HFT 1m trio) was diluted below the entry
+    threshold into permanent HOLD."""
+    from bot.orchestrator import Orchestrator
+    from bot.strategies import Signal
+
+    class Fake:
+        preferred_timeframes = ("1m",)
+
+        def __init__(self, name, sig):
+            self.name, self._sig = name, sig
+
+        def evaluate(self, df, i):
+            return self._sig
+
+    orch = Orchestrator(CONFIG.params, llm_client=None, sentiment_overlay=None, cfg=CONFIG)
+    orch.strategies = {
+        "hft_market_maker": Fake("hft_market_maker",
+                                 Signal("hft_market_maker", "LONG", 0.60,
+                                        stop_distance=1.0, limit_price=99.0)),
+        "hft_micro_breakout": Fake("hft_micro_breakout",
+                                   Signal("hft_micro_breakout", "FLAT", 0.0)),
+    }
+    df = add_all_indicators(make_df(
+        100 * np.cumprod(1 + np.random.default_rng(5).normal(0, 0.002, 400)), freq="1min"))
+    d = orch.decide(df, 350, MarketSpec("crypto", "TEST/USDT", "1m"), include_sentiment=False)
+    assert d.action == "LONG", d.rationale
+    assert d.confidence >= CONFIG.risk.min_confidence
+    assert d.limit_price == 99.0        # the maker entry rides through ensemble mode
+
+
 if __name__ == "__main__":
     fails = 0
     fns = [(n, f) for n, f in sorted(globals().items())

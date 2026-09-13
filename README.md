@@ -29,7 +29,7 @@ tiers, and its own dashboard page — see [HFT.md](HFT.md).
   statistics that quantify how much of the Sharpe is trial-selection.
 - **Causality and determinism are tested**, not assumed: truncating history at
   bar *i* cannot change the bar-*i* signal; identical inputs produce identical
-  trades. **182 tests**, CI on every push.
+  trades. **188 tests**, CI on every push.
 
 Built for a competition with an explicit engineering thesis: **the edge is the
 process** — evidence-based strategies (researched from the most profitable
@@ -101,6 +101,13 @@ python3 main.py dashboard           # → http://127.0.0.1:8000
 #    "why did you buy BTC?", "which strategy is best?" — and open the
 #    Evidence tab: the honesty layer, rendered)
 
+# 3a-2. Strategy Lab — pick ANY stock/pair, apply strategies, backtest
+#    (dashboard: the Lab tab; works for BOTH books via a toggle)
+python3 main.py dashboard            # → http://127.0.0.1:8000/#lab
+#    crypto/forex/NSE symbols normalize from aliases ("btcusdt", "reliance",
+#    "nifty"); "ALL strategies" runs a comparison on one fetched frame;
+#    async runs poll /api/lab/status; artifacts land in data/results/lab_*.json
+
 # 3b. the high-frequency paper book (separate account + dashboard tab)
 python3 main.py hft-backtest --symbol BTC/USDT --timeframe 1m --days 3 \
   --strategy hft_market_maker            # maker fills, perp fee tier
@@ -120,7 +127,7 @@ python3 main.py market --mode india # switch to the NSE universe (refused while 
 make test / make lint / make demo / make battery   # common tasks
 python3 main.py chat "explain the connors strategy"
 python3 main.py seed-demo           # fill journal with real backtest history for the demo
-python3 tests/test_bot.py           # 182 tests
+python3 tests/test_bot.py           # 188 tests
 ```
 
 ## The strategies (each mapped to evidence — see RESEARCH.md)
@@ -371,7 +378,7 @@ models/kronos/       vendored Kronos model source (upstream MIT license vendored
                      weights via HF Hub)
 HFT.md               the high-frequency paper book: research grounding,
                      fee math, strategies, harness, measured results
-tests/test_bot.py    182 tests: indicators, strategies, causality, determinism,
+tests/test_bot.py    188 tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,
                      shadow, journal, backtest, live-engine regressions
                      (cross-timeframe isolation, restart cash, bars_held)

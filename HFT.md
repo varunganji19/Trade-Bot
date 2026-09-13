@@ -137,6 +137,19 @@ Env: `HFT_PAPER_CAPITAL` (default 10000), `HFT_INTERVAL` (20s), `HFT_FEE_TIER`
 (perp|spot), `HFT_PENETRATION_BPS` (0), `HFT_ENABLED` (1), `ALGO_NO_AUTO_RESUME`
 (also keeps the HFT engine from auto-resuming on dashboard boot).
 
+## The Strategy Lab (pick a stock -> apply strategies -> backtest)
+
+The dashboard's **Lab** tab serves BOTH books: toggle Standard / HFT, pick a
+market (crypto / forex / NSE — aliases like "btcusdt", "reliance", "nifty"
+normalize automatically), and the strategy menu shows every strategy
+REGISTERED for the chosen timeframe (derived from the registry, never
+hand-maintained). "ALL strategies" runs a comparison on one fetched frame;
+the run is async (poll status), lands in `data/results/lab_*.json`, and is a
+pure backtest — open paper positions are never touched. The lab's
+regime-aware note: with three strategies voting on 1m, the ensemble blend is
+now live (an abstaining strategy's weight no longer dilutes the vote into
+permanent HOLD — that orchestrator fix is regression-tested).
+
 ## Scope notes, stated honestly
 
 - **Universe is crypto + forex.** The HFT book is USD-only (single-currency

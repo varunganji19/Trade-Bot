@@ -230,8 +230,8 @@ def fetch_forex_ohlcv(symbol: str, timeframe: str, start: str | None = None,
     # no `days` argument: Yahoo's period is fixed per interval (period_map
     # below) — the old days= param was silently ignored, so it's gone
     # Yahoo granularity constraints: 5m/15m max 60d back, 1h max 730d.
-    interval = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d"}[timeframe]
-    period_map = {"5m": "60d", "15m": "60d", "1h": "730d", "4h": "730d", "1d": "5y"}
+    interval = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d"}[timeframe]
+    period_map = {"1m": "7d", "5m": "60d", "15m": "60d", "1h": "730d", "4h": "730d", "1d": "5y"}
     df = _yahoo_ohlcv(symbol, interval, start, end,
                       period_map[timeframe], origin="forex")
     if timeframe == "4h":  # resample 1h -> 4h

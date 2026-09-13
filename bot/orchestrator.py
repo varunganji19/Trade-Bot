@@ -35,8 +35,12 @@ from dataclasses import dataclass, field
 from bot.strategies import get_strategies, Signal
 
 REGIME_WEIGHTS = {
-    "trending": {"turtle_trend": 0.55, "vwap_scalper": 0.30, "connors_meanrev": 0.15},
-    "ranging": {"connors_meanrev": 0.55, "vwap_scalper": 0.30, "turtle_trend": 0.15},
+    "trending": {"turtle_trend": 0.55, "vwap_scalper": 0.30, "connors_meanrev": 0.15,
+                 "hft_micro_breakout": 0.45, "hft_exhaustion_fade": 0.30,
+                 "hft_market_maker": 0.25},
+    "ranging": {"connors_meanrev": 0.55, "vwap_scalper": 0.30, "turtle_trend": 0.15,
+                "hft_exhaustion_fade": 0.45, "hft_market_maker": 0.30,
+                "hft_micro_breakout": 0.25},
 }
 KRONOS_VOTE_WEIGHT = 0.20   # only applied once Kronos has earned voting rights
 
@@ -53,6 +57,9 @@ class Decision:
     sentiment: dict = field(default_factory=dict)
     price: float = 0.0
     strategy_name: str = ""        # dominant strategy driving the decision (attribution)
+    # maker entry (HFT book): when the winning strategy quoted a resting
+    # limit, the order rests at this price instead of crossing the spread
+    limit_price: float | None = None
 
 
 def detect_regime(df, i: int) -> tuple[str, dict]:
@@ -141,6 +148,7 @@ class Orchestrator:
 
         stop_distance = best.stop_distance if (best and best.action == action) else None
         target_rr = best.target_rr if (best and best.action == action) else None
+        limit_price = best.limit_price if (best and best.action == action) else None
 
         rationale_parts = [f"Regime {regime} (ADX {regime_meta.get('adx', '?')}, bias {regime_meta.get('bias', '?')})."]
         rationale_parts.append(self._signals_summary(raw_signals))
@@ -209,6 +217,7 @@ class Orchestrator:
             sentiment=self.sentiment.last_result or {} if self.sentiment else {},
             price=price,
             strategy_name=(best.strategy if (best and best.action == action and action != "HOLD") else ""),
+            limit_price=limit_price if action != "HOLD" else None,
         )
 
     @staticmethod

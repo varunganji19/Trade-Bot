@@ -7,8 +7,10 @@ An autonomous trading bot for **crypto and forex** — with a one-click toggle t
 **India's NSE** (Nifty 50 + NSE cash equities) — that reads chart data and news,
 decides **buy / sell / hold** with written reasoning, sizes and manages positions
 by itself — plus a live **dashboard** (equity curve, trade history, strategy
-attribution, decision feed, **evidence view**) and a **chatbot** that answers
-questions about its own trading record.
+attribution, decision feed, **evidence view**) and a chatbot that answers
+questions about its own trading record. A **separate high-frequency paper book**
+(`mode='hft'`) trades 1-minute bars with maker-fill simulation, its own fee
+tiers, and its own dashboard page — see [HFT.md](HFT.md).
 
 **Why this is different** (each bullet is a measured result, not a claim):
 
@@ -27,7 +29,7 @@ questions about its own trading record.
   statistics that quantify how much of the Sharpe is trial-selection.
 - **Causality and determinism are tested**, not assumed: truncating history at
   bar *i* cannot change the bar-*i* signal; identical inputs produce identical
-  trades. **101 tests**, CI on every push.
+  trades. **182 tests**, CI on every push.
 
 Built for a competition with an explicit engineering thesis: **the edge is the
 process** — evidence-based strategies (researched from the most profitable
@@ -99,6 +101,16 @@ python3 main.py dashboard           # → http://127.0.0.1:8000
 #    "why did you buy BTC?", "which strategy is best?" — and open the
 #    Evidence tab: the honesty layer, rendered)
 
+# 3b. the high-frequency paper book (separate account + dashboard tab)
+python3 main.py hft-backtest --symbol BTC/USDT --timeframe 1m --days 3 \
+  --strategy hft_market_maker            # maker fills, perp fee tier
+python3 main.py hft-backtest --triangular --days 3   # the arb monitor (measures its own absence)
+python3 main.py hft-battery             # every strategy x symbol x fee tier
+python3 main.py hft-run                 # live 1m paper engine (mode='hft')
+python3 main.py hft-status              # ALL high-frequency trades, one place
+#   (the dashboard's HFT tab has its own engine controls, equity curve,
+#    full HFT trade history and decision feed)
+
 # 4. other commands
 python3 main.py status              # journal summary (+ pause state)
 python3 main.py pause "note"        # manual halt: new entries only, nothing force-closed
@@ -108,7 +120,7 @@ python3 main.py market --mode india # switch to the NSE universe (refused while 
 make test / make lint / make demo / make battery   # common tasks
 python3 main.py chat "explain the connors strategy"
 python3 main.py seed-demo           # fill journal with real backtest history for the demo
-python3 tests/test_bot.py           # 101 tests
+python3 tests/test_bot.py           # 182 tests
 ```
 
 ## The strategies (each mapped to evidence — see RESEARCH.md)
@@ -342,7 +354,13 @@ bot/
   kronos_signal.py   Kronos foundation-model signal: probabilistic forecast,
                      IC ledger, earned voting rights
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
+  hft/               the separate high-frequency paper book (HFT.md):
+                     config factory, perp/spot fee tiers, triangular-arb
+                     monitor, harness battery — 1m strategies in
+                     bot/strategies/hft.py (maker fills, A-S market maker)
   journal.py         SQLite: decisions / trades / equity / chat_log
+                     (mode column: 'paper' standard book, 'demo' seeded
+                     replays, 'hft' high-frequency book)
   chatbot.py         journal-aware Q&A (LLM or deterministic)
   dashboard.py       FastAPI + Chart.js single-page dashboard (incl. Evidence
                      view: Kronos IC ledger, purged-CV paths, PBO/DSR verdicts,
@@ -351,7 +369,9 @@ bot/
   seed_demo.py       fill the journal from real backtests (mode='demo', badged)
 models/kronos/       vendored Kronos model source (upstream MIT license vendored;
                      weights via HF Hub)
-tests/test_bot.py    101 tests: indicators, strategies, causality, determinism,
+HFT.md               the high-frequency paper book: research grounding,
+                     fee math, strategies, harness, measured results
+tests/test_bot.py    182 tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,
                      shadow, journal, backtest, live-engine regressions
                      (cross-timeframe isolation, restart cash, bars_held)

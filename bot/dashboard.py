@@ -8,6 +8,9 @@ Tabs (hash routing, ~4s polling):
   #overview   — equity curve, headline stats, engine controls, decision feed,
                 per-strategy PnL bars
   #portfolio  — open positions (live marks, manual close) + trade history
+  #hft        — the SEPARATE high-frequency paper book: its own engine
+                controls, equity curve, ALL HFT trades in one place, decision
+                feed incl. the TRI-ETH triangular-arb monitor (mode='hft')
   #watchlist  — full CRUD of what the bot trades (persisted data/watchlist.json;
                 hot-reloads into a RUNNING engine's CONFIG)
   #evidence   — the honesty layer, rendered: Kronos rolling IC vs its promotion
@@ -65,6 +68,7 @@ async def _lifespan(_app):
     # deprecation warnings on every boot and test run); the body lives below
     # the handlers it calls and resolves at startup time
     _auto_resume_engine()
+    _auto_resume_hft_engine()
     yield
 
 
@@ -285,6 +289,83 @@ def _get_engine() -> TradingEngine | None:
     global _engine
     with _engine_lock:
         return _engine
+
+
+# ------------------------------------------------------- HFT engine (mode=hft)
+# The high-frequency book's engine: same TradingEngine class on the HFT
+# config (bot/hft.py), a SEPARATE broker/cash/risk state, and journal rows
+# tagged mode='hft' — the two books never share positions or equity.
+_hft_lock = threading.Lock()
+_hft_engine: TradingEngine | None = None
+_hft_thread: threading.Thread | None = None
+_last_hft_error: str | None = None
+_hft_interval: int = 20
+_HFT_AUTO_RESUMED_AT_BOOT = False
+
+
+def _hft_state_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(CONFIG.db_path)),
+                        "hft_engine_state.json")
+
+
+def _write_hft_state(running: bool, interval: int):
+    try:
+        tmp = _hft_state_path() + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"desired": "running" if running else "stopped",
+                       "interval": interval}, f)
+        os.replace(tmp, _hft_state_path())
+    except OSError:
+        pass
+
+
+def _spawn_hft_engine(interval: int) -> dict:
+    """Build + start the HFT engine thread (mirrors _spawn_engine)."""
+    global _hft_engine, _hft_thread, _hft_interval
+    from bot.hft import build_hft_engine
+    eng = build_hft_engine(journal=journal, quiet=False)
+    with _hft_lock:
+        if _hft_engine is not None:
+            return {"status": "already_running", "cycles": _hft_engine.cycles}
+        if _hft_thread is not None and _hft_thread.is_alive():
+            return {"status": "stopping", "cycles": 0}
+        _hft_engine = eng
+        _hft_interval = interval
+
+    def _hft_loop(eng_ref, interval):
+        global _hft_engine, _last_hft_error
+        import time as _t
+        while _get_hft_engine() is eng_ref:
+            cycle_t0 = _t.monotonic()
+            try:
+                eng_ref.run_cycle()
+            except Exception as exc:
+                eng_ref.last_error = f"{type(exc).__name__}: {exc}"
+                _last_hft_error = eng_ref.last_error
+                traceback.print_exc()
+                eng_ref.cycles += 1
+                with _hft_lock:
+                    if _hft_engine is eng_ref:
+                        _hft_engine = None
+                break
+            remaining = max(0.0, interval - (_t.monotonic() - cycle_t0))
+            deadline = _t.monotonic() + remaining
+            while _t.monotonic() < deadline:
+                if _get_hft_engine() is not eng_ref:
+                    return
+                _t.sleep(min(1.0, max(0.0, deadline - _t.monotonic())))
+            if _get_hft_engine() is not eng_ref:
+                break
+
+    _hft_thread = threading.Thread(target=_hft_loop, args=(eng, interval), daemon=True)
+    _hft_thread.start()
+    return {"status": "started", "interval": interval}
+
+
+def _get_hft_engine() -> TradingEngine | None:
+    global _hft_engine
+    with _hft_lock:
+        return _hft_engine
 
 
 # ---------------------------------------------------------------------------
@@ -919,6 +1000,29 @@ def _auto_resume_engine():
               f"from the Overview tab, or set ALGO_NO_AUTO_RESUME=1 before boot")
 
 
+def _auto_resume_hft_engine():
+    """Same contract as the standard engine's auto-resume, for the HFT book:
+    a stopped book stays stopped, a running one resumes with a toast."""
+    global _HFT_AUTO_RESUMED_AT_BOOT
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return
+    if os.environ.get("ALGO_NO_AUTO_RESUME", "") not in ("", "0", "false"):
+        return
+    try:
+        with open(_hft_state_path()) as f:
+            state = json.load(f)
+        if not isinstance(state, dict) or state.get("desired") != "running":
+            return
+        interval = int(state.get("interval", CONFIG.hft.live_interval_seconds))
+    except (OSError, ValueError, TypeError, OverflowError):
+        return
+    interval = max(5, min(3600, interval))
+    result = _spawn_hft_engine(interval)
+    if result["status"] == "started":
+        _HFT_AUTO_RESUMED_AT_BOOT = True
+        print(f"[dashboard] HFT book auto-resumed (interval {interval}s)")
+
+
 @app.get("/api/engine/status")
 def api_engine_status():
     # paused = the operator's manual halt. It is shown for a STOPPED engine
@@ -949,6 +1053,103 @@ def api_engine_status():
             "last_error": _last_engine_error, "health_note": None,
             "paused": paused,
             "market_mode": config_mod.get_market_mode()}
+
+
+# ------------------------------------------------------------- HFT book API
+# The high-frequency paper book (mode='hft'): separate engine thread, account,
+# universe (1m crypto + forex), and the ONE PLACE all HFT trades live. Every
+# read filters mode='hft' — the standard book's pages never show these rows.
+@app.get("/api/hft/stats")
+def api_hft_stats():
+    h = CONFIG.hft
+    stats = journal.stats(mode="hft")
+    eng = _get_hft_engine()
+    positions = []
+    if eng is not None:
+        positions, marks, price_map = _live_state(eng)
+        stats["engine_running"] = True
+        stats["cycles"] = eng.cycles
+        stats["broker_equity"] = round(eng.broker.equity(price_map), 2)
+        stats["last_error"] = eng.last_error
+        stats["health_note"] = getattr(eng, "health_note", None)
+    else:
+        marks = {}
+        stats["engine_running"] = False
+        stats["cycles"] = 0
+        stats["last_error"] = _last_hft_error
+    stats["positions"] = [_position_dict(p, marks) for p in positions]
+    stats["capital"] = h.paper_capital
+    from bot.hft import hft_fee_tier
+    stats["fee_tier"] = hft_fee_tier()
+    stats["interval"] = _hft_interval if eng is not None else h.live_interval_seconds
+    stats["auto_resumed"] = _HFT_AUTO_RESUMED_AT_BOOT
+    stats["paused"], _ = is_paused()
+    return stats
+
+
+@app.get("/api/hft/equity")
+def api_hft_equity():
+    return journal.equity_curve(limit=2000, mode="hft")
+
+
+@app.get("/api/hft/trades")
+def api_hft_trades(limit: int = Query(default=1000, ge=1, le=1000)):
+    """ALL high-frequency trades in one place (mode='hft' rows, newest first)."""
+    return journal.recent_trades(limit=limit, mode="hft")
+
+
+@app.get("/api/hft/decisions")
+def api_hft_decisions(limit: int = Query(default=50, ge=1, le=200)):
+    return journal.recent_decisions(limit=limit, mode="hft")
+
+
+@app.post("/api/hft/engine/start")
+def api_hft_engine_start(body: EngineIn):
+    if not CONFIG.hft.enabled:
+        raise HTTPException(409, "HFT book disabled via HFT_ENABLED=0")
+    existing = _get_hft_engine()
+    if existing is not None:
+        return {"status": "already_running", "cycles": existing.cycles}
+    result = _spawn_hft_engine(body.interval)
+    if result["status"] == "started":
+        _write_hft_state(True, body.interval)
+    return result
+
+
+@app.post("/api/hft/engine/stop")
+def api_hft_engine_stop(body: EmptyIn):
+    global _hft_engine, _hft_thread, _hft_interval
+    with _hft_lock:
+        if _hft_engine is None:
+            _write_hft_state(False, CONFIG.hft.live_interval_seconds)
+            return {"status": "not_running"}
+        _hft_engine = None
+    th = _hft_thread
+    if th is not None and th is not threading.current_thread():
+        th.join(timeout=300)
+        if th.is_alive():
+            return {"status": "stopping"}
+    _write_hft_state(False, _hft_interval)
+    return {"status": "stopped"}
+
+
+@app.get("/api/hft/engine/status")
+def api_hft_engine_status():
+    eng = _get_hft_engine()
+    th = _hft_thread
+    if eng is not None:
+        return {"running": True, "cycles": eng.cycles,
+                "positions": len(eng.broker.positions_snapshot()),
+                "interval": _hft_interval,
+                "alive": bool(th is not None and th.is_alive()),
+                "last_error": eng.last_error or _last_hft_error,
+                "health_note": getattr(eng, "health_note", None),
+                "paused": is_paused()[0]}
+    return {"running": False, "cycles": 0, "positions": 0,
+            "interval": CONFIG.hft.live_interval_seconds,
+            "alive": bool(th is not None and th.is_alive()),
+            "last_error": _last_hft_error, "health_note": None,
+            "paused": is_paused()[0]}
 
 
 @app.post("/api/trading/pause")
@@ -1785,6 +1986,9 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   <button class="tab" data-view="portfolio" id="tab-portfolio">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
     Portfolio</button>
+  <button class="tab" data-view="hft" id="tab-hft">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+    HFT</button>
   <button class="tab" data-view="watchlist" id="tab-watchlist">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-clock"/></svg>
     Watchlist</button>
@@ -1914,6 +2118,58 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
     </div>
     <div class="empty" id="tradeEmpty" hidden>No trades yet — start the engine.</div>
     <p class="hint" id="tradeModeNote" style="margin-top:10px">Trades from previous market modes remain in the journal history; the bot only opens new positions in the active market.</p>
+  </div>
+</section>
+
+<!-- ================================================================ HFT -->
+<section class="view" id="view-hft">
+  <div class="card">
+    <div class="card-head">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>High-frequency book <span class="badge">1m · paper</span></h2>
+      <span class="hint" id="hftFeeHint"></span>
+    </div>
+    <p class="hint" style="margin:0 0 10px">A SECOND paper account trading 1-minute bars (crypto + forex) with its own capital, risk dials and fee tier — the standard book above is untouched. HFT strategies: <b>hft_market_maker</b> (Avellaneda–Stoikov-inspired maker quotes), <b>hft_exhaustion_fade</b> (volume-spike reversion, maker entry), <b>hft_micro_breakout</b> (2R micro-range breakout, taker) + the <b>TRI-ETH</b> triangular-arb monitor. Research + fee math: <code>HFT.md</code>.</p>
+    <div class="stat-grid" id="hftStats"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px" id="hftEngineControls">
+      <button class="btn primary" id="hftStartBtn">Start HFT engine</button>
+      <button class="btn danger" id="hftStopBtn" disabled>Stop</button>
+      <span class="engine-pill"><span class="dot" id="hftEngineDot"></span><span id="hftPillText">hft: checking…</span></span>
+    </div>
+    <p class="hint" id="hftEngineNote" style="margin:8px 0 0" hidden></p>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Equity curve</h2>
+      <span class="hint">mode='hft' journal rows</span>
+    </div>
+    <div class="chart-wrap"><canvas id="hftEquityChart" aria-label="HFT equity curve" role="img"></canvas></div>
+    <div class="empty" id="hftEquityEmpty" hidden>No HFT equity points yet — start the HFT engine.</div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>All high-frequency trades</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label class="fld" for="hftStratFilter" style="margin:0">Filter</label>
+        <select id="hftStratFilter" style="min-height:36px;width:auto" aria-label="Filter HFT trades by strategy">
+          <option value="">all strategies</option>
+        </select>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table id="hftTradeTable"><thead><tr>
+        <th>Opened</th><th>Market</th><th>Side</th><th class="num">Qty</th>
+        <th class="num">Entry</th><th class="num">Exit</th><th class="num">P&amp;L</th>
+        <th>Strategy</th><th>Status</th><th>Exit reason</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <div class="empty" id="hftTradeEmpty" hidden>No HFT trades yet — start the HFT engine or run `python3 main.py hft-backtest`.</div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Decision feed</h2>
+      <span class="hint">every HFT evaluation, HOLDs included</span>
+    </div>
+    <div id="hftDecisions" class="decision-feed"></div>
   </div>
 </section>
 
@@ -2258,7 +2514,7 @@ $('#healthDismiss').addEventListener('click', () => {
 $('#tokenCancel').addEventListener('click', () => $('#tokenGate').classList.remove('open'));
 
 /* ===================================================== routing */
-const VIEWS = ['overview', 'portfolio', 'watchlist', 'evidence', 'account', 'chat'];
+const VIEWS = ['overview', 'portfolio', 'hft', 'watchlist', 'evidence', 'account', 'chat'];
 function setView(name) {
   if (!VIEWS.includes(name)) name = 'overview';
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
@@ -2281,6 +2537,7 @@ const chatLoaded = {v: false}, evLoaded = {v: false};
 function refreshVisible(name) {
   if (name === 'overview') { refreshStats(); refreshEquity(); refreshDecisions(); }
   else if (name === 'portfolio') { refreshStats(); refreshTrades(); }
+  else if (name === 'hft') { refreshHft(); }
   else if (name === 'watchlist') refreshWatchlist();
   /* evidence loads ONCE per tab entry, not on every 4s poll: the payload is
      generated artifacts (slow to change) and rebuilding both charts each tick
@@ -2297,21 +2554,23 @@ function refreshVisible(name) {
 const THEME_KEY = 'algo-theme';
 const THEMES = ['light', 'dark', 'black'];
 function applyChartTheme() {
-  if (!equityChart) return;
-  const ds = equityChart.data.datasets[0];
-  ds.borderColor = cssVar('--chart-line');
-  ds.backgroundColor = cssVar('--chart-fill');
-  const tt = equityChart.options.plugins.tooltip;
-  tt.backgroundColor = cssVar('--color-card');
-  tt.borderColor = cssVar('--color-border');
-  tt.titleColor = cssVar('--color-foreground');
-  tt.bodyColor = cssVar('--color-muted-foreground');
-  const tick = cssVar('--color-muted-foreground'), grid = cssVar('--chart-grid');
-  ['x', 'y'].forEach(ax => {
-    equityChart.options.scales[ax].ticks.color = tick;
-    equityChart.options.scales[ax].grid.color = grid;
-  });
-  equityChart.update('none');
+  for (const chart of [equityChart, hftChart]) {
+    if (!chart) continue;
+    const ds = chart.data.datasets[0];
+    ds.borderColor = cssVar('--chart-line');
+    ds.backgroundColor = cssVar('--chart-fill');
+    const tt = chart.options.plugins.tooltip;
+    tt.backgroundColor = cssVar('--color-card');
+    tt.borderColor = cssVar('--color-border');
+    tt.titleColor = cssVar('--color-foreground');
+    tt.bodyColor = cssVar('--color-muted-foreground');
+    const tick = cssVar('--color-muted-foreground'), grid = cssVar('--chart-grid');
+    ['x', 'y'].forEach(ax => {
+      chart.options.scales[ax].ticks.color = tick;
+      chart.options.scales[ax].grid.color = grid;
+    });
+    chart.update('none');
+  }
 }
 function applyTheme(t, persist) {
   if (!THEMES.includes(t)) t = 'light';
@@ -2529,6 +2788,157 @@ async function togglePause() {
   refreshStats();
 }
 $('#btnPause').addEventListener('click', togglePause);
+
+/* ===================================================== HFT book
+   The separate high-frequency paper account: its own stats poll, equity
+   chart, ALL-trades history table and decision feed — mode='hft' rows only,
+   so the standard book's pages above never mix in HFT records. */
+let hftChart = null;
+let hftAutoResumeToasted = false;
+let hftDefaultInterval = 20;
+function buildHftEquityChart() {
+  hftChart = new Chart($('#hftEquityChart'), {
+    type: 'line',
+    data: {labels: [], datasets: [{label: 'HFT equity', data: [],
+      borderColor: cssVar('--chart-line'), backgroundColor: cssVar('--chart-fill'),
+      fill: true, tension: .15, pointRadius: 0, borderWidth: 2}]},
+    options: {responsive: true, maintainAspectRatio: false, animation: reduceMotion ? false : {duration: 250},
+      plugins: {legend: {display: false}, tooltip: {backgroundColor: cssVar('--color-card'),
+        borderColor: cssVar('--color-border'), borderWidth: 1,
+        titleColor: cssVar('--color-foreground'), bodyColor: cssVar('--color-muted-foreground'),
+        titleFont: {family: 'Fira Code'}, bodyFont: {family: 'Fira Code'},
+        callbacks: {label: c => ' ' + fmt$(c.parsed.y)}}},
+      scales: {x: {ticks: {maxTicksLimit: 8, color: cssVar('--color-muted-foreground'),
+                           font: {family: 'Fira Code', size: 10}},
+                   grid: {color: cssVar('--chart-grid')}},
+               y: {ticks: {color: cssVar('--color-muted-foreground'),
+                           font: {family: 'Fira Code', size: 10},
+                           callback: v => '$' + v.toLocaleString()},
+                   grid: {color: cssVar('--chart-grid')}}}}
+  });
+}
+
+async function refreshHft() {
+  let s;
+  try { s = await jget('/api/hft/stats'); } catch (e) { return; }
+  hftDefaultInterval = s.interval || hftDefaultInterval;
+  $('#hftFeeHint').textContent = 'fee tier: ' + (s.fee_tier || 'perp') +
+    ' · capital ' + fmt$(s.capital) + ' · 1m bars';
+  const cards = [
+    ['Equity', fmt$(s.broker_equity ?? s.current_equity ?? s.capital),
+      (s.broker_equity ?? 0) > s.capital ? 'pos' : (s.broker_equity ?? 0) < s.capital ? 'neg' : '',
+      'HFT book · start ' + fmt$(s.capital)],
+    ['Total P&L', fmtPnl(s.total_pnl), s.total_pnl > 0 ? 'pos' : s.total_pnl < 0 ? 'neg' : '',
+      fmtPct(s.return_pct) + ' return'],
+    ['Closed trades', String(s.closed_trades ?? 0), '', 'win rate ' + (s.win_rate ?? 0) + '%'],
+    ['Profit factor', s.profit_factor == null ? '∞' : s.profit_factor, '',
+      s.profit_factor == null ? 'no losses yet' : 'gross win ÷ loss'],
+    ['Max drawdown', fmtPct(s.max_drawdown_pct), 'neg', 'peak-to-trough'],
+    ['Open positions', String((s.positions || []).length), '',
+      s.engine_running ? 'live marks' : 'from journal'],
+    ['Cycles', String(s.cycles ?? 0), '', s.engine_running ? 'running' : 'engine stopped'],
+    ['Total fees', fmt$(s.total_fees ?? 0), 'neg', 'the HFT cost autopsy'],
+  ];
+  $('#hftStats').innerHTML = cards.map(c =>
+    '<div class="stat"><div class="label">' + STAT_ICON + esc(c[0]) + '</div>' +
+    '<div class="value ' + c[2] + '">' + esc(c[1]) + '</div>' +
+    '<div class="sub">' + esc(c[3]) + '</div></div>').join('');
+
+  $('#hftEngineDot').className = 'dot ' + (s.engine_running ? 'on' : 'off');
+  $('#hftPillText').textContent = 'hft: ' +
+    (s.engine_running ? (s.health_note ? 'degraded' : 'running') : 'stopped');
+  $('#hftStartBtn').disabled = !!s.engine_running;
+  $('#hftStopBtn').disabled = !s.engine_running;
+  const note = $('#hftEngineNote');
+  if (s.last_error) { note.hidden = false; note.textContent = 'last error: ' + s.last_error; }
+  else if (s.health_note) { note.hidden = false; note.textContent = s.health_note; }
+  else note.hidden = true;
+  if (s.auto_resumed && !hftAutoResumeToasted) {
+    hftAutoResumeToasted = true;
+    toast('HFT book auto-resumed', 'the last session left it running (stop it from this tab)');
+  }
+
+  if (hftChart) {
+    let eq;
+    try { eq = await jget('/api/hft/equity'); } catch (e) { eq = []; }
+    $('#hftEquityEmpty').hidden = eq.length > 0;
+    if (eq.length) {
+      hftChart.data.labels = eq.map(p => fmtTs(p.ts));
+      hftChart.data.datasets[0].data = eq.map(p => p.equity);
+      hftChart.update(reduceMotion ? 'none' : undefined);
+    }
+  }
+
+  /* ALL HFT trades — the one place for the high-frequency history */
+  let trades;
+  try { trades = await jget('/api/hft/trades?limit=1000'); } catch (e) { trades = []; }
+  const sel = $('#hftStratFilter');
+  const current = sel.value;
+  const strategies = [...new Set(trades.map(t => t.strategy))].sort();
+  if (sel.options.length - 1 !== strategies.length ||
+      [...sel.options].slice(1).map(o => o.value).join(',') !== strategies.join(',')) {
+    sel.innerHTML = '<option value="">all strategies</option>' +
+      strategies.map(x => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('');
+    sel.value = current;
+  }
+  const filter = sel.value;
+  const rows = filter ? trades.filter(t => t.strategy === filter) : trades;
+  const tbody = $('#hftTradeTable tbody');
+  $('#hftTradeEmpty').hidden = rows.length > 0;
+  tbody.innerHTML = rows.map(t => '<tr>' +
+    '<td class="mono" style="color:var(--color-muted-foreground)">' + esc(fmtTs(t.opened_ts)) + '</td>' +
+    '<td class="mono"><b>' + esc(t.symbol) + '</b> <span class="tag tf">' + esc(t.timeframe || '') + '</span></td>' +
+    '<td>' + sideTag(t.side) + '</td>' +
+    '<td class="num">' + fmtQty(t.qty) + '</td>' +
+    '<td class="num">' + fmtPx(t.entry_price, t.symbol) + '</td>' +
+    '<td class="num">' + fmtPx(t.exit_price, t.symbol) + '</td>' +
+    '<td class="num ' + posCls(t.pnl) + '">' + (t.status === 'CLOSED' ? fmtPnl(t.pnl) : '—') + '</td>' +
+    '<td class="mono" style="color:var(--color-blue)">' + esc(t.strategy) + '</td>' +
+    '<td><span class="tag ' + (t.status === 'OPEN' ? 'open' : 'hold') + '">' + esc(t.status) + '</span></td>' +
+    '<td style="color:var(--color-muted-foreground)">' + esc(t.exit_reason || '—') + '</td></tr>').join('');
+
+  /* decision feed (HOLDs included — TRI-ETH monitor rows land here too) */
+  let ds;
+  try { ds = await jget('/api/hft/decisions?limit=30'); } catch (e) { ds = []; }
+  const el = $('#hftDecisions');
+  if (!ds.length) { el.innerHTML = '<div class="empty" style="padding:16px">No HFT decisions yet.</div>'; }
+  else {
+    el.innerHTML = ds.map(d => {
+      const a = (d.action || '').toLowerCase();
+      return '<div class="term-row">' +
+        '<span class="term-ts">' + esc(fmtTs(d.ts)) + '</span>' +
+        '<div class="term-body"><div class="term-line">' +
+        '<span class="tag ' + esc(a === 'hold' ? 'hold' : a) + '">' + esc(d.action) + '</span>' +
+        '<span class="term-mkt">' + esc(d.symbol) + ' <span class="tag tf">' + esc(d.timeframe) + '</span>' +
+        (d.symbol === 'TRI-ETH' ? ' <span class="tag demo">arb</span>' : '') + '</span>' +
+        '<span class="term-meta">regime ' + esc(d.regime || '—') + ' · conf ' +
+          Math.round((d.confidence || 0) * 100) + '% · @ ' + fmtPx(d.price, d.symbol) + '</span>' +
+        '</div><div class="term-why">' + esc(d.rationale || '') + '</div></div></div>';
+    }).join('');
+    el.scrollTop = 0;
+  }
+}
+$('#hftStratFilter').addEventListener('change', refreshHft);
+
+async function startHftEngine() {
+  try {
+    const r = await jpost('/api/hft/engine/start', {interval: hftDefaultInterval});
+    toast('HFT engine ' + (r.status === 'started' ? 'started' : r.status),
+          'cycle interval ' + hftDefaultInterval + 's · 1m bars', r.status !== 'error');
+    addMsg('[hft] engine started — interval ' + hftDefaultInterval + 's', 'bot');
+  } catch (e) { toastErr('Could not start HFT engine', e); }
+  refreshHft();
+}
+async function stopHftEngine() {
+  try {
+    await jpost('/api/hft/engine/stop', {});
+    toast('HFT engine stopped', '', true);
+    addMsg('[hft] engine stopped', 'bot');
+  } catch (e) { toastErr('Could not stop HFT engine', e); }
+  refreshHft();
+}
+$('#hftStartBtn').addEventListener('click', startHftEngine);
+$('#hftStopBtn').addEventListener('click', stopHftEngine);
 
 /* ===================================================== market toggle
    One market at a time: ON = Forex (crypto + forex universe), OFF = India
@@ -3102,6 +3512,7 @@ if (typeof Chart === 'undefined') {
   main.insertBefore(banner, main.firstChild);
 } else {
   buildEquityChart();
+  buildHftEquityChart();
 }
 /* sync the switcher + browser chrome with the theme <head> already applied;
    runs after buildEquityChart so applyChartTheme sees a live chart */

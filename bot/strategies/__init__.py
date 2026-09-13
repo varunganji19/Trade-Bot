@@ -7,6 +7,7 @@ from .meanrev import ConnorsMeanReversion
 from .scalper import VWAPScalper
 from .fx_regime_meanrev import FXRegimeMeanRev
 from .ts_momentum import TimeSeriesMomentum
+from .hft import HFTMicroBreakout, HFTExhaustionFade, HFTMarketMaker
 
 STRATEGY_CLASSES = {
     TurtleTrend.name: TurtleTrend,
@@ -14,7 +15,12 @@ STRATEGY_CLASSES = {
     VWAPScalper.name: VWAPScalper,
     FXRegimeMeanRev.name: FXRegimeMeanRev,
     TimeSeriesMomentum.name: TimeSeriesMomentum,
+    HFTMicroBreakout.name: HFTMicroBreakout,
+    HFTExhaustionFade.name: HFTExhaustionFade,
+    HFTMarketMaker.name: HFTMarketMaker,
 }
+
+HFT_STRATEGY_NAMES = ("hft_micro_breakout", "hft_exhaustion_fade", "hft_market_maker")
 
 _INSTANCE_CACHE: dict = {}   # id(params) -> (params_ref, {name: instance})
 
@@ -44,4 +50,6 @@ def get_strategy(name: str, params=None) -> BaseStrategy:
 
 __all__ = ["BaseStrategy", "Signal", "TurtleTrend", "ConnorsMeanReversion",
            "VWAPScalper", "FXRegimeMeanRev", "TimeSeriesMomentum",
+           "HFTMicroBreakout", "HFTExhaustionFade", "HFTMarketMaker",
+           "HFT_STRATEGY_NAMES",
            "STRATEGY_CLASSES", "get_strategies", "get_strategy"]

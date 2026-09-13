@@ -44,3 +44,11 @@ clean-cache:
 
 # alias for the muscle-memory command ("make ui")
 ui: dashboard
+
+hft-battery:
+	python3 main.py hft-battery --days 3
+
+hft-status:
+	python3 main.py hft-status
+
+.PHONY: hft-battery hft-status

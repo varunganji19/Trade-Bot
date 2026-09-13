@@ -48,7 +48,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from bot.broker import PaperBroker
+from bot.broker import PaperBroker, limit_fill_price
 from bot.indicators import add_all_indicators
 from bot.orchestrator import Orchestrator
 from bot.risk import RiskManager
@@ -147,12 +147,17 @@ class Backtester:
         # entry filled at its open), which must be scanned for stop/target —
         # skipping it was the live/backtest parity bug
         fill_scan_pending = False
+        # resting maker limit (HFT book): an unfilled entry order awaiting a
+        # touch — {decision, qty, limit, side, strategy_name, waited,
+        # decision_bar_ts}. None when no order is resting.
+        pending_limit: dict | None = None
 
         for i in range(warmup_bars, n - 1):
             cur_bar = ind.iloc[i]
             next_open = float(ind["open"].iloc[i + 1])
             next_bar = ind.iloc[i + 1]
             next_ts = str(ind.index[i + 1])
+            cur_ts = str(ind.index[i])
             bar_epoch = float(ind.index[i].timestamp())
 
             # kill switch follows simulated bar time, not the wall clock
@@ -217,7 +222,46 @@ class Backtester:
                                             "equity": round(broker.equity({spec.symbol: float(next_bar['close'])}), 2)})
                 continue
 
-            # ---- no position: look for an entry on the CURRENT closed bar ----
+            # ---- no position: resting maker limit first, then new entries --
+            if pending_limit is not None:
+                fill_price = limit_fill_price(pending_limit["side"],
+                                              pending_limit["limit"], cur_bar,
+                                              self.cfg.hft.maker_penetration_bps)
+                if fill_price is not None:
+                    if risk.halted:
+                        pending_limit = None   # kill switch: order dies unfilled
+                    else:
+                        fill_decision = pending_limit["decision"]
+                        fill_decision.price = fill_price
+                        broker.open_position(spec, fill_decision, pending_limit["qty"],
+                                             fill_price, trade_id=-1, ts=cur_ts,
+                                             decision_bar_ts=pending_limit["decision_bar_ts"],
+                                             maker_entry=True)
+                        # the fill bar's whole range is post-fill: scan it NOW
+                        # (its stop/target may already have been touched);
+                        # later bars flow through the normal manage path
+                        reason, exit_price = broker.scan_bar_exits(spec, cur_bar)
+                        if reason:
+                            closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
+                                spec, exit_price, reason)
+                            risk.apply_exit_cooldown(spec, closed_pos, reason, bar_epoch)
+                            result.trades.append(_trade_dict(closed_pos, exit_fill, reason,
+                                                             pnl, pnl_pct, fee, ind, i))
+                            result.equity_curve.append(
+                                {"ts": cur_ts, "equity": round(broker.equity({spec.symbol: exit_fill}), 2)})
+                        else:
+                            result.equity_curve.append(
+                                {"ts": next_ts,
+                                 "equity": round(broker.equity({spec.symbol: float(next_bar["close"])}), 2)})
+                    pending_limit = None
+                    continue
+                pending_limit["waited"] += 1
+                if pending_limit["waited"] > self.cfg.hft.limit_wait_bars:
+                    pending_limit = None       # expired unfilled: no trade happened
+                else:
+                    continue                   # still resting — no new decisions
+
+            # ---- look for an entry on the CURRENT closed bar ----------------
             if single is not None:
                 sig = single.evaluate(ind, i)
                 decision = _decision_from_signal(sig, float(cur_bar["close"]))
@@ -257,6 +301,18 @@ class Backtester:
                                     has_position_on_symbol=False,
                                     bar_epoch=bar_epoch)
             if not approval.approved:
+                continue
+
+            # maker entry (HFT book): the order RESTS at the quoted level and
+            # fills when a later bar's range reaches it (maker fee, no
+            # slippage), expiring after cfg.hft.limit_wait_bars — checked at
+            # the top of this loop, never filled at the next open
+            if getattr(decision, "limit_price", None):
+                pending_limit = {"decision": decision, "qty": approval.qty,
+                                 "limit": float(decision.limit_price),
+                                 "side": decision.action,
+                                 "strategy_name": strategy_name,
+                                 "waited": 0, "decision_bar_ts": bar_epoch}
                 continue
 
             # fill at NEXT bar's open with slippage+fee
@@ -342,6 +398,7 @@ def _decision_from_signal(sig, price: float):
     d.price = price
     d.rationale = sig.rationale
     d.strategy_name = sig.strategy
+    d.limit_price = getattr(sig, "limit_price", None)
     return d
 
 

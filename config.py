@@ -231,6 +231,34 @@ class StrategyParams:
     tsmom_stop_atr: float = 2.5      # wide 2.5-ATR stop: a slow 10-month-horizon strategy must not be noise-stopped
     tsmom_exit_ret: float = 0.0      # exit line: trailing return < 0 = the momentum regime flipped non-positive (signal exit, the papers' monthly re-rank analogue)
 
+    # ---- HFT book (bot/strategies/hft.py, 1m bars — grounding + fee math in
+    # HFT.md). One contiguous block appended at the END of the dataclass; never
+    # reordered (merge rule). These run ONLY on the separate high-frequency
+    # paper book (mode='hft'), never on the standard watchlists.
+    # micro-breakout (Zarattini & Aziz ORB analogue at 1m cadence, taker)
+    hft_bo_range: int = 30             # rolling micro-range bars (the "opening range" analogue)
+    hft_bo_atr_min_pct: float = 0.0008 # 1m ATR >= 0.08% of price: the 2R target must clear the taker round trip
+    hft_bo_stop_atr: float = 1.0
+    hft_bo_target_rr: float = 2.0      # the papers' 2R take-profit
+    hft_bo_time_stop: int = 30         # bars
+    hft_bo_vol_ratio_min: float = 1.3  # volume confirmation vs 20-bar mean
+    # exhaustion fade (Carver's 4-8 min mean-reversion horizon + capitulation
+    # volume spike; MAKER entry — the gross edge is a few bp)
+    hft_fade_z_entry: float = 2.5      # |z of log(close/ema50)|, rolling 100-bar sigma
+    hft_fade_vol_spike: float = 3.0    # vol_ratio (vol vs 20-bar mean) must exceed this
+    hft_fade_clv_max: float = -0.8     # close in the extreme tail of the bar's range
+    hft_fade_stop_atr: float = 2.0
+    hft_fade_time_stop: int = 45       # bars (~45 min: inside the documented MR half-life band)
+    # Avellaneda-Stoikov-inspired maker (gamma-sigma quote width + drift skew)
+    hft_mm_gamma: float = 0.1          # risk aversion (A-S notation)
+    hft_mm_sigma_window: int = 60      # 1m log-return std window
+    hft_mm_width_frac_atr: float = 0.5 # quote half-width = this x 1m ATR (A-S width scales with sigma)
+    hft_mm_min_width_bps: float = 2.0  # half-width floor (bp of price)
+    hft_mm_max_width_bps: float = 15.0
+    hft_mm_target_rr: float = 0.34     # target ~ one half-width against a 3-half-width stop (MM brackets INVERT the swing ratio)
+    hft_mm_stop_widths: float = 3.0    # hard stop at 3 half-widths (inventory blowup guard)
+    hft_mm_time_stop: int = 60         # bars
+
 
 @dataclass
 class MarketSpec:
@@ -251,6 +279,27 @@ class MarketSpec:
     def to_dict(self) -> dict:
         return {"kind": self.kind, "symbol": self.symbol, "timeframe": self.timeframe,
                 "display": self.display}
+
+
+# HFT BOOK universe (bot/hft/): the separate high-frequency paper account.
+# USD-only single-currency accounting (crypto + forex) — the standard book's
+# market-mode toggle (forex vs india) does NOT apply here; India 1m is
+# backtestable via `main.py hft-backtest --symbol RELIANCE.NS` (kind-aware
+# costs) but is excluded from the live HFT book: yfinance caps 1m history at
+# ~7d/request and the two books must not mix currencies.
+HFT_WATCHLIST: list[MarketSpec] = [
+    # crypto 1m — the only free 24/7 1m feed (ccxt public endpoints)
+    MarketSpec("crypto", "BTC/USDT", "1m", "Bitcoin HFT"),
+    MarketSpec("crypto", "ETH/USDT", "1m", "Ethereum HFT"),
+    MarketSpec("crypto", "SOL/USDT", "1m", "Solana HFT"),
+    MarketSpec("crypto", "ETH/BTC", "1m", "ETH/BTC cross"),
+    # forex 1m (yfinance 1m: ~7d per request, ~30d lookback ceiling)
+    MarketSpec("forex", "EURUSD=X", "1m", "EUR/USD HFT"),
+]
+
+# Triangular-arb monitor legs (bot/hft/triangular.py): the implied cross
+# ETH/USDT = ETH/BTC x BTC/USDT must be consistent across all three 1m books.
+TRIANGULAR_LEGS = ("ETH/USDT", "ETH/BTC", "BTC/USDT")
 
 
 def infer_kind(symbol: str) -> str:
@@ -353,6 +402,33 @@ class PortfolioConfig:
 
 
 @dataclass
+class HFTConfig:
+    """The high-frequency paper book (bot/hft/, HFT.md): a SECOND paper
+    account trading 1m bars — same broker/risk/journal machinery as the
+    standard book, separate capital, universe, cadence, and journal rows
+    (mode='hft'; every journal read already filters on mode, so the whole
+    HFT trade history is one filtered query)."""
+    enabled: bool = _env_int("HFT_ENABLED", 1) == 1
+    paper_capital: float = _env_float("HFT_PAPER_CAPITAL", 10_000.0)
+    live_interval_seconds: int = _env_int("HFT_INTERVAL", 20)  # 1m bars close every 60s
+    lookback_bars: int = 400
+    risk_per_trade: float = 0.005          # 0.5% per trade — faster book, tighter risk
+    daily_loss_kill_switch: float = 0.02   # -2% day halts new HFT entries
+    max_open_positions: int = 4
+    min_confidence: float = 0.55
+    # maker-fill realism: a resting limit must be PENETRATED by this many bps
+    # before it fills (approximates queue priority — a touch is not a fill).
+    # 0.0 = touch fills (optimistic); raise for an honest adverse-selection sim.
+    maker_penetration_bps: float = _env_float("HFT_PENETRATION_BPS", 0.0)
+    limit_wait_bars: int = 5               # unfilled maker entries expire after N bars
+    # triangular arb fires only when |mispricing| clears the FULL 3-leg
+    # taker cost PLUS this buffer (bp) — per Muck & Schmidl (2025) it
+    # essentially never does at 1m granularity; the monitor measures that.
+    tri_min_edge_bps: float = 5.0
+    tri_fraction: float = 0.10             # fraction of HFT equity risked per arb
+
+
+@dataclass
 class Config:
     paper_capital: float = _env_float("PAPER_CAPITAL", 10_000.0)
     db_path: str = _env_str("BOT_DB_PATH", os.path.join(os.path.dirname(__file__), "data", "trading.db"))
@@ -366,6 +442,7 @@ class Config:
     params: StrategyParams = field(default_factory=StrategyParams)
     portfolio: PortfolioConfig = field(default_factory=PortfolioConfig)
     llm: LLMConfig = field(default_factory=LLMConfig.from_env)
+    hft: HFTConfig = field(default_factory=HFTConfig)
 
     watchlist: list = field(default_factory=lambda: list(DEFAULT_WATCHLIST))
 
@@ -387,7 +464,7 @@ TIMEFRAME_SECONDS = {
 
 WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "data", "watchlist.json")
 MAX_WATCHLIST_SPECS = 12
-VALID_TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")
+VALID_TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
 VALID_KINDS = ("crypto", "forex", "india")
 
 # MARKET MODE: "forex" (default — crypto + forex universe, the historical

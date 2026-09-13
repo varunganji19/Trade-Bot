@@ -119,6 +119,112 @@ def _print_stats(s):
     print("  └──────────────────────────────────────────────")
 
 
+# ------------------------------------------------------------------ HFT book
+def cmd_hft_backtest(args):
+    """Backtest an HFT strategy on 1m data with the HFT book's own fee tier."""
+    from bot.backtest import Backtester
+    from bot.data import fetch_history
+    import time as _t
+
+    if args.triangular:
+        from bot.hft import build_hft_config
+        from bot.hft.triangular import tri_backtest
+        from bot.data import fetch_history as _fh
+        cfg = build_hft_config(fee_tier=args.fee_tier)
+        legs = {}
+        for sym in ("ETH/USDT", "ETH/BTC", "BTC/USDT"):
+            legs[sym] = _fh(MarketSpec("crypto", sym, "1m"), days=args.days)
+        out = tri_backtest(legs, cfg.costs, min_edge_bps=cfg.hft.tri_min_edge_bps)
+        s = out.get("summary", {})
+        print(f"[hft] triangular arb ETH/USDT x ETH/BTC x BTC/USDT — {s.get('bars_aligned')} aligned bars")
+        print(f"  opportunities beyond FULL 3-leg cost ({s.get('cost_bps')}bp): {s.get('gross_opportunities')}")
+        print(f"  fired (edge > cost + {cfg.hft.tri_min_edge_bps}bp buffer): {s.get('fired')}")
+        print(f"  max |edge| {s.get('max_abs_edge_bps')}bp | p95 {s.get('p95_abs_edge_bps')}bp | "
+              f"equity x{s.get('equity_multiple')}")
+        if args.json:
+            os.makedirs(os.path.dirname(args.json) or ".", exist_ok=True)
+            with open(args.json, "w") as fh:
+                json.dump(out, fh, indent=1, default=str)
+            print(f"[hft] wrote {args.json}")
+        return
+
+    from bot.hft import build_hft_config, HFT_WATCHLIST
+    cfg = build_hft_config(fee_tier=args.fee_tier)
+    if args.symbol:
+        sym = args.symbol.upper()
+        kind = infer_kind(sym)
+        spec = MarketSpec(kind, sym, args.timeframe)
+    else:
+        spec = HFT_WATCHLIST[0]
+    c = cfg.costs
+    rt_bps = (c.fee(spec.kind) + c.slippage(spec.kind)) * 2 * 1e4
+    window = f"{args.start} → {args.end}" if args.start else f"last {args.days}d"
+    print(f"[hft-backtest] {spec.symbol} {spec.timeframe} | {window} | strategy: {args.strategy} "
+          f"| tier: {args.fee_tier or os.environ.get('HFT_FEE_TIER', 'perp')} "
+          f"| capital: ${cfg.paper_capital:,.0f} | taker RT ~{rt_bps:.1f}bp")
+    t0 = _t.time()
+    df = fetch_history(spec, days=args.days, start=args.start, end=args.end)
+    print(f"[hft-backtest] {len(df)} bars ({df.index[0]} → {df.index[-1]}) in {_t.time() - t0:.1f}s")
+    bt = Backtester(cfg)
+    res = bt.run(spec, df, strategy=args.strategy, warmup_bars=args.warmup_bars)
+    stats = res.stats()
+    _print_stats(stats)
+    print(f"   fees paid ${stats['fees']:.2f}")
+    hist = {}
+    for t in res.trades:
+        hist[t["exit_reason"]] = hist.get(t["exit_reason"], 0) + 1
+    print("   exits: " + (", ".join(f"{k} x{v}" for k, v in sorted(hist.items())) or "none"))
+    if args.json:
+        from bot.backtest import results_to_json
+        results_to_json(res, args.json)
+        print(f"[hft-backtest] wrote {args.json}")
+
+
+def cmd_hft_run(args):
+    """Run the HFT paper engine (the separate high-frequency book)."""
+    from bot.hft import build_hft_engine
+    from config import apply_market_mode
+    apply_market_mode()  # keeps the standard book's watchlist normalized; HFT book ignores it
+    engine = build_hft_engine()
+    if args.once:
+        summary = engine.run_cycle()
+        print(json.dumps(summary, indent=1, default=str))
+    else:
+        engine.run_forever(interval=args.interval or CONFIG.hft.live_interval_seconds)
+
+
+def cmd_hft_status(args):
+    """The HFT book's journal summary: separate account, separate history."""
+    from bot.journal import Journal
+    j = Journal()
+    s = j.stats(mode="hft")
+    print("[hft] high-frequency paper book (mode='hft' journal rows):")
+    print(f"  return {s['return_pct']:+.2f}%  |  pnl ${s['total_pnl']:+,.2f}  |  "
+          f"closed trades {s['closed_trades']}  |  win rate {s['win_rate']}%  |  "
+          f"pf {s['profit_factor']}  |  max dd {s['max_drawdown_pct']}%")
+    print(f"  equity ${s['current_equity']:,.2f} (start ${s['start_equity']:,.2f})")
+    if s.get("by_strategy"):
+        for name, v in s["by_strategy"].items():
+            print(f"   · {name}: {v['trades']} trades, {v['wins']} wins, "
+                  f"pnl ${v['pnl']:+,.2f}")
+    open_rows = j.open_trades(mode="hft")
+    print(f"  open positions: {len(open_rows)}")
+    for r in open_rows:
+        print(f"   - {r['side']} {r['symbol']} {r.get('timeframe') or '1m'} "
+              f"qty {r['qty']} @ {r['entry_price']} via {r['strategy']}")
+    eq = j.equity_curve(limit=1, mode="hft")
+    if eq:
+        print(f"  last equity point: {eq[-1]['equity']} (cash {eq[-1].get('cash')}) @ {eq[-1]['ts']}")
+
+
+def cmd_hft_battery(args):
+    """The HFT harness: every strategy x symbol x fee tier, plus the
+    triangular-arb monitor — the measured fee-sensitivity table (HFT.md)."""
+    from bot.hft.harness import run_battery
+    tiers = ("perp", "spot") if args.tier == "both" else (args.tier,)
+    run_battery(days=args.days, tiers=tiers, quiet=False)
+
+
 def cmd_validate(args):
     """The honest-statistics battery on one strategy/symbol:
     purged-CV path distribution -> PBO -> Deflated Sharpe -> Monte Carlo -> MinTRL.
@@ -565,6 +671,41 @@ def main():
     run.add_argument("--once", action="store_true", help="one cycle then exit")
     run.add_argument("--interval", type=int, default=None, help="seconds between cycles")
     run.set_defaults(fn=cmd_run)
+
+    hb = sub.add_parser("hft-backtest",
+                        help="backtest an HFT strategy on 1m data (the HFT book's "
+                             "fee tier + capital; --triangular for the arb monitor)")
+    hb.add_argument("--symbol", default=None, help="e.g. BTC/USDT, RELIANCE.NS (india 1m is "
+                                                   "backtestable; the live HFT book is USD-only)")
+    hb.add_argument("--timeframe", default="1m", choices=["1m", "5m"])
+    hb.add_argument("--days", type=int, default=3, help="history depth (1m bars: 3d ≈ 4320 bars)")
+    hb.add_argument("--start", default=None, help="pinned window start YYYY-MM-DD (overrides --days)")
+    hb.add_argument("--end", default=None, help="pinned window end YYYY-MM-DD (with --start)")
+    hb.add_argument("--strategy", default="hft_market_maker",
+                    choices=["hft_market_maker", "hft_exhaustion_fade", "hft_micro_breakout"])
+    hb.add_argument("--warmup-bars", type=int, default=400,
+                    help="bars before trading starts (clears the ema200 column)")
+    hb.add_argument("--fee-tier", default=None, choices=["perp", "spot"],
+                    help="cost model (default perp: maker 2bp/taker 5bp; spot = base tier)")
+    hb.add_argument("--triangular", action="store_true",
+                    help="run the ETH/USDT x ETH/BTC x BTC/USDT arb monitor instead")
+    hb.add_argument("--json", default=None, help="write results JSON here")
+    hb.set_defaults(fn=cmd_hft_backtest)
+
+    hr = sub.add_parser("hft-run", help="run the HFT paper engine (separate 1m book)")
+    hr.add_argument("--once", action="store_true", help="one cycle then exit")
+    hr.add_argument("--interval", type=int, default=None, help="seconds between cycles")
+    hr.set_defaults(fn=cmd_hft_run)
+
+    hs = sub.add_parser("hft-status", help="HFT book journal summary (all high-frequency trades)")
+    hs.set_defaults(fn=cmd_hft_status)
+
+    hbat = sub.add_parser("hft-battery",
+                          help="HFT harness: every strategy x symbol x fee tier "
+                               "+ triangular monitor -> data/results/hft_battery.json")
+    hbat.add_argument("--days", type=int, default=3)
+    hbat.add_argument("--tier", default="both", choices=["perp", "spot", "both"])
+    hbat.set_defaults(fn=cmd_hft_battery)
 
     pz = sub.add_parser("pause", help="manual halt: block NEW entries only "
                                       "(open positions stay managed, nothing is force-closed)")

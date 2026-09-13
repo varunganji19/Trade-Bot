@@ -376,9 +376,18 @@ class Journal:
                          (_now(), role, content))
 
     # ---------------------------------------------------------------- reads
-    def open_trades(self) -> list:
+    def open_trades(self, mode: str | None = None) -> list:
+        """OPEN rows. mode filter matters: two engine books (standard 'paper'
+        and 'hft') share this DB, and each engine's restart-restore must
+        rebuild ONLY its own positions — an unfiltered restore would pull the
+        other book's open trades into the wrong broker."""
+        q, params = "SELECT * FROM trades WHERE status='OPEN'", []
+        if mode:
+            q += " AND mode=?"
+            params.append(mode)
+        q += " ORDER BY id"
         with self._conn() as conn:
-            return [dict(r) for r in conn.execute("SELECT * FROM trades WHERE status='OPEN' ORDER BY id")]
+            return [dict(r) for r in conn.execute(q, params)]
 
     def recent_trades(self, limit: int = 100, mode: str | None = None) -> list:
         q, params = "SELECT * FROM trades", []

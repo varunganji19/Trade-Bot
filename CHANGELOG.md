@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.3.0] 2026-09-13 — the high-frequency paper book (HFT)
+
+The separate high-frequency account: 1-minute bars, maker-fill simulation,
+its own fee tiers, capital, risk dials, dashboard page and journal record
+(mode='hft') — the standard book is untouched. Research scraped via the
+agent-reach channels + SSRN/arXiv/GitHub (HFT.md carries the citations and
+the fee math).
+
+- **Strategies** (bot/strategies/hft.py, 1m only): `hft_market_maker`
+  (Avellaneda-Stoikov-inspired maker quotes, vol-scaled width, drift skew),
+  `hft_exhaustion_fade` (Carver 4-8min reversion + 3x volume-spike +
+  CLV capitulation filter, maker entry at the exhaustion close),
+  `hft_micro_breakout` (Zarattini-Aziz ORB analogue, 2R target, ATR floor),
+  and the `hft_triangular_arb` monitor (ETH/USDT x ETH/BTC x BTC/USDT).
+- **Maker/limit entries are first-class**: `Signal.limit_price` -> resting
+  orders in BOTH the backtester and the live engine (one shared fill model
+  in broker.limit_fill_price: touch/gap/penetration semantics, expiry,
+  maker fee, no slippage). Journal-first entries happen only AT fill.
+- **Fee-tier harness**: perp (maker 2bp/taker 5bp) vs spot (10bp/10bp)
+  scenarios per cell; `main.py hft-battery` writes the measured matrix to
+  data/results/hft_battery.json. First run: every cell net-negative after
+  costs (the documented cost wall), triangular monitor fired ZERO times
+  (max mispricing 8.3bp vs 24bp 3-leg cost — the literature reproduced).
+- **Book isolation**: journal `open_trades()` is mode-filtered (a standard-
+  book OPEN row can never restore into the HFT broker, regression-tested);
+  HFT risk dials (0.5% risk, -2% kill switch, 0.3 reward floor for inverted
+  MM brackets) ride the HFT config; the HFT engine auto-resumes like the
+  standard one (hft_engine_state.json, same ALGO_NO_AUTO_RESUME escape).
+- **Dashboard HFT tab**: separate engine start/stop, HFT equity curve, ALL
+  high-frequency trades in one table (strategy filter), decision feed
+  including the TRI-ETH arb monitor. Endpoints /api/hft/*.
+- **CLI**: hft-backtest (--triangular, --fee-tier, pinned windows),
+  hft-run, hft-status, hft-battery. India 1m is backtestable (kind-aware
+  costs); the live HFT book stays USD-only (crypto + forex).
+- **1m timeframe** wired through data (ccxt + yfinance 7d cap), validation,
+  watchlists and bars_per_year. 169 -> 182 tests.
+
 BACKTESTS.md is the real lab notebook (six measured rounds, negative results
 included). This file maps that history onto the repo, newest first.
 

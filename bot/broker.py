@@ -28,6 +28,33 @@ from datetime import datetime, timezone
 from config import CONFIG, MarketSpec, CostConfig, parse_utc
 
 
+def limit_fill_price(side: str, limit: float, bar, penetration_bps: float = 0.0) -> float | None:
+    """Simulated maker-limit fill on an OHLCV bar (the HFT book's entry leg).
+
+    A buy limit at P fills when the market trades at/below P: an OPEN below P
+    gapped through it (fill at the open — the better price a real resting
+    limit gets); otherwise the fill is AT P when the bar's low reaches it.
+    penetration_bps approximates queue priority — the level must be
+    penetrated by that many bps, not just touched (0.0 = optimistic touch
+    fills; raise HFT_PENETRATION_BPS for an honest adverse-selection sim).
+    Sell limits mirrored. Returns the fill price, or None when unfilled.
+    Shared by the backtester and the live engine (one fill model, no drift)."""
+    open_ = float(bar["open"])
+    high = float(bar["high"])
+    low = float(bar["low"])
+    if side == "LONG":
+        if open_ <= limit:
+            return open_
+        if low <= limit * (1.0 - penetration_bps / 1e4):
+            return limit
+        return None
+    if open_ >= limit:
+        return open_
+    if high >= limit * (1.0 + penetration_bps / 1e4):
+        return limit
+    return None
+
+
 @dataclass
 class Position:
     trade_id: int
@@ -117,16 +144,24 @@ class PaperBroker:
 
     def open_position(self, spec: MarketSpec, decision, qty: float, price: float,
                       trade_id: int, ts: str = "",
-                      decision_bar_ts: float | None = None) -> Position:
+                      decision_bar_ts: float | None = None,
+                      maker_entry: bool = False) -> Position:
         side = "long" if decision.action == "LONG" else "short"
-        fill = self._fill_price(price, side, opening=True, kind=spec.kind)
+        if maker_entry:
+            # a resting limit that filled: the fill IS the quoted level (or a
+            # better open when the bar gapped through it, passed by the
+            # caller) — liquidity was PROVIDED, so no slippage and the maker
+            # fee. This is the HFT book's entry leg (bot/strategies/hft.py).
+            fill = price
+        else:
+            fill = self._fill_price(price, side, opening=True, kind=spec.kind)
         stop = fill - decision.stop_distance if side == "long" else fill + decision.stop_distance
         target = None
         if decision.target_rr:
             risk = decision.stop_distance
             target = fill + decision.target_rr * risk if side == "long" else fill - decision.target_rr * risk
 
-        fee = self._fee(fill * qty, spec.kind)
+        fee = self._fee(fill * qty, spec.kind, maker=maker_entry)
         self.cash -= fee
         self.fees_paid += fee
         pos = Position(

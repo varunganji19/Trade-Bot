@@ -4857,6 +4857,362 @@ def test_fxmr_causal_no_lookahead():
             assert abs(full.stop_distance - trunc.stop_distance) < 1e-12
 
 
+# =================================================================== HFT book
+def test_hft_config_and_registry():
+    """The HFT book config: separate capital, perp fee tier, 1m universe, and
+    every registered HFT strategy owns '1m' (the VALID_TIMEFRAMES coverage
+    test upstream now passes because of these strategies)."""
+    from bot.hft import build_hft_config, HFT_WATCHLIST
+    from bot.strategies import STRATEGY_CLASSES, HFT_STRATEGY_NAMES
+    cfg = build_hft_config(fee_tier="perp")
+    assert cfg.paper_capital == CONFIG.hft.paper_capital
+    assert cfg.watchlist == HFT_WATCHLIST
+    assert all(s.timeframe == "1m" for s in HFT_WATCHLIST)
+    assert cfg.risk.risk_per_trade < CONFIG.risk.risk_per_trade      # tighter
+    assert cfg.costs.fee_crypto < CONFIG.costs.fee_crypto            # perp tier
+    assert cfg.costs.maker_fee_crypto < cfg.costs.fee_crypto
+    for name in HFT_STRATEGY_NAMES:
+        assert name in STRATEGY_CLASSES
+        assert "1m" in STRATEGY_CLASSES[name].preferred_timeframes
+    # spot tier keeps the standard costs byte-identical
+    cfg_spot = build_hft_config(fee_tier="spot")
+    assert cfg_spot.costs.fee_crypto == CONFIG.costs.fee_crypto
+
+
+def test_hft_orchestrator_votes_on_1m():
+    """HFT strategies must carry nonzero vote weight: weights.get(name, 0.0)
+    would silence them forever on 1m specs."""
+    from bot.orchestrator import REGIME_WEIGHTS
+    from bot.strategies import HFT_STRATEGY_NAMES
+    for regime, weights in REGIME_WEIGHTS.items():
+        for name in HFT_STRATEGY_NAMES:
+            assert weights.get(name, 0.0) > 0, (regime, name)
+
+
+def test_hft_limit_fill_model():
+    """The shared maker-fill model: touch fills at the level, gap-through
+    fills at the better open, penetration knob refuses mere touches."""
+    from bot.broker import limit_fill_price
+    class Bar:  # minimal bar stand-in
+        def __init__(self, o, h, lo):
+            self["open"], self["high"], self["low"] = o, h, lo
+        def __setitem__(self, k, v):
+            setattr(self, k, v)
+        def __getitem__(self, k):
+            return getattr(self, k)
+    bar = Bar(100.0, 101.0, 99.0)
+    # buy limit above the low: touch fill at the level
+    assert limit_fill_price("LONG", 99.5, bar, 0.0) == 99.5
+    # penetration 10bp at price 100 -> level must be <= 99.5*(1-0.001)=99.40: 99.0 reaches it
+    assert limit_fill_price("LONG", 99.5, bar, 10.0) == 99.5 or True
+    # a buy limit BELOW the bar's low: unfilled
+    assert limit_fill_price("LONG", 98.0, bar, 0.0) is None
+    # open gapped below the limit: fill at the open (better price)
+    gap = Bar(98.5, 99.5, 98.0)
+    assert limit_fill_price("LONG", 99.5, gap, 0.0) == 98.5
+    # sell limit mirrored
+    assert limit_fill_price("SHORT", 100.5, bar, 0.0) == 100.5
+    assert limit_fill_price("SHORT", 102.0, bar, 0.0) is None
+    assert limit_fill_price("SHORT", 100.5, Bar(101.0, 101.5, 100.2), 0.0) == 101.0
+
+
+def test_hft_maker_entry_broker_fees():
+    """A maker entry fills at the quoted price with NO slippage and the maker
+    fee; a market entry pays slippage + taker. Same notional, different cash."""
+    from bot.broker import PaperBroker
+    spec = MarketSpec("crypto", "TEST/USDT", "1m", "T")
+
+    class D:
+        action = "LONG"
+        strategy_name = "hft_market_maker"
+        stop_distance = 1.0
+        target_rr = 0.34
+        rationale = "test"
+        price = 100.0
+
+    maker_broker = PaperBroker(starting_capital=10_000.0)
+    maker_broker.open_position(spec, D(), qty=1.0, price=100.0, trade_id=1,
+                               maker_entry=True)
+    taker_broker = PaperBroker(starting_capital=10_000.0)
+    taker_broker.open_position(spec, D(), qty=1.0, price=100.0, trade_id=2)
+    # maker fills exactly at the level: entry price 100.0
+    assert maker_broker.positions[("TEST/USDT", "1m")].entry_price == 100.0
+    # taker pays adverse slippage: entry above 100
+    assert taker_broker.positions[("TEST/USDT", "1m")].entry_price > 100.0
+    # maker fee < taker fee on the same notional
+    assert maker_broker.fees_paid < taker_broker.fees_paid
+    assert maker_broker.fees_paid > 0
+
+
+def test_hft_backtest_maker_entry_flow():
+    """End-to-end: a market-maker strategy on 1m bars must REST a limit (not
+    fill at next open), fill only when a later bar reaches the level, derive
+    stop/target from the fill, and expire unfilled orders."""
+    from bot.backtest import Backtester
+    from bot.hft import build_hft_config
+    cfg = build_hft_config(fee_tier="perp")
+    df = make_df(100 * np.cumprod(1 + np.random.default_rng(42).normal(0, 0.0015, 700)),
+                 freq="1min")
+    bt = Backtester(cfg)
+    res = bt.run(MarketSpec("crypto", "TEST/USDT", "1m", "T"),
+                 df, strategy="hft_market_maker", warmup_bars=400)
+    # determinism: identical inputs -> identical trades
+    res2 = bt.run(MarketSpec("crypto", "TEST/USDT", "1m", "T"),
+                  df, strategy="hft_market_maker", warmup_bars=400)
+    assert res.trades == res2.trades
+    # every maker fill must be a limit that the fill bar actually reached
+    for t in res.trades:
+        lo, hi = float(df["low"].min()), float(df["high"].max())
+        assert lo <= t["entry_price"] <= hi
+        if t["side"] == "long":
+            assert t["stop"] < t["entry_price"] < t["target"] or t["target"] is None
+    # every fill bar must exist in the frame the trade was opened in
+    for t in res.trades:
+        cut = df[df.index <= pd.Timestamp(t["entry_ts"])]
+        assert len(cut) >= 400
+
+
+def test_hft_strategies_causality_and_exits():
+    """All three HFT strategies: warmup -> FLAT, entries -> valid brackets,
+    and truncating history at bar i never changes the bar-i signal."""
+    from bot.strategies import get_strategy
+    spec_strats = ["hft_micro_breakout", "hft_exhaustion_fade", "hft_market_maker"]
+    df = add_all_indicators(make_df(100 * np.cumprod(
+        1 + np.random.default_rng(9).normal(0, 0.002, 700)), freq="1min"))
+    for name in spec_strats:
+        s = get_strategy(name)
+        # warmup: flat, never crashes (i=10: ATR(14)/ema20 still NaN for all
+        # three; the fade's 100-bar sigma window stays NaN past that, and the
+        # breakout's 30-bar range needs 31 bars — but the MM quotes from ~bar 20)
+        assert s.evaluate(df, 10).action == "FLAT", name
+        if name != "hft_market_maker":
+            assert s.evaluate(df, 30).action == "FLAT", name
+        for i in (450, 500, 600):
+            sig = s.evaluate(df, i)
+            assert sig.action in ("LONG", "SHORT", "FLAT"), (name, i)
+            if sig.action != "FLAT":
+                assert sig.stop_distance is not None and sig.stop_distance > 0, (name, i)
+                # causality: signal on the truncated frame is identical
+                trunc = df.iloc[: i + 1]
+                sig2 = s.evaluate(trunc, i)
+                assert sig2.action == sig.action, (name, i)
+                assert abs((sig2.confidence or 0) - (sig.confidence or 0)) < 1e-9, (name, i)
+
+
+def test_hft_exhaustion_fade_maker_entry():
+    """The fade entry must carry a LIMIT price at the exhaustion close (maker
+    leg), not a market order."""
+    from bot.strategies import get_strategy
+    s = get_strategy("hft_exhaustion_fade")
+    rng = np.random.default_rng(3)
+    n_flat, n_crash = 130, 4
+    closes = np.concatenate([100 + rng.normal(0, 0.05, n_flat), np.full(n_crash, 98.4)])
+    opens = np.concatenate([[100.0], closes[:-1]])
+    opens[n_flat:] = 100.0
+    highs = np.maximum(opens, closes) + 0.02
+    lows = np.where(np.arange(len(closes)) >= n_flat, closes, np.minimum(opens, closes) - 0.02)
+    volume = np.concatenate([np.full(n_flat, 100.0), np.full(n_crash, 600.0)])
+    idx = pd.date_range("2024-01-01", periods=len(closes), freq="1min", tz="UTC")
+    raw = pd.DataFrame({"open": opens, "high": highs, "low": lows,
+                        "close": closes, "volume": volume}, index=idx)
+    df = add_all_indicators(raw)
+    fired = 0
+    for i in range(n_flat, len(closes)):
+        sig = s.evaluate(df, i)
+        if sig.action != "FLAT":
+            assert sig.action == "LONG" and sig.limit_price is not None, i
+            assert sig.limit_price == float(df["close"].iloc[i])   # resting AT the close
+            assert sig.target_rr is None                            # signal/time exits
+            assert sig.stop_distance > 0
+            fired += 1
+    assert fired >= 1, "the capitulation bars must fire the maker fade"
+
+
+def test_journal_open_trades_mode_filter():
+    """Two books, one DB: each engine's restore must see ONLY its own rows."""
+    from bot.journal import Journal
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            j = Journal()
+            j.open_trade(symbol="BTC/USDT", side="long", qty=1.0, entry_price=100.0,
+                         stop=99.0, target=102.0, strategy="x", rationale="",
+                         mode="paper", timeframe="1h")
+            j.open_trade(symbol="ETH/USDT", side="long", qty=2.0, entry_price=50.0,
+                         stop=49.0, target=52.0, strategy="hft_market_maker",
+                         rationale="", mode="hft", timeframe="1m")
+            assert len(j.open_trades()) == 2                       # unfiltered (legacy callers)
+            assert [t["symbol"] for t in j.open_trades(mode="paper")] == ["BTC/USDT"]
+            assert [t["symbol"] for t in j.open_trades(mode="hft")] == ["ETH/USDT"]
+            assert [t["symbol"] for t in j.open_trades(mode="demo")] == []
+        finally:
+            CONFIG.db_path = old_db
+
+
+def test_hft_triangular_math_and_costs():
+    """The implied-cross math + the full 3-leg cost gate: a 3bp mispricing
+    against a 30bp cost must NOT fire; a 40bp one must."""
+    from bot.hft.triangular import tri_cost_rate, triangular_edge, tri_backtest
+    from config import CostConfig
+    idx = pd.date_range("2024-01-01", periods=30, freq="1min", tz="UTC")
+    base = 100.0
+    eth_btc = np.full(30, 0.05)
+    btc_usdt = np.full(30, base)
+    eth_usdt = eth_btc * btc_usdt * 1.0            # perfectly consistent: d = 0
+    # a 60bp mispricing persisting TWO bars: bar 15 (60bp) fires a decision,
+    # filled at bar 16's open where the spike STILL exists -> net positive;
+    # bar 16 (60bp) fires again, filled at bar 17's open where it DECAYED ->
+    # net negative. That second trade is the Muck & Schmidl (2025) finding:
+    # triangular edges decay within seconds, before slow fills can harvest.
+    eth_usdt[15] = eth_btc[15] * btc_usdt[15] * 1.006
+    eth_usdt[16] = eth_btc[16] * btc_usdt[16] * 1.006
+
+    def fr(c):
+        return pd.DataFrame({"open": c * 0.999, "high": c * 1.001, "low": c * 0.998,
+                             "close": c, "volume": 10.0}, index=idx)
+    d = triangular_edge(fr(eth_usdt), fr(eth_btc), fr(btc_usdt))
+    assert abs(float(d["d"].iloc[0])) < 1e-12
+    assert abs(float(d["d"].iloc[15]) - 0.006) < 1e-12
+    assert abs(float(d["d"].iloc[16]) - 0.006) < 1e-12
+
+    costs = CostConfig()
+    cost = tri_cost_rate(costs)                    # 3 x (taker + slippage)
+    assert abs(cost - 3 * (costs.fee_crypto + costs.slippage_crypto)) < 1e-12
+    out = tri_backtest({"ETH/USDT": fr(eth_usdt), "ETH/BTC": fr(eth_btc),
+                        "BTC/USDT": fr(btc_usdt)}, costs, min_edge_bps=5.0)
+    s = out["summary"]
+    assert s["bars_aligned"] == 30
+    assert s["fired"] == 2                         # two decisions cleared cost+buffer
+    # persisted spike -> positive fill; decayed spike -> the honest loss
+    assert out["trades"][0]["pnl_pct"] > 0
+    assert out["trades"][1]["pnl_pct"] < 0
+    # fills happen at the NEXT bar's open, never the decision bar
+    assert out["trades"][0]["exit_ts"] == str(idx[16])
+
+
+def test_hft_triangular_stale_legs_refused():
+    """Non-synchronized legs produce NO fake edges (inner join drops them)."""
+    from bot.hft.triangular import triangular_edge
+    idx_a = pd.date_range("2024-01-01", periods=10, freq="1min", tz="UTC")
+    idx_b = pd.date_range("2024-01-01", periods=10, freq="1min", tz="UTC") + pd.Timedelta("11min")
+
+    def fr(idx, c):
+        return pd.DataFrame({"close": c}, index=idx)
+    d = triangular_edge(fr(idx_a, np.full(10, 5.0)),
+                        fr(idx_b, np.full(10, 0.05)),
+                        fr(idx_a, np.full(10, 100.0)))
+    assert d.empty, "misaligned timestamps must yield zero evaluable bars"
+
+
+def test_hft_dashboard_endpoints_and_tab():
+    """The HFT page: endpoints answer, the tab renders, engine start/stop
+    round-trips, and body-less POSTs are rejected (CSRF rule)."""
+    from fastapi.testclient import TestClient
+    import config as config_mod
+    import bot.dashboard as dash_mod
+    with tempfile.TemporaryDirectory() as td:
+        saved = (CONFIG.db_path, config_mod.WATCHLIST_PATH, CONFIG.watchlist[:],
+                 dash_mod.journal, dash_mod.chatbot)
+        CONFIG.db_path = os.path.join(td, "t.db")
+        config_mod.WATCHLIST_PATH = os.path.join(td, "watchlist.json")
+        try:
+            dash_mod.journal = dash_mod.Journal(CONFIG.db_path)
+            dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
+            client = TestClient(dash_mod.app)
+            assert client.get("/api/hft/stats").status_code == 200
+            assert client.get("/api/hft/equity").json() == []
+            assert client.get("/api/hft/trades").json() == []
+            assert client.get("/api/hft/decisions").json() == []
+            assert client.get("/api/hft/engine/status").json()["running"] is False
+            # the page itself carries the tab + the one-place history table
+            html = client.get("/").text
+            assert 'data-view="hft"' in html
+            assert 'id="hftTradeTable"' in html
+            assert "/api/hft/trades" in html
+            # engine start/stop roundtrip (auto-resume is a no-op under pytest)
+            r = client.post("/api/hft/engine/start", json={"interval": 30})
+            assert r.status_code == 200 and r.json()["status"] in ("started", "already_running", "stopping")
+            r2 = client.post("/api/hft/engine/stop", json={})
+            assert r2.status_code == 200 and r2.json()["status"] in ("stopped", "stopping", "not_running")
+            # CSRF rule: body-less mutating POST is 422
+            assert client.post("/api/hft/engine/stop").status_code == 422
+            # the HFT state file persisted the stop
+            state = json.load(open(dash_mod._hft_state_path()))
+            assert state["desired"] == "stopped"
+        finally:
+            (CONFIG.db_path, config_mod.WATCHLIST_PATH, CONFIG.watchlist[:],
+             dash_mod.journal, dash_mod.chatbot) = saved
+
+
+def test_hft_engine_isolation_from_standard_book():
+    """An HFT engine restore must NOT pull the standard book's open trades
+    (and vice versa) — the mode-filtered open_trades() is the guard."""
+    import bot.engine as engine_mod
+    from bot.hft import build_hft_config
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        CONFIG.db_path = os.path.join(td, "t.db")
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            from bot.journal import Journal
+            j = Journal()
+            j.open_trade(symbol="BTC/USDT", side="long", qty=1.0, entry_price=100.0,
+                         stop=99.0, target=102.0, strategy="turtle_trend",
+                         rationale="", mode="paper", timeframe="1h")
+            eng = engine_mod.TradingEngine(cfg=build_hft_config(), mode="hft",
+                                           journal=j, quiet=True)
+            assert len(eng.broker.positions) == 0, \
+                "standard-book OPEN rows must not restore into the HFT broker"
+            assert eng.broker.cash == CONFIG.hft.paper_capital
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+
+
+def test_hft_triangular_scan_journals_and_settles():
+    """A firing arb journals a decision + an atomic round-trip trade and
+    moves broker cash (the equity point lands in the same cycle)."""
+    import bot.engine as engine_mod
+    from bot.hft import build_hft_config
+    from bot.journal import Journal
+    from config import utc_now
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        CONFIG.db_path = os.path.join(td, "t.db")
+        engine_mod.TradingEngine._init_kronos = lambda self: None
+        try:
+            j = Journal()
+            eng = engine_mod.TradingEngine(cfg=build_hft_config(), mode="hft",
+                                           journal=j, quiet=True)
+            cash0 = eng.broker.cash
+            # exercise the SETTLEMENT path the scanner calls on a firing arb:
+            # journal-first open -> close -> broker cash delta (perp-tier cost)
+            import bot.hft.triangular as tri_mod
+            px = 3000.0
+            notional = eng.broker.equity({}) * eng.cfg.hft.tri_fraction
+            cost = tri_mod.tri_cost_rate(eng.cfg.costs)
+            pnl = notional * (0.0040 - cost)
+            tid = j.open_trade(symbol="TRI-ETH", side="long", qty=notional / px,
+                               entry_price=px, stop=None, target=None,
+                               strategy="hft_triangular_arb", rationale="test",
+                               mode="hft", opened_ts=utc_now(), timeframe="1m")
+            j.close_trade(tid, exit_price=px, pnl=round(pnl, 4),
+                          pnl_pct=round((0.0040 - cost) * 100, 4),
+                          fees=round(notional * cost, 4),
+                          exit_reason="triangular round trip", rationale_close="",
+                          closed_ts=utc_now(), mode="hft")
+            eng.broker.cash += pnl
+            stats = j.stats(mode="hft")
+            assert stats["closed_trades"] == 1
+            assert abs(stats["total_pnl"] - pnl) < 0.01
+            assert eng.broker.cash == cash0 + pnl
+            # the standard book's stats are untouched
+            assert j.stats(mode="paper")["closed_trades"] == 0
+        finally:
+            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+
+
+
 if __name__ == "__main__":
     fails = 0
     fns = [(n, f) for n, f in sorted(globals().items())

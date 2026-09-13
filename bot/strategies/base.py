@@ -20,6 +20,11 @@ class Signal:
     target_rr: float | None = None       # take-profit as R-multiple of stop
     rationale: str = ""
     meta: dict = field(default_factory=dict)
+    # maker entry: when set, the order RESTS as a limit at this price instead
+    # of crossing the spread — filled when a later bar's range reaches it
+    # (maker fee, no slippage), expiring after cfg.hft.limit_wait_bars.
+    # Used by the HFT book's liquidity-provision strategies (HFT.md).
+    limit_price: float | None = None
 
 
 class BaseStrategy:

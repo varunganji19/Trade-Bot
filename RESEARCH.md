@@ -110,13 +110,15 @@ Convergent wisdom from the traders above:
 | **Turtle Trend** | Donchian/Dennis breakout + ATR regime filter | 1h | Close breaks prior 20-bar high/low, ADX > 20 | Opposite 10-bar channel | 2 × ATR(14) |
 | **Connors Mean Reversion** | Connors RSI-2 + Chan AR(1)/OU half-life gate (Algorithmic Trading ch.2) | 4h / 1d (evidence is daily bars) | RSI(2) < 5 long ( > 95 short) with EMA(200) trend filter, only while the measured reversion half-life of log(close/EMA20) ≤ 12 bars (AR(1) over rolling 100 bars, half-life = −ln(2)/(phi−1); BACKTESTS.md Round 6) | RSI(2) > 65 or cross of EMA(5); time stop | 3 × ATR(14) |
 | **VWAP Scalper** | Zarattini/Aziz ORB + VWAP institutional flow + our VWAP prototype | 15m (5m enabled but measured cost-negative) | VWAP reclaim with EMA(9)>EMA(21) momentum + volume confirmation, or N-bar range breakout; optional time-of-day RVOL gate (measured neutral on 24/7 crypto — off by default, BACKTESTS.md Round 5) | VWAP cross-down, breakeven trail after 1R, time stop | 2 × ATR(14) |
+| **TS Momentum (India)** | Indian momentum papers (SSRN 3345280/3510433/4587697) | 1h / 4h | Long-only: 240-bar return > +8%, within 10% of the 1-year high, close > EMA200 | Trailing-return flip, 10-bar low channel, EMA200 loss | 2.5 × ATR(14) |
+| **FX Regime Mean-Rev** | Regime-conditioned FX reversion (SSRN 6087107) | 1h | z of log(close/EMA20) beyond ±2 with finite AR(1) half-life ≤ 12 bars | z snapback through ±0.5, half-life regime death, time stop | 1.5 × ATR(14) |
 | **Sentiment Overlay** | LLM headline scoring (Lopez-Lira & Tang 2023) | live only | — (never initiates) | can veto/shrink entries | — |
 
 **Orchestrator:** ADX + EMA structure classifies the regime (trending vs. ranging). Trending →
-Turtle weight 0.55 / Scalper 0.30 / MeanRev 0.15. Ranging → inverted. Honest caveat: each strategy
-ships on its own validated timeframe and the three ranges are disjoint, so today every market is
-owned by exactly ONE strategy — the weighted vote and the conflict guard are implemented but only
-engage if strategies ever share a timeframe. Optional LLM as tie-breaker/veto with strict guardrails;
+Turtle weight 0.55 / Scalper 0.30 / MeanRev 0.15. Ranging → inverted. Honest caveat: the classic
+trio ships on disjoint timeframes, so every standard-book spec has one owner — but the blend is
+LIVE for the HFT book's 1m trio, and ts_momentum / fx_regime_meanrev evaluate (journaled, zero
+vote weight, conflict-guard participation) on 1h/4h specs the day they enter a watchlist. Optional LLM as tie-breaker/veto with strict guardrails;
 RiskManager has final veto over everything.
 
 ---

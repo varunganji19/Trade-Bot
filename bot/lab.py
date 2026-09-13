@@ -116,7 +116,8 @@ def normalize_symbol(kind: str, raw: str) -> str:
 _LAB_DAYS_CAP = {"1m": 14, "5m": 60, "15m": 180, "1h": 730, "4h": 1825, "1d": 3650}
 # Yahoo's own history caps per interval (forex + india ride yfinance)
 _YAHOO_DAYS_CAP = {"1m": 7, "5m": 60, "15m": 60, "1h": 730, "4h": 730, "1d": 1825}
-_HFT_TFS = ("1m", "5m")
+_HFT_TFS = ("1m",)   # the HFT strategies register 1m only — offering 5m
+                     # produced an empty strategy menu in the Lab
 _STANDARD_TFS = ("5m", "15m", "1h", "4h", "1d")
 
 

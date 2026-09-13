@@ -136,6 +136,9 @@ python3 tests/test_bot.py           # 188 tests
 |---|---|---|---|
 | **Turtle Trend** | Donchian / Richard Dennis's Turtles + ADX regime filter (SSRN 6272239) | trend-following breakout, 2×ATR stop, opposite-channel exit | 1h |
 | **Connors Mean Reversion** | Larry Connors RSI(2) + EMA(200) trend filter (documented ~75% win rate on indices) + Chan AR(1)/OU half-life gate | buy deep pullbacks in uptrends *while pullbacks are actually reverting* (measured half-life ≤ 12 bars), snapback exits, 3×ATR stop + time stop | 4h / 1d |
+| **TS Momentum (India)** | Indian momentum papers (SSRN 3345280/3510433/4587697) | long-only absolute momentum: 240-bar return >8% + near 52-week high + EMA200 | 1h / 4h |
+| **FX Regime Mean-Rev** | Regime-conditioned FX reversion (SSRN 6087107) | z-score stretch fade with AR(1) half-life regime gate | 1h |
+| **HFT trio** (separate book) | Avellaneda-Stoikov 2008, Carver 2025, Zarattini-Aziz 2023 (see HFT.md) | maker market-making, exhaustion fade, micro-breakout + triangular-arb monitor | 1m |
 | **VWAP Scalper** | Opening Range Breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP institutional benchmark + team's earlier VWAP prototype | VWAP reclaim/loss with momentum + volume confirmation, rolling-range breakout, breakeven trail, time stop; optional time-of-day RVOL filter (tested, off by default — measured neutral on 24/7 crypto, BACKTESTS.md) | 5m / 15m |
 
 **Orchestrator**: classifies each market's regime (ADX + EMA structure) and runs
@@ -218,7 +221,8 @@ India book in rupees, and the two books cannot mix). The dashboard's
 Overview tab has a two-state switch next to the engine controls:
 
 - **On = Forex active** — the crypto + forex universe (BTC, ETH, SOL on
-  1h/15m/4h + EUR/USD, GBP/USD on 1h; the historical default)
+  1h; BTC and ETH also on 15m and 4h + EUR/USD, GBP/USD on 1h; the
+  historical default)
 - **Off = India active** — the NSE universe (Nifty 50 + Reliance, TCS,
   HDFC Bank, Infosys, ICICI Bank on 1h; Reliance and TCS also on 4h)
 
@@ -345,7 +349,8 @@ bot/
   data.py            ccxt fallback chain (Binance→Bybit→OKX) + yfinance + RSS;
                      OHLCV validation, caliber stamps, forming-bar drop, parquet cache
   indicators.py      Wilder RSI/ATR/ADX, EMA, Donchian, VWAP (session + rolling)
-  strategies/        base + turtle + meanrev + scalper (stateless, testable)
+  strategies/        base + turtle + meanrev + scalper + ts_momentum +
+                     fx_regime_meanrev + hft (stateless, testable)
   sentiment.py       lexicon + LLM headline scoring; veto/shrink only
   llm.py             optional OpenAI/Anthropic client (auto-detected)
   orchestrator.py     regime detection, weighted vote, conflict guard, Kronos
@@ -365,6 +370,9 @@ bot/
                      config factory, perp/spot fee tiers, triangular-arb
                      monitor, harness battery — 1m strategies in
                      bot/strategies/hft.py (maker fills, A-S market maker)
+  lab.py             Strategy Lab: pick any symbol, apply registered
+                     strategies, backtest — both books (dashboard + CLI)
+  calendar.py        NSE session gate (IST clock + holiday list)
   journal.py         SQLite: decisions / trades / equity / chat_log
                      (mode column: 'paper' standard book, 'demo' seeded
                      replays, 'hft' high-frequency book)
@@ -383,6 +391,7 @@ tests/test_bot.py    188 tests: indicators, strategies, causality, determinism,
                      shadow, journal, backtest, live-engine regressions
                      (cross-timeframe isolation, restart cash, bars_held)
 run_battery.py       full backtest battery across symbols/strategies
+scripts/pinned_runs.py  pinned Milestone-A windows (byte-identical reruns)
 LICENSE              MIT
 pyproject.toml       committed ruff + pytest config (the lint floor CI enforces)
 Makefile             make setup / test / lint / backtest / validate / demo / battery

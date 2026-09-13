@@ -25,6 +25,31 @@ import sys
 # make project importable when run from anywhere
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+
+def _load_env_file(path: str = ".env") -> None:
+    """Load KEY=VALUE pairs from .env into os.environ BEFORE config reads
+    them (existing process env wins). The documented workflow ships
+    .env.example -> .env — but nothing ever loaded it, so a DASHBOARD_TOKEN
+    placed there silently left dashboard auth OFF while the operator
+    believed it was on. Deliberately dependency-free; no export/shell
+    expansion, no multiline values."""
+    try:
+        with open(path) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except OSError:
+        pass  # no .env is the normal case
+
+
+_load_env_file()
+
 from config import CONFIG, MarketSpec, DEFAULT_WATCHLIST, TRIANGULAR_LEGS, infer_kind  # noqa: E402
 
 

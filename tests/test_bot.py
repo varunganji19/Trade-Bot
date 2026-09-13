@@ -1790,9 +1790,9 @@ def test_strategy_check_exit_units():
 
 def test_dashboard_api_smoke():
     """Coverage gaps 8-11: the FULL FastAPI surface, exercised in-process
-    (TestClient; 'testserver' is in the dashboard's allowed_hosts for exactly
-    this). Imports the real module against a temp DB — no test imports
-    bot.dashboard anywhere else."""
+    (TestClient pinned to http://127.0.0.1 — the shipped allowlist no longer
+    carries a test-only hostname; 'testserver' used to be an allowlisted
+    bypass for direct clients). Imports the real module against a temp DB."""
     from fastapi.testclient import TestClient
     import bot.dashboard as dash_mod
 
@@ -1803,7 +1803,7 @@ def test_dashboard_api_smoke():
             dash_mod.journal.db_path = CONFIG.db_path
             dash_mod.journal = dash_mod.Journal(CONFIG.db_path)
             dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
-            client = TestClient(dash_mod.app)
+            client = TestClient(dash_mod.app, base_url="http://127.0.0.1")
 
             # core reads
             assert client.get("/api/stats").status_code == 200
@@ -1813,6 +1813,9 @@ def test_dashboard_api_smoke():
             # DNS-rebinding guard: a foreign Host is refused
             bad = client.get("/api/stats", headers={"Host": "evil.example.com"})
             assert bad.status_code == 400
+            # the retired test-only hostname must now ALSO be refused
+            legacy = client.get("/api/stats", headers={"Host": "testserver"})
+            assert legacy.status_code == 400
             # watchlist validation + CRUD
             assert client.post("/api/watchlist",
                                json={"kind": "crypto", "symbol": "../etc/passwd",
@@ -2526,7 +2529,7 @@ def test_dashboard_evidence_endpoint_smoke():
     artifacts (empty dirs, no ledger file) instead of erroring."""
     import bot.dashboard as dash
     from fastapi.testclient import TestClient
-    client = TestClient(dash.app)
+    client = TestClient(dash.app, base_url="http://127.0.0.1")
     r = client.get("/api/evidence")
     assert r.status_code == 200
     payload = r.json()
@@ -2577,7 +2580,7 @@ def test_reset_backup_is_wal_checkpointed_and_pruned():
             dash.journal.db_path = CONFIG.db_path
             dash.journal = dash.Journal(CONFIG.db_path)
             dash.chatbot = dash.ChatBot(dash.journal)
-            client = TestClient(dash.app)
+            client = TestClient(dash.app, base_url="http://127.0.0.1")
             j = dash.journal
             j.add_equity(10_000.0, 10_000.0, mode="paper")
             j.log_chat("user", "hello during reset window")   # fresh WAL content
@@ -2693,7 +2696,7 @@ def test_decisions_feed_filters_demo_rows():
                                 strategy_signals={}, sentiment={}, rationale="r")
             j.add_decision("BTC/USDT", "1h", d, mode="demo")
             j.add_decision("ETH/USDT", "1h", d, mode="paper")
-            client = TestClient(dash.app)
+            client = TestClient(dash.app, base_url="http://127.0.0.1")
             r = client.get("/api/decisions").json()
             assert [x["symbol"] for x in r] == ["ETH/USDT"]      # paper first
             j2 = dash.Journal(os.path.join(td, "demo_only.db"))
@@ -2702,7 +2705,7 @@ def test_decisions_feed_filters_demo_rows():
             dash.journal = j2
             dash.chatbot = dash.ChatBot(j2)
             j2.add_decision("GBPUSD=X", "1h", d, mode="demo")
-            r2 = TestClient(dash.app).get("/api/decisions").json()
+            r2 = TestClient(dash.app, base_url="http://127.0.0.1").get("/api/decisions").json()
             assert [x["symbol"] for x in r2] == ["GBPUSD=X"]     # demo fallback renders
         finally:
             CONFIG.db_path = old_db
@@ -2851,7 +2854,7 @@ def test_account_reset_refused_while_engine_stopping():
             dash.journal.db_path = CONFIG.db_path
             dash.journal = dash.Journal(CONFIG.db_path)
             dash.chatbot = dash.ChatBot(dash.journal)
-            client = TestClient(dash.app)
+            client = TestClient(dash.app, base_url="http://127.0.0.1")
             tid = dash.journal.open_trade("BTC/USDT", "long", 1.0, 100.0, 90.0,
                                           None, "turtle_trend", "r", mode="paper")
             assert tid
@@ -3528,7 +3531,7 @@ def test_dashboard_pause_resume_endpoints():
         try:
             dash_mod.journal = dash_mod.Journal(CONFIG.db_path)
             dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
-            client = TestClient(dash_mod.app)
+            client = TestClient(dash_mod.app, base_url="http://127.0.0.1")
 
             assert client.get("/api/engine/status").json()["paused"] is False
             r = client.post("/api/trading/pause", json={})
@@ -4307,7 +4310,7 @@ def _market_mode_dashboard(td):
     config_mod.WATCHLIST_PATH = os.path.join(td, "watchlist.json")
     dash_mod.journal = dash_mod.Journal(CONFIG.db_path)
     dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
-    return TestClient(dash_mod.app), dash_mod
+    return TestClient(dash_mod.app, base_url="http://127.0.0.1"), dash_mod
 
 
 def _restore_market_mode_fixture(dash_mod):
@@ -5119,7 +5122,7 @@ def test_hft_dashboard_endpoints_and_tab():
         try:
             dash_mod.journal = dash_mod.Journal(CONFIG.db_path)
             dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
-            client = TestClient(dash_mod.app)
+            client = TestClient(dash_mod.app, base_url="http://127.0.0.1")
             assert client.get("/api/hft/stats").status_code == 200
             assert client.get("/api/hft/equity").json() == []
             assert client.get("/api/hft/trades").json() == []
@@ -5372,7 +5375,7 @@ def test_lab_dashboard_endpoints():
         try:
             dash_mod.journal = dash_mod.Journal(CONFIG.db_path)
             dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
-            client = TestClient(dash_mod.app)
+            client = TestClient(dash_mod.app, base_url="http://127.0.0.1")
             meta = client.get("/api/lab/meta").json()
             assert set(meta["suggestions"]) == {"crypto", "forex", "india"}
             assert "1m" in meta["timeframes"]["hft"]["crypto"]

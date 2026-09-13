@@ -133,7 +133,7 @@ python3 main.py hft-status                       # the HFT book's summary
 python3 main.py dashboard                        # → http://127.0.0.1:8000/#hft
 ```
 
-Env: `HFT_PAPER_CAPITAL` (default 10000), `HFT_INTERVAL` (20s), `HFT_FEE_TIER`
+Env: `HFT_PAPER_CAPITAL` (default 10000), `HFT_INTERVAL` (2s), `HFT_FEE_TIER`
 (perp|spot), `HFT_PENETRATION_BPS` (0), `HFT_ENABLED` (1), `ALGO_NO_AUTO_RESUME`
 (also keeps the HFT engine from auto-resuming on dashboard boot).
 

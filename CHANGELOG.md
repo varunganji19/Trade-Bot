@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.4.3] 2026-09-13 — final audit: security, docs truth, live GUI verification
+
+Three more audit passes (security, docs-vs-code truth, and the first LIVE
+browser test of the dashboard) plus fixes for everything they found.
+191/191 tests green; dashboard exercised end-to-end in a real browser
+(Lab backtest run, HFT book toggle, theme switch — screenshots verified).
+
+- **Security (MED)**: the documented `.env` workflow never loaded the file —
+  a DASHBOARD_TOKEN placed in `.env` silently left auth OFF. main.py now
+  loads `.env` (dependency-free parser, existing env wins) before config.
+- **Security (LOW)**: RSS downloads abort past the 2MB cap instead of
+  buffering the whole body first; the retired `testserver` hostname is no
+  longer in the TrustedHost allowlist (tests pin 127.0.0.1 and now assert
+  testserver is refused); non-ASCII token probes return 401 not 500
+  (byte compare_digest).
+- **GUI bugs caught by the live browser test**: the `hidden` attribute was
+  beaten by any display-setting CSS class (global `[hidden] guard; the Lab
+  fee-tier selector showed on the Standard book); the Lab status pill kept
+  stale "fetching" text after a run completed; switching the Lab to the HFT
+  book on 5m produced an empty strategy menu (HFT book is now 1m-only in
+  the Lab — its strategies register 1m).
+- **Docs truth pass**: HFT.md's stale 20s cadence claims -> 2s; README test
+  counts 188 -> 191; README/RESEARCH.md "disjoint/dormant orchestrator"
+  story updated (the HFT trio votes live; ts_momentum/fxmr evaluate on
+  1h/4h); README forex-universe wording corrected (SOL is 1h-only); the
+  two Milestone-C strategies added to the strategy tables; Layout map
+  gained lab.py/calendar.py/scripts; MILESTONES C1 "1d bars" -> "1h/4h";
+  CACHE_FRESHNESS_HOURS documented in .env.example; pyproject registers
+  bot.hft.
+- **Hygiene**: data/hft_engine_state.json + data/market_mode.json +
+  nvidia_test.py gitignored (market_mode untracked — runtime state;
+  manifest.json stays tracked deliberately as fetch provenance); the stale
+  design-system/ folder removed; engine.run_forever sleeps in 0.25s slices
+  (Ctrl-C responsive; the HFT wake-granularity claim now true on the CLI
+  path too).
+
 ## [1.4.2] 2026-09-13 — dead-code / duplicate-logic / complexity cleanup
 
 Three parallel audits (core modules, dashboard, CLI/tests/config) plus

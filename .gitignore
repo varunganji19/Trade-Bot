@@ -5,6 +5,8 @@ __pycache__/
 
 # local state — the journal, market-data caches and results are runtime data,
 # not source; the shipped code recreates them on first boot
+# (data/manifest.json is the DELIBERATE exception: fetch provenance is a
+#  committed, checkable artifact — see the Evidence tab)
 data/trading.db*
 data/trading.backup.*.db
 data/bot.db
@@ -25,3 +27,8 @@ data/engine_state.json
 
 # generated validation report (validate --report); regenerate any time
 REPORT.md
+
+# more runtime state + local scratch
+data/hft_engine_state.json
+data/market_mode.json
+nvidia_test.py

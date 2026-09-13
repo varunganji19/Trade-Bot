@@ -348,7 +348,13 @@ class TradingEngine:
               f"LLM: {self.llm.provider if self.llm.enabled else 'quant mode'}). Ctrl-C to stop.")
         while True:
             self.run_cycle()
-            time.sleep(interval)
+            # sliced sleep: wake quickly for Ctrl-C, and on the HFT book's 2s
+            # cadence a full-interval sleep would add up to `interval` seconds
+            # of extra latency after the loop wakes (the dashboard threads
+            # already slice the same way)
+            deadline = time.monotonic() + interval
+            while time.monotonic() < deadline:
+                time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
 
     # ------------------------------------------------------------- per market
     @staticmethod

@@ -600,14 +600,25 @@ def fetch_news() -> list:
     items: list = []
     for url in CONFIG.news_feeds:
         try:
-            resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0 (algo-bot)"},
-                                allow_redirects=True)
-            # redirects FOLLOWED: public feeds 301 on www->apex moves, and the
-            # old allow_redirects=False silently yielded zero headlines for
-            # them. The 2MB parse cap below still bounds the final body.
-            if resp.status_code == 200:
-                source = url.split("/")[2].replace("www.", "")
-                items.extend(_parse_rss(resp.text, source))
+            # stream + byte-counter: the 2MB cap previously bounded only the
+            # PARSE (a compromised/oversized feed still filled memory with
+            # the whole download); now the download itself aborts past the cap
+            with requests.get(url, timeout=8,
+                              headers={"User-Agent": "Mozilla/5.0 (algo-bot)"},
+                              allow_redirects=True, stream=True) as resp:
+                # redirects FOLLOWED: public feeds 301 on www->apex moves, and
+                # allow_redirects=False silently yielded zero headlines for them
+                if resp.status_code == 200:
+                    source = url.split("/")[2].replace("www.", "")
+                    buf = bytearray()
+                    for chunk in resp.iter_content(65536):
+                        buf.extend(chunk)
+                        if len(buf) > 2_000_000:
+                            buf.clear()
+                            break
+                    if buf:
+                        items.extend(_parse_rss(
+                            buf.decode(resp.encoding or "utf-8", "replace"), source))
         except Exception:
             continue
     if items:

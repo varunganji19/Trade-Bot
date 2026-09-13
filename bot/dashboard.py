@@ -82,7 +82,7 @@ app = FastAPI(title="AI Trading Bot Dashboard", version="2.1", lifespan=_lifespa
 # same-origin with 127.0.0.1 and gets full read/write otherwise) — the bot
 # stays localhost-only
 app.add_middleware(TrustedHostMiddleware,
-                  allowed_hosts=["127.0.0.1", "localhost", "testserver"])
+                  allowed_hosts=["127.0.0.1", "localhost"])
 
 
 def _check_token(auth_header: str, token: str) -> bool:
@@ -90,7 +90,10 @@ def _check_token(auth_header: str, token: str) -> bool:
     if not token:
         return True
     import hmac
-    return hmac.compare_digest(auth_header, f"Bearer {token}")
+    # bytes, not str: str compare_digest raises TypeError on non-ASCII input,
+    # turning a wrong-header probe into a 500 on every API route
+    return hmac.compare_digest(auth_header.encode("utf-8"),
+                               f"Bearer {token}".encode("utf-8"))
 
 
 class _TokenGuard:   # pure ASGI middleware — no BaseHTTPMiddleware overhead
@@ -310,7 +313,7 @@ _hft_lock = threading.Lock()
 _hft_engine: TradingEngine | None = None
 _hft_thread: threading.Thread | None = None
 _last_hft_error: str | None = None
-_hft_interval: int = 20
+_hft_interval: int = 2
 _HFT_AUTO_RESUMED_AT_BOOT = False
 
 
@@ -1543,6 +1546,10 @@ document.documentElement.setAttribute('data-theme',t);})();
 .badge { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px;
          font-size:11px; font-family:var(--font-code, monospace); color:var(--color-muted-foreground);
          border:1px solid var(--color-border); vertical-align:middle; }
+/* the hidden attribute must ALWAYS win: .fld/.card etc. set display and
+   otherwise beat the UA's [hidden] rule — the Lab fee-tier selector showed
+   on the standard book despite hidden=true */
+[hidden] { display: none !important; }
 * { box-sizing:border-box; margin:0; padding:0; }
 html { scroll-behavior:smooth; scroll-padding-top:118px; scrollbar-gutter:stable; }
 body { background:var(--color-background); color:var(--color-foreground);
@@ -3184,10 +3191,11 @@ function labRenderStatus(st) {
   } else if (st.status === 'error') {
     el.textContent = '✗ ' + (st.error || 'run failed');
   } else if (st.status === 'done') {
-    /* render ONCE per completed run: status stays 'done' on every later
-       poll, and re-rendering re-fired the completion toast every 4s tick */
-    if ($('#labResultCard').hidden || $('#labResultTitle').dataset.run !== st.result.generated_at) {
-      el.hidden = true;
+    /* hide the status pill ALWAYS; render ONCE per completed run (status
+       stays 'done' on every later poll — re-rendering re-fired the
+       completion toast and left stale status text visible every 4s tick) */
+    el.hidden = true;
+    if ($('#labResultTitle').dataset.run !== st.result.generated_at) {
       labRenderResult(st.result);
       $('#labResultTitle').dataset.run = st.result.generated_at;
     }

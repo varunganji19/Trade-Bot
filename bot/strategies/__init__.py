@@ -16,15 +16,23 @@ STRATEGY_CLASSES = {
     TimeSeriesMomentum.name: TimeSeriesMomentum,
 }
 
-_INSTANCE_CACHE: dict = {}
+_INSTANCE_CACHE: dict = {}   # id(params) -> (params_ref, {name: instance})
 
 
 def get_strategies(params=None) -> dict:
-    """Shared strategy instances (stateless, so sharing is safe)."""
+    """Shared strategy instances (stateless, so sharing is safe).
+
+    The cache holds a STRONG reference to the params object beside the
+    instances: keyed by id(params) alone, a garbage-collected params object's
+    id could be recycled by a NEW params object, which would silently receive
+    the OLD object's strategy instances (strategies capture params at
+    construction). Holding the ref makes id reuse impossible while cached."""
     key = id(params)
-    if key not in _INSTANCE_CACHE:
-        _INSTANCE_CACHE[key] = {name: cls(params) for name, cls in STRATEGY_CLASSES.items()}
-    return _INSTANCE_CACHE[key]
+    entry = _INSTANCE_CACHE.get(key)
+    if entry is None or entry[0] is not params:
+        entry = (params, {name: cls(params) for name, cls in STRATEGY_CLASSES.items()})
+        _INSTANCE_CACHE[key] = entry
+    return entry[1]
 
 
 def get_strategy(name: str, params=None) -> BaseStrategy:

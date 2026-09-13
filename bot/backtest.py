@@ -110,6 +110,7 @@ class Backtester:
     def __init__(self, cfg=None, starting_capital: float | None = None):
         self.cfg = cfg or CONFIG
         self.starting_capital = starting_capital or self.cfg.paper_capital
+        self._alloc_warned = False   # allocation failures are warned ONCE per run
 
     # ------------------------------------------------------------------ core
     def run(self, spec: MarketSpec, df: pd.DataFrame, strategy: str | None = None,
@@ -245,8 +246,13 @@ class Backtester:
                             hist[peer_spec.symbol] = d.loc[d.index <= ts]
                     peer_specs = [s for s in self.cfg.watchlist if s.symbol in hist]
                     risk.set_allocation(allocation_weights(peer_specs, hist))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # silent pass used to hide allocator bugs as quietly DOUBLED
+                    # risk (unscaled 1%-per-symbol). Warn once, keep trading.
+                    if not self._alloc_warned:
+                        print(f"[backtest] allocation hook failed ({type(exc).__name__}: "
+                              f"{exc}) — risk budget runs unscaled for this run")
+                        self._alloc_warned = True
             approval = risk.approve(decision, spec, broker.cash, len(broker.positions),
                                     has_position_on_symbol=False,
                                     bar_epoch=bar_epoch)

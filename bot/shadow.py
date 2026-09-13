@@ -109,8 +109,10 @@ def rule_adherence(trades: list[dict], df: pd.DataFrame, params=None,
         reason = (t.get("exit_reason") or "").lower()
         strategy_name = t.get("strategy") or ""
 
-        # broker-enforced exits are on-rule by construction (OCO brackets)
-        if any(k in reason for k in ("stop loss", "take profit", "end of backtest")):
+        # broker-enforced exits are on-rule by construction (OCO brackets).
+        # STARTSWITH, not substring: a discretionary note like "manual close
+        # (stop loss was far)" must not masquerade as a hard bracket.
+        if reason.startswith(("stop loss", "take profit", "end of backtest")):
             rep.n_on_rule += 1
             rep.trades.append({**t, "verdict": "on-rule (hard bracket)"})
             continue
@@ -239,8 +241,10 @@ def shadow_compare(spec, trades: list[dict], df: pd.DataFrame) -> dict:
 
     if not trades:
         return {"n_trades": 0}
-    first = min(_parse_ts(t.get("opened_ts")) for t in trades if t.get("opened_ts"))
-    last = max(_parse_ts(t.get("closed_ts")) for t in trades if t.get("closed_ts"))
+    first = min((_parse_ts(t.get("opened_ts")) for t in trades if t.get("opened_ts")),
+                default=None)
+    last = max((_parse_ts(t.get("closed_ts")) for t in trades if t.get("closed_ts")),
+               default=None)
     if first is None or last is None:
         return {"n_trades": 0, "error": "unparseable timestamps"}
 
@@ -250,21 +254,24 @@ def shadow_compare(spec, trades: list[dict], df: pd.DataFrame) -> dict:
 
     actual_pnl = sum(t.get("pnl") or 0.0 for t in trades if t.get("status") == "CLOSED")
     actual_fees = sum(t.get("fees") or 0.0 for t in trades if t.get("status") == "CLOSED")
-    strategies = {t.get("strategy") for t in trades if t.get("strategy")}
-    # run the shadow on the first strategy seen owning trades on this symbol
-    strategy_name = next(iter(strategies)) if strategies else None
-
-    shadow = None
-    if strategy_name and strategy_name in ("turtle_trend", "connors_meanrev", "vwap_scalper"):
+    # one shadow backtest PER strategy that owns trades here: a mixed journal
+    # used to be compared against whichever strategy happened to be seen first
+    # (set iteration order) — every other owner was scored against the wrong
+    # rules. Deterministic order, and each shadow only counts its own window.
+    supported = sorted({t.get("strategy") for t in trades if t.get("strategy")}
+                       & {"turtle_trend", "connors_meanrev", "vwap_scalper"})
+    shadows = []
+    for strategy_name in supported:
         try:
             bt = Backtester()
             res = bt.run(spec, window, strategy=strategy_name)
             s = res.stats()
-            shadow = {"strategy": strategy_name, "trades": s["trades"],
-                      "pnl": s["total_pnl"], "fees": s["fees"],
-                      "return_pct": s["return_pct"], "max_dd_pct": s["max_drawdown_pct"]}
+            shadows.append({"strategy": strategy_name, "trades": s["trades"],
+                            "pnl": s["total_pnl"], "fees": s["fees"],
+                            "return_pct": s["return_pct"], "max_dd_pct": s["max_drawdown_pct"]})
         except Exception as exc:
-            shadow = {"error": f"{type(exc).__name__}: {exc}"}
+            shadows.append({"strategy": strategy_name,
+                            "error": f"{type(exc).__name__}: {exc}"})
 
     return {
         "n_trades": len(trades),
@@ -272,5 +279,5 @@ def shadow_compare(spec, trades: list[dict], df: pd.DataFrame) -> dict:
         "window_start": str(first), "window_end": str(last),
         "actual": {"trades": len(trades), "pnl": round(actual_pnl, 2),
                    "fees": round(actual_fees, 4)},
-        "shadow": shadow,
+        "shadows": shadows,
     }

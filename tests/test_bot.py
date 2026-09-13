@@ -2057,6 +2057,47 @@ def test_shadow_behavior_profile_math():
     assert p["disposition_gap_hours"] == pytest_approx(-2.0, 6)
 
 
+def test_shadow_compare_mixed_strategies_per_strategy_shadows():
+    """A journal mixing strategies on one symbol used to be shadow-compared
+    against WHICHEVER strategy set iteration saw first — every other owner
+    scored against the wrong rules. Now each owning strategy gets its own
+    pure-rules comparison."""
+    from bot.shadow import shadow_compare
+    df = add_all_indicators(trending_df(700, drift=0.0015, seed=17))
+    trades = [
+        _journal_trade(1, 200, 650, df, strategy="turtle_trend", pnl=15.0),
+        _journal_trade(2, 210, 660, df, strategy="connors_meanrev", pnl=-5.0),
+    ]
+    comp = shadow_compare(CRYPTO_1H, trades, df)
+    shadows = comp.get("shadows") or []
+    assert {s["strategy"] for s in shadows} == {"turtle_trend", "connors_meanrev"}
+    for s in shadows:
+        assert "pnl" in s or "error" in s
+
+
+def test_shadow_compare_unparseable_timestamps_no_crash():
+    """Trades whose timestamps never parse reached min() over an EMPTY
+    sequence — which raised ValueError instead of reporting honestly."""
+    from bot.shadow import shadow_compare
+    trades = [{"status": "CLOSED", "symbol": "X", "strategy": "turtle_trend",
+               "pnl": 1.0, "opened_ts": None, "closed_ts": None}]
+    comp = shadow_compare(CRYPTO_1H, trades, trending_df(50))
+    assert comp.get("error") == "unparseable timestamps"
+
+
+def test_shadow_hard_bracket_match_is_anchored():
+    """'stop loss' inside a discretionary NOTE must not masquerade as a
+    broker-enforced hard bracket (the old substring match classified it so)."""
+    from bot.shadow import rule_adherence
+    df = add_all_indicators(trending_df(700, drift=0.0015, seed=17))
+    t = _journal_trade(997, 300, 320, df,
+                       exit_reason="manual close (stop loss was far)",
+                       strategy="turtle_trend")
+    rep = rule_adherence([t], df, CONFIG.params)
+    assert rep.trades, "trade must be classified, not dropped"
+    assert "hard bracket" not in rep.trades[0]["verdict"]
+
+
 # ------------------------------------------------------------------ engine autonomy
 def _engine_with_db(td):
     """Engine on a temp journal with Kronos skipped (model load is slow and

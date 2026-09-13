@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "algo-trading-bot"
-version = "1.1.0"
+version = "1.2.0"
 description = "Autonomous crypto/forex paper-trading bot with honest validation (purged-CV, PBO, Deflated Sharpe) and full decision attribution"
 readme = "README.md"
 requires-python = ">=3.11"

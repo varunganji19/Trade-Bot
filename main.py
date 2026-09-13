@@ -495,13 +495,14 @@ def cmd_shadow(args):
             if tr["verdict"] != "on-rule":
                 print(f"    #{tr['id']} {tr['verdict']}: {tr.get('note', '')[:100]}")
         comp = shadow_compare(spec, sym_trades, df)
-        if comp.get("shadow"):
-            sh = comp["shadow"]
+        for sh in comp.get("shadows") or []:
+            if sh.get("error"):
+                print(f"  shadow ({sh['strategy']}): {sh['error']}")
+                continue
             print(f"  actual journal PnL ${comp['actual']['pnl']:+.2f} over "
-                  f"{comp['actual']['trades']} trades | shadow (pure rules, same window): "
-                  f"${sh['pnl']:+.2f} over {sh['trades']} trades "
-                  f"({sh.get('error') or ''})"
-                  f"{'gap ' + format(comp['actual']['pnl'] - sh['pnl'], '+.2f') if not sh.get('error') else ''}")
+                  f"{comp['actual']['trades']} trades | shadow ({sh['strategy']}, "
+                  f"pure rules, same window): ${sh['pnl']:+.2f} over {sh['trades']} trades "
+                  f"| gap {comp['actual']['pnl'] - sh['pnl']:+.2f}")
         report["symbols"][f"{symbol} {timeframe}"] = {
             "adherence_pct": rep.adherence_pct, "on_rule": rep.n_on_rule,
             "late": rep.n_late, "rule_breaks": rep.n_rule_break,

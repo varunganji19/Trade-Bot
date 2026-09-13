@@ -33,10 +33,16 @@ BATTERY = [
 
 DAYS = {"1h": 365, "5m": 30, "15m": 60, "4h": 730, "1d": 1825}
 STRATEGIES = ["turtle_trend", "connors_meanrev", "vwap_scalper", "ensemble"]
-# run each strategy only on its own timeframe (as shipped in the watchlist)
-SKIP = {("1h", "vwap_scalper"), ("1h", "connors_meanrev"),
-        ("15m", "turtle_trend"), ("15m", "connors_meanrev"),
-        ("4h", "turtle_trend"), ("4h", "vwap_scalper")}
+# run each strategy only on its own timeframe (as shipped in the watchlist).
+# Derived from the strategies' own registered preferred_timeframes instead of
+# a hand-written set: the hardcoded SKIP used to silently drift when a
+# strategy's timeframe registration changed (it covered exactly the
+# turtle/connors/scalper cells below at the time of writing — verify with
+# `python3 -c "from run_battery import SKIP; print(sorted(SKIP))"`).
+from bot.strategies import STRATEGY_CLASSES  # noqa: E402
+_TFS = sorted({s.timeframe for s in BATTERY})
+SKIP = {(tf, name) for tf in _TFS for name, cls in STRATEGY_CLASSES.items()
+        if tf not in cls.preferred_timeframes}
 
 
 def main():

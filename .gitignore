@@ -22,3 +22,6 @@ data/engine_state.json
 
 # secrets — .env.example is the committed template; .env never leaves the machine
 .env
+
+# generated validation report (validate --report); regenerate any time
+REPORT.md

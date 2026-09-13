@@ -236,8 +236,7 @@ def fetch_forex_ohlcv(symbol: str, timeframe: str, start: str | None = None,
                       period_map[timeframe], origin="forex")
     if timeframe == "4h":  # resample 1h -> 4h
         df = _resample_1h_to_4h(df)
-    df = _validate_ohlcv(df, "forex:yahoo(auto_adjust=True)")
-    df.attrs["caliber"] = "adjusted"
+    df = _validate_ohlcv(df, "forex:yahoo(auto_adjust=True)", caliber="adjusted")
     df.attrs["source"] = "yahoo"
     return df
 
@@ -258,15 +257,18 @@ def fetch_india_ohlcv(symbol: str, timeframe: str, start: str | None = None,
                       period_map[timeframe], origin="india")
     if timeframe == "4h":  # resample 1h -> 4h (same as forex)
         df = _resample_1h_to_4h(df)
-    df = _validate_ohlcv(df, "india:yahoo(auto_adjust=True)")
-    df.attrs["caliber"] = "adjusted"
+    df = _validate_ohlcv(df, "india:yahoo(auto_adjust=True)", caliber="adjusted")
     df.attrs["source"] = "yahoo"
     return df
 
 
 # --------------------------------------------------------------------------- quality
-def _validate_ohlcv(df: pd.DataFrame, origin: str) -> pd.DataFrame:
-    """Fail loudly on corrupt/mixed-caliber bars instead of poisoning signals."""
+def _validate_ohlcv(df: pd.DataFrame, origin: str, caliber: str = "raw") -> pd.DataFrame:
+    """Fail loudly on corrupt/mixed-caliber bars instead of poisoning signals.
+    `caliber` states the price basis ('raw' exchange trades vs 'adjusted'
+    Yahoo bars) — stamped here so EVERY validated frame carries the truth
+    (the old pattern of stamping 'raw' unconditionally and overwriting in
+    some callers mislabeled any frame that skipped the overwrite)."""
     required = ["open", "high", "low", "close", "volume"]
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -286,7 +288,7 @@ def _validate_ohlcv(df: pd.DataFrame, origin: str) -> pd.DataFrame:
     if not df.index.is_monotonic_increasing or df.index.has_duplicates:
         raise RuntimeError(f"{origin}: index not sorted/unique")
     df = df.copy()
-    df.attrs["caliber"] = "raw"
+    df.attrs["caliber"] = caliber
     return df
 
 
@@ -591,7 +593,10 @@ def fetch_news() -> list:
     for url in CONFIG.news_feeds:
         try:
             resp = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0 (algo-bot)"},
-                                allow_redirects=False)
+                                allow_redirects=True)
+            # redirects FOLLOWED: public feeds 301 on www->apex moves, and the
+            # old allow_redirects=False silently yielded zero headlines for
+            # them. The 2MB parse cap below still bounds the final body.
             if resp.status_code == 200:
                 source = url.split("/")[2].replace("www.", "")
                 items.extend(_parse_rss(resp.text, source))

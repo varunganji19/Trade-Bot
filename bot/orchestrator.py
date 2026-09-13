@@ -6,15 +6,18 @@ Decision orchestrator — the bot's "brain".
      trending  -> turtle 0.55, scalper 0.30, meanrev 0.15
      ranging   -> meanrev 0.55, scalper 0.30, turtle 0.15
    REALITY CHECK: the blend only engages when strategies SHARE a timeframe.
-   preferred_timeframes are disjoint (turtle 1h, meanrev 4h/1d, scalper
-   5m/15m), so today every spec is evaluated by exactly ONE strategy and the
-   "blend" reduces to that strategy's own confidence. The regime weights and
-   the conflict guard are implemented scaffolding, not active features —
-   they wake up the day two strategies are registered for one timeframe.
+   The three shipped watchlist strategies are disjoint (turtle 1h, meanrev
+   4h/1d, scalper 5m/15m), so every spec in a shipped watchlist is still
+   evaluated by exactly ONE strategy and the "blend" reduces to that
+   strategy's own confidence. But the REGISTERED set now overlaps — the
+   Milestone-C strategies (ts_momentum 1h/4h, fx_regime_meanrev 1h) vote
+   alongside turtle/meanrev the day they enter a watchlist — so the regime
+   weights and the conflict guard are live code waiting on configuration,
+   not dead code.
 3. Weighted confidence vote with a conflict guard (strong simultaneous LONG and
-   SHORT conviction => HOLD) — unreachable while the timeframes stay disjoint,
-   for the same reason (Kronos, when promoted, votes but is excluded from the
-   conflict guard).
+   SHORT conviction => HOLD) — dormant while shipped watchlists keep one
+   strategy per timeframe, live the day Milestone-C strategies join one
+   (Kronos, when promoted, votes but is excluded from the conflict guard).
 4. Kronos (financial foundation model, bot/kronos_signal.py): its probabilistic
    forecast is ALWAYS journaled in strategy_signals (tracked non-voter), and it
    joins the vote with weight KRONOS_VOTE_WEIGHT only after its rolling IC

@@ -20,17 +20,16 @@ import time
 
 from bot.backtest import Backtester
 from bot.hft import build_hft_config
-from bot.hft.triangular import tri_backtest
 from bot.strategies import HFT_STRATEGY_NAMES
-from config import TRIANGULAR_LEGS, MarketSpec
+from config import MarketSpec
 
 BATTERY_SPECS = [
-    MarketSpec("crypto", "BTC/USDT", "1m", "Bitcoin HFT"),
-    MarketSpec("crypto", "ETH/USDT", "1m", "Ethereum HFT"),
-    MarketSpec("crypto", "ETH/BTC", "1m", "ETH/BTC cross"),
-    MarketSpec("forex", "EURUSD=X", "1m", "EUR/USD HFT"),
+    MarketSpec("crypto", "BTC/USDT", "5m", "Bitcoin fast"),
+    MarketSpec("crypto", "ETH/USDT", "5m", "Ethereum fast"),
+    MarketSpec("crypto", "ETH/BTC", "5m", "ETH/BTC cross"),
+    MarketSpec("forex", "EURUSD=X", "5m", "EUR/USD fast"),
 ]
-DAYS_DEFAULT = 3          # 1m bars: 3d = ~4320 bars per spec
+DAYS_DEFAULT = 14         # 5m bars: 14d = ~4030 bars per spec
 WARMUP_BARS = 400         # clears the ema200 column the shared indicator builder computes
 
 
@@ -48,13 +47,12 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
                 out_path: str = "data/results/hft_battery.json", quiet: bool = False) -> dict:
     started = time.time()
     results = {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-               "days": days, "warmup_bars": WARMUP_BARS, "cells": [],
-               "triangular": None}
+               "days": days, "warmup_bars": WARMUP_BARS, "cells": []}
     frames: dict[str, object] = {}
 
     for tier in tiers:
         cfg = build_hft_config(fee_tier=tier)
-        bt = Backtester(cfg)
+        bt = Backtester(cfg, book="fast")
         for spec in BATTERY_SPECS:
             if spec.symbol not in frames:
                 from bot.data import fetch_history
@@ -87,28 +85,6 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
                 except Exception as exc:
                     if not quiet:
                         print(f"!! [{tier}] {spec.symbol} {strat}: {type(exc).__name__}: {exc}")
-
-    # triangular arb monitor over the three crypto legs (any tier's costs —
-    # report under the first tier, the edge is tier-independent, the
-    # threshold is not)
-    try:
-        cfg = build_hft_config(fee_tier=tiers[0] if tiers else "perp")
-        legs = {}
-        for sym in TRIANGULAR_LEGS:
-            if frames.get(sym) is not None:
-                legs[sym] = frames[sym]
-        if len(legs) == 3:
-            tri = tri_backtest(legs, cfg.costs,
-                               min_edge_bps=cfg.hft.tri_min_edge_bps)
-            results["triangular"] = tri
-            if not quiet:
-                s = tri.get("summary", {})
-                print(f"  [tri ] aligned {s.get('bars_aligned')} bars | "
-                      f"gross opps {s.get('gross_opportunities')} | "
-                      f"fired {s.get('fired')} | max edge {s.get('max_abs_edge_bps')}bp "
-                      f"vs cost {s.get('cost_bps')}bp")
-    except Exception as exc:
-        results["triangular"] = {"error": f"{type(exc).__name__}: {exc}"}
 
     results["runtime_s"] = round(time.time() - started, 1)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)

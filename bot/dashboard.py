@@ -10,7 +10,7 @@ Tabs (hash routing, ~4s polling):
   #portfolio  — open positions (live marks, manual close) + trade history
   #hft        — the SEPARATE high-frequency paper book: its own engine
                 controls, equity curve, ALL HFT trades in one place, decision
-                feed incl. the TRI-ETH triangular-arb monitor (mode='hft')
+                feed for the fast book (mode='hft')
   #watchlist  — full CRUD of what the bot trades (persisted data/watchlist.json;
                 hot-reloads into a RUNNING engine's CONFIG)
   #lab        — Strategy Lab: pick ANY stock/pair (crypto, forex, NSE —
@@ -164,7 +164,12 @@ _LEGACY_TF = "1h"
 # (preferred_timeframes is the enforcement point; a hand-kept literal lied
 # for 5m/1d — vwap_scalper/connors_meanrev never traded those back then, the
 # orchestrator just HOLDed, yet the UI badge claimed an owner)
+# STANDARD-book strategies only: this map badges the standard watchlist, and
+# both books trade 5m since the fast book left 1m — without the book filter
+# a 5m standard spec would be badged with a fast-book strategy that never
+# votes on it.
 STRATEGY_BY_TF = {tf: name for name, cls in STRATEGY_CLASSES.items()
+                  if getattr(cls, "book", "standard") == "standard"
                   for tf in cls.preferred_timeframes}
 
 apply_saved_watchlist()  # data/watchlist.json → CONFIG.watchlist (creates file on first boot)
@@ -2611,7 +2616,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>High-frequency book <span class="badge">1m · paper</span></h2>
       <span class="hint" id="hftFeeHint"></span>
     </div>
-    <p class="hint" style="margin:0 0 10px">A SECOND paper account trading 1-minute bars (crypto + forex) with its own capital, risk dials and fee tier — the standard book above is untouched. HFT strategies: <b>hft_ofi_momentum</b> (order-flow-imbalance continuation, taker), <b>hft_market_maker</b> (Avellaneda–Stoikov-inspired maker quotes), <b>hft_exhaustion_fade</b> (volume-spike reversion, maker entry), <b>hft_micro_breakout</b> (2R micro-range breakout, taker) + the <b>TRI-ETH</b> triangular-arb monitor. Every one of them refuses a setup whose stop cannot clear the fee tier's round trip. Research + fee math: <code>HFT.md</code>.</p>
+    <p class="hint" style="margin:0 0 10px">A SECOND paper account trading <b>5-minute</b> bars (crypto + forex) with its own capital, risk dials and fee tier — the standard book above is untouched. It ran 1m until 2026-09-19: at a 16bp round trip against a 5-8bp 1m ATR, no stop could pay for its own fees, so entries were vetoed rather than taken. Strategies: <b>hft_micro_breakout</b> (2R range breakout, taker), <b>hft_exhaustion_fade</b> (volume-spike reversion). Every one refuses a setup whose stop cannot clear the fee tier's round trip. Research + fee math: <code>HFT.md</code>.</p>
     <div class="stats-grid" id="hftStats"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px" id="hftEngineControls">
       <button class="btn primary" id="hftStartBtn">Start HFT engine</button>
@@ -3732,11 +3737,10 @@ async function refreshHft() {
     '<td><span class="tag ' + (t.status === 'OPEN' ? 'open' : 'hold') + '">' + esc(t.status) + '</span></td>' +
     '<td style="color:var(--color-muted-foreground)">' + esc(t.exit_reason || '—') + '</td></tr>').join('');
 
-  /* decision feed (HOLDs included — TRI-ETH monitor rows land here too) */
+  /* decision feed (HOLDs included) */
   let ds;
   try { ds = await jget('/api/hft/decisions?limit=30'); } catch (e) { ds = []; }
-  renderDecisionRows($('#hftDecisions'), ds,
-    d => (d.symbol === 'TRI-ETH' ? ' <span class="tag demo">arb</span>' : ''));
+  renderDecisionRows($('#hftDecisions'), ds);
 }
 $('#hftStratFilter').addEventListener('change', refreshHft);
 /* cadence is changeable while the book RUNS: both engine loops re-read their

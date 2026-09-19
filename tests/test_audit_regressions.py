@@ -169,7 +169,6 @@ def test_token_guard_runs_through_actual_asgi_middleware_stack():
 
 @pytest.fixture
 def engine(journal, monkeypatch):
-    monkeypatch.setattr(TradingEngine, "_init_kronos", lambda self: None)
     monkeypatch.setattr(TradingEngine, "_paused_now", lambda self: False)
     cfg = deepcopy(CONFIG)
     cfg.llm.provider = "none"
@@ -229,88 +228,11 @@ def _tri_legs(o_usdt, o_ethbtc, o_btcusdt):
 
 @pytest.fixture
 def hft_engine(journal, monkeypatch):
-    monkeypatch.setattr(TradingEngine, "_init_kronos", lambda self: None)
     monkeypatch.setattr(TradingEngine, "_paused_now", lambda self: False)
     cfg = deepcopy(CONFIG)
     cfg.llm.provider = "none"
     return TradingEngine(cfg=cfg, mode="hft", journal=journal, quiet=True)
 
-
-def test_arb_settlement_books_the_same_cash_as_the_broker(hft_engine):
-    """The cash-settled arb must not credit half the round-trip cost twice.
-
-    close_trade's fallback is `pnl + fees/2` when no entry fee was recorded,
-    so an arb that moved broker cash by `pnl` used to leave a ledger event of
-    `pnl + fees/2` — invisible until a restart replayed the event.
-    """
-    engine = hft_engine
-    engine._pending_tri = {"side": "long", "notional": 1000.0, "d": 0.004,
-                           "ts": "2026-01-01T00:00:00Z", "rationale": "arb"}
-    cash_before = engine.broker.cash
-    summary = {"closed": [], "errors": []}
-    engine._settle_tri_pending(_tri_legs(2000.0, 0.05, 39_000.0), "2026-01-01T00:01:00Z", summary)
-    moved = engine.broker.cash - cash_before
-    assert summary["closed"] and moved != 0.0
-    # The settled cash event IS the number a restart replays, so it must equal
-    # the broker's own movement — not pnl plus half the round-trip cost.
-    with engine.journal._conn() as conn:
-        events = conn.execute("SELECT kind, amount FROM cash_events WHERE mode='hft'"
-                              " ORDER BY id").fetchall()
-    assert [e["kind"] for e in events] == ["close"]
-    assert sum(e["amount"] for e in events) == pytest.approx(moved, abs=1e-9)
-    # flat by construction: the round trip must leave nothing restorable
-    assert engine.journal.open_trades(mode="hft") == []
-    # Recovery agrees from the committed anchor and from an anchor that predates
-    # the arb (a checkpoint the process never got to write).
-    assert engine.journal.recover_cash(cash_before, mode="hft") == pytest.approx(engine.broker.cash, abs=1e-9)
-    with engine.journal._conn() as conn:
-        conn.execute("DELETE FROM equity WHERE mode='hft'")
-    assert engine.journal.recover_cash(cash_before, mode="hft") == pytest.approx(engine.broker.cash, abs=1e-9)
-    assert engine.journal.recent_transactions(mode="hft")[0]["kind"] == "arb"
-
-
-def test_arb_ledger_failure_leaves_broker_and_journal_on_the_pre_arb_number(hft_engine):
-    engine = hft_engine
-    engine._pending_tri = {"side": "long", "notional": 1000.0, "d": 0.004,
-                           "ts": "2026-01-01T00:00:00Z", "rationale": "arb"}
-    cash_before = engine.broker.cash
-    with engine.journal._conn() as conn:
-        conn.execute("CREATE TRIGGER fail_tx BEFORE INSERT ON transactions "
-                     "WHEN NEW.kind='arb' BEGIN SELECT RAISE(ABORT, 'ledger failure'); END")
-    summary = {"closed": [], "errors": []}
-    with pytest.raises(sqlite3.IntegrityError, match="ledger failure"):
-        engine._settle_tri_pending(_tri_legs(2000.0, 0.05, 39_000.0), "2026-01-01T00:01:00Z", summary)
-    assert engine.broker.cash == cash_before
-    assert engine.journal.recover_cash(cash_before, mode="hft") == pytest.approx(cash_before, abs=1e-9)
-    assert engine.journal.recent_transactions(mode="hft") == []
-    assert summary["closed"] == []
-    # nothing half-written: no ghost TRI-ETH row for a symbol no watchlist marks
-    assert engine.journal.recent_trades(mode="hft") == []
-    assert engine.journal.open_trades(mode="hft") == []
-
-
-
-def test_arb_anchor_uses_the_cycles_marks_not_entry_prices(hft_engine):
-    """The arb's equity anchor must not zero out open-position P&L.
-
-    broker.equity({}) marks every position at its ENTRY price, so anchoring on
-    it stamped a curve point with no unrealized P&L — a phantom drawdown that
-    outlived the cycle tail's correction, since stats() walks every point.
-    """
-    engine = hft_engine
-    spec = MarketSpec("crypto", "TEST/USDT", "1h")
-    engine._fill_entry(spec, decision(), 1.0, 100.0, False, 1.0,
-                       {"opened": [], "closed": [], "errors": []})
-    engine._cycle_equity = engine.broker.equity({"TEST/USDT": 130.0})
-    assert engine._cycle_equity > engine.broker.equity({})     # 30 unrealized
-    engine._pending_tri = {"side": "long", "notional": 1000.0, "d": 0.004,
-                           "ts": "2026-01-01T00:00:00Z", "rationale": "arb"}
-    summary = {"closed": [], "errors": []}
-    engine._settle_tri_pending(_tri_legs(2000.0, 0.05, 39_000.0), "2026-01-01T00:01:00Z", summary)
-    settled = summary["closed"][0]["pnl"]
-    anchor = engine.journal.last_equity_point(mode="hft")
-    assert anchor["equity"] == pytest.approx(engine._cycle_equity + settled, abs=1e-3)
-    assert anchor["equity"] > anchor["cash"]                   # the position is still marked
 
 # --------------------------------------------------------------- replay parity
 def _parity_frame():
@@ -351,7 +273,6 @@ def _drive(engine, spec, frame, bars, summary):
 
 
 def _fresh_engine(journal, monkeypatch):
-    monkeypatch.setattr(TradingEngine, "_init_kronos", lambda self: None)
     monkeypatch.setattr(TradingEngine, "_paused_now", lambda self: False)
     cfg = deepcopy(CONFIG)
     cfg.llm.provider = "none"

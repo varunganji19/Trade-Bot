@@ -150,7 +150,6 @@ def test_engine_restores_risk_before_any_cycle(tmp_path, monkeypatch):
     risk.note_equity(10_000, DAY)
     risk.note_equity(7_500, DAY)
     risk.set_cooldown("TEST/USDT", 1000)
-    monkeypatch.setattr(TradingEngine, "_init_kronos", lambda self: None)
     engine = TradingEngine(journal=journal, quiet=True)
     assert engine.risk.halted
     assert engine.risk.dd_risk_scale == 0.25
@@ -166,22 +165,3 @@ def test_backtest_risk_remains_memory_only(monkeypatch):
     risk.set_cooldown("TEST/USDT", 1000)
     assert risk.persistence_error is None
 
-
-@pytest.mark.parametrize("blocked_by", ["halted", "persistence_error", "paused"])
-@pytest.mark.parametrize("method", ["_triangular_scan", "_settle_tri_pending"])
-def test_triangular_pending_orders_cannot_bypass_entry_controls(blocked_by, method):
-    engine = TradingEngine.__new__(TradingEngine)
-    engine.risk = RiskManager()
-    if blocked_by == "paused":
-        engine._paused_now = lambda: True
-    else:
-        setattr(engine.risk, blocked_by, True if blocked_by == "halted" else "disk failed")
-        engine._paused_now = lambda: False
-    engine._pending_tri = {"side": "long", "notional": 100}
-    summary = {"holds": 0, "errors": []}
-    if method == "_triangular_scan":
-        engine._triangular_scan({}, summary)
-    else:
-        engine._settle_tri_pending({}, DAY, summary)
-    assert engine._pending_tri is None
-    assert not summary["errors"]

@@ -33,7 +33,13 @@ HFT_STRATEGY_NAMES = ("hft_micro_breakout", "hft_exhaustion_fade",
 #   hft_ofi_momentum — measured 2026-09-19 (3d, perp tier): PF 0.32 (BTC) /
 #   0.68 (ETH), 7-12 trades, negative return on both. It does not beat the
 #   incumbents it was written to replace, so it does not get a vote.
-CANDIDATE_STRATEGIES = ("hft_ofi_momentum",)
+#   hft_market_maker — PF 0.57 even after the cost-floor fix, and the design
+#   cannot be rescued on this data: an OHLCV "market maker" has no order
+#   book, so its quote fills precisely when the market runs through it
+#   (adverse selection is invisible to the backtest AND to the live engine).
+#   Retired from the live vote when the fast book moved to 5m, where
+#   liquidity provision on 5m candles is not a thing that exists.
+CANDIDATE_STRATEGIES = ("hft_ofi_momentum", "hft_market_maker")
 
 _INSTANCE_CACHE: dict = {}   # id(params) -> (params_ref, {name: instance})
 

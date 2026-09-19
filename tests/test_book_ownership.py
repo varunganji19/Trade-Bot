@@ -140,7 +140,6 @@ def test_engine_takes_and_releases_the_lease_around_its_run(journal, monkeypatch
     from copy import deepcopy
     from bot.engine import TradingEngine
     from config import CONFIG
-    monkeypatch.setattr(TradingEngine, "_init_kronos", lambda self: None)
     cfg = deepcopy(CONFIG)
     cfg.llm.provider = "none"
     engine = TradingEngine(cfg=cfg, journal=journal, quiet=True)
@@ -158,7 +157,6 @@ def test_run_forever_stops_when_its_lease_is_taken(journal, monkeypatch):
     from copy import deepcopy
     from bot.engine import TradingEngine
     from config import CONFIG
-    monkeypatch.setattr(TradingEngine, "_init_kronos", lambda self: None)
     cfg = deepcopy(CONFIG)
     cfg.llm.provider = "none"
     engine = TradingEngine(cfg=cfg, journal=journal, quiet=True)

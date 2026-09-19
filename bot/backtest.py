@@ -107,8 +107,13 @@ class BTResult:
 
 
 class Backtester:
-    def __init__(self, cfg=None, starting_capital: float | None = None):
+    def __init__(self, cfg=None, starting_capital: float | None = None,
+                 book: str = "standard"):
         self.cfg = cfg or CONFIG
+        # which book's strategies the ENSEMBLE may vote with (see
+        # BaseStrategy.book) — both books trade 5m now, so the backtester
+        # must be told which one it is replaying, exactly like the engine
+        self.book = book
         self.starting_capital = starting_capital or self.cfg.paper_capital
         self._alloc_warned = False   # allocation failures are warned ONCE per run
 
@@ -127,7 +132,8 @@ class Backtester:
         """
         broker = PaperBroker(self.starting_capital, costs=self.cfg.costs)
         risk = RiskManager(self.cfg)
-        orchestrator = Orchestrator(self.cfg.params, llm_client=None, sentiment_overlay=None, cfg=self.cfg)
+        orchestrator = Orchestrator(self.cfg.params, llm_client=None, sentiment_overlay=None,
+                                    cfg=self.cfg, book=self.book)
 
         # slice the spec to one timeframe (orchestrator filters by preferred tf)
         single = get_strategy(strategy, self.cfg.params) if strategy else None

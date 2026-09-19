@@ -30,6 +30,12 @@ class Signal:
 class BaseStrategy:
     name: str = "base"
     preferred_timeframes: tuple = ("1h",)
+    # WHICH BOOK may run this strategy. The two books used to be separated by
+    # timeframe alone (the fast book was the only 1m book), so when it moved
+    # to 5m on 2026-09-19 the fast strategies silently became eligible on the
+    # standard book's 5m specs and vice versa. The boundary is explicit now:
+    # "standard" | "fast".
+    book: str = "standard"
 
     def __init__(self, params=None):
         from config import StrategyParams

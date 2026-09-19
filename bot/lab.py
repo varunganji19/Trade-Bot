@@ -116,7 +116,7 @@ def normalize_symbol(kind: str, raw: str) -> str:
 _LAB_DAYS_CAP = {"1m": 14, "5m": 60, "15m": 180, "1h": 730, "4h": 1825, "1d": 3650}
 # Yahoo's own history caps per interval (forex + india ride yfinance)
 _YAHOO_DAYS_CAP = {"1m": 7, "5m": 60, "15m": 60, "1h": 730, "4h": 730, "1d": 1825}
-_HFT_TFS = ("1m",)   # the HFT strategies register 1m only — offering 5m
+_HFT_TFS = ("5m",)   # the fast-book strategies register 5m only — offering 1m
                      # produced an empty strategy menu in the Lab
 _STANDARD_TFS = ("5m", "15m", "1h", "4h", "1d")
 
@@ -135,14 +135,17 @@ def timeframes_for(book: str, kind: str) -> list[str]:
 
 
 def strategies_for(book: str, timeframe: str) -> list[str]:
-    """Strategies REGISTERED for this timeframe (+ the ensemble blend for the
-    standard book; the HFT book's ensemble votes across its three 1m
-    strategies). One source of truth: the registry's preferred_timeframes."""
+    """Strategies REGISTERED for this book+timeframe (+ the ensemble blend).
+
+    One source of truth: the registry's own `preferred_timeframes` and `book`.
+    The book filter is what keeps the two books apart now that both trade 5m
+    (a name-prefix filter would have been a naming convention pretending to
+    be a boundary)."""
     from bot.strategies import STRATEGY_CLASSES
+    want = "fast" if book == "hft" else "standard"
     names = sorted(name for name, cls in STRATEGY_CLASSES.items()
-                   if timeframe in cls.preferred_timeframes)
-    if book == "hft":
-        names = [n for n in names if n.startswith("hft_")]
+                   if timeframe in cls.preferred_timeframes
+                   and getattr(cls, "book", "standard") == want)
     return (["ensemble"] if names else []) + names
 
 
@@ -163,7 +166,7 @@ def default_days(kind: str, timeframe: str) -> int:
 
 def warmup_for(book: str, timeframe: str) -> int:
     # the shared indicator builder computes ema200; on fast bars give it room
-    return 400 if (book == "hft" or timeframe == "1m") else 220
+    return 400 if (book == "hft" or timeframe in ("1m", "5m")) else 220
 
 
 # ------------------------------------------------------------------- run spec
@@ -267,7 +270,8 @@ def run_lab(spec: LabSpec) -> dict:
             f"need >= {warmup + 10} (raise the window or pick a longer timeframe)")
     fetch_s = round(time.time() - t0, 1)
 
-    bt = Backtester(cfg)
+    book = "fast" if spec.book == "hft" else "standard"
+    bt = Backtester(cfg, book=book)
     strategies = (strategies_for(spec.book, spec.timeframe)
                   if spec.strategy == "all" else [spec.strategy])
     runs, comparison = [], []
@@ -284,7 +288,7 @@ def run_lab(spec: LabSpec) -> dict:
                             "win_rate_pct", "profit_factor", "max_drawdown_pct",
                             "sharpe", "fees")})
         if spec.strategy == "all":
-            bt = Backtester(cfg)   # fresh engine state per comparison cell
+            bt = Backtester(cfg, book=book)   # fresh state per comparison cell
 
     best = max(runs, key=lambda r: r[2]["total_pnl"])
     costs = cfg.costs

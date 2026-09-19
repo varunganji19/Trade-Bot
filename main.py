@@ -9,8 +9,8 @@ Usage:
   python3 main.py validate --symbol BTC/USDT [--strategy turtle_trend]
                            [--trial-sharpes 0.8 1.1 ...] [--report REPORT.md]
   python3 main.py run [--once]                 # paper-trade (live loop or one cycle)
-  python3 main.py hft-backtest [--symbol BTC/USDT] [--strategy hft_market_maker|hft_exhaustion_fade|hft_micro_breakout] [--triangular]
-  python3 main.py hft-run [--once]             # high-frequency paper book (separate 1m account)
+  python3 main.py hft-backtest [--symbol BTC/USDT] [--strategy hft_micro_breakout|hft_exhaustion_fade|hft_ofi_momentum]
+  python3 main.py hft-run [--once]             # fast paper book (separate 5m account)
   python3 main.py hft-status                   # HFT book journal summary
   python3 main.py hft-battery [--days 3] [--tier perp|spot|both]
   python3 main.py kronos [--symbol BTC/USDT]   # offline Kronos IC evaluation (tracked non-voter verdict)
@@ -80,7 +80,7 @@ def _load_env_file(path: str | None = None) -> None:
 
 _load_env_file()
 
-from config import CONFIG, MarketSpec, DEFAULT_WATCHLIST, TRIANGULAR_LEGS, infer_kind  # noqa: E402
+from config import CONFIG, MarketSpec, DEFAULT_WATCHLIST, infer_kind  # noqa: E402
 
 
 def _spec_from_args(args) -> MarketSpec:
@@ -177,31 +177,10 @@ def _print_stats(s):
 
 # ------------------------------------------------------------------ HFT book
 def cmd_hft_backtest(args):
-    """Backtest an HFT strategy on 1m data with the HFT book's own fee tier."""
+    """Backtest a fast-book strategy on 5m data with the book's own fee tier."""
     from bot.backtest import Backtester
     from bot.data import fetch_history
     import time as _t
-
-    if args.triangular:
-        from bot.hft import build_hft_config
-        from bot.hft.triangular import tri_backtest
-        cfg = build_hft_config(fee_tier=args.fee_tier)
-        legs = {}
-        for sym in TRIANGULAR_LEGS:
-            legs[sym] = fetch_history(MarketSpec("crypto", sym, "1m"), days=args.days)
-        out = tri_backtest(legs, cfg.costs, min_edge_bps=cfg.hft.tri_min_edge_bps)
-        s = out.get("summary", {})
-        print(f"[hft] triangular arb ETH/USDT x ETH/BTC x BTC/USDT — {s.get('bars_aligned')} aligned bars")
-        print(f"  opportunities beyond FULL 3-leg cost ({s.get('cost_bps')}bp): {s.get('gross_opportunities')}")
-        print(f"  fired (edge > cost + {cfg.hft.tri_min_edge_bps}bp buffer): {s.get('fired')}")
-        print(f"  max |edge| {s.get('max_abs_edge_bps')}bp | p95 {s.get('p95_abs_edge_bps')}bp | "
-              f"equity x{s.get('equity_multiple')}")
-        if args.json:
-            os.makedirs(os.path.dirname(args.json) or ".", exist_ok=True)
-            with open(args.json, "w") as fh:
-                json.dump(out, fh, indent=1, default=str)
-            print(f"[hft] wrote {args.json}")
-        return
 
     from bot.hft import build_hft_config, HFT_WATCHLIST
     cfg = build_hft_config(fee_tier=args.fee_tier)
@@ -220,7 +199,7 @@ def cmd_hft_backtest(args):
     t0 = _t.time()
     df = fetch_history(spec, days=args.days, start=args.start, end=args.end)
     print(f"[hft-backtest] {len(df)} bars ({df.index[0]} → {df.index[-1]}) in {_t.time() - t0:.1f}s")
-    bt = Backtester(cfg)
+    bt = Backtester(cfg, book="fast")
     res = bt.run(spec, df, strategy=args.strategy, warmup_bars=args.warmup_bars)
     stats = res.stats()
     _print_stats(stats)
@@ -294,7 +273,7 @@ def cmd_hft_status(args):
 
 def cmd_hft_battery(args):
     """The HFT harness: every strategy x symbol x fee tier, plus the
-    triangular-arb monitor — the measured fee-sensitivity table (HFT.md)."""
+    the measured fee-sensitivity table (HFT.md)."""
     from bot.hft.harness import run_battery
     tiers = ("perp", "spot") if args.tier == "both" else (args.tier,)
     run_battery(days=args.days, tiers=tiers, quiet=False)
@@ -776,26 +755,24 @@ def main():
     run.set_defaults(fn=cmd_run)
 
     hb = sub.add_parser("hft-backtest",
-                        help="backtest an HFT strategy on 1m data (the HFT book's "
-                             "fee tier + capital; --triangular for the arb monitor)")
-    hb.add_argument("--symbol", default=None, help="e.g. BTC/USDT, RELIANCE.NS (india 1m is "
-                                                   "backtestable; the live HFT book is USD-only)")
-    hb.add_argument("--timeframe", default="1m", choices=["1m", "5m"])
-    hb.add_argument("--days", type=int, default=3, help="history depth (1m bars: 3d ≈ 4320 bars)")
+                        help="backtest a fast-book strategy on 5m data "
+                             "(the fast book's fee tier + capital)")
+    hb.add_argument("--symbol", default=None, help="e.g. BTC/USDT (the fast book is USD-only)")
+    hb.add_argument("--timeframe", default="5m", choices=["5m", "15m"])
+    hb.add_argument("--days", type=int, default=14, help="history depth (5m bars: 14d ≈ 4030 bars)")
     hb.add_argument("--start", default=None, help="pinned window start YYYY-MM-DD (overrides --days)")
     hb.add_argument("--end", default=None, help="pinned window end YYYY-MM-DD (with --start)")
-    hb.add_argument("--strategy", default="hft_market_maker",
-                    choices=["hft_market_maker", "hft_exhaustion_fade", "hft_micro_breakout"])
+    hb.add_argument("--strategy", default="hft_micro_breakout",
+                    choices=["hft_micro_breakout", "hft_exhaustion_fade",
+                             "hft_market_maker", "hft_ofi_momentum"])
     hb.add_argument("--warmup-bars", type=int, default=400,
                     help="bars before trading starts (clears the ema200 column)")
     hb.add_argument("--fee-tier", default=None, choices=["perp", "spot"],
                     help="cost model (default perp: maker 2bp/taker 5bp; spot = base tier)")
-    hb.add_argument("--triangular", action="store_true",
-                    help="run the ETH/USDT x ETH/BTC x BTC/USDT arb monitor instead")
     hb.add_argument("--json", default=None, help="write results JSON here")
     hb.set_defaults(fn=cmd_hft_backtest)
 
-    hr = sub.add_parser("hft-run", help="run the HFT paper engine (separate 1m book)")
+    hr = sub.add_parser("hft-run", help="run the fast-book paper engine (separate 5m book)")
     hr.add_argument("--once", action="store_true", help="one cycle then exit")
     hr.add_argument("--interval", type=int, default=None, help="seconds between cycles")
     hr.set_defaults(fn=cmd_hft_run)
@@ -805,7 +782,7 @@ def main():
 
     hbat = sub.add_parser("hft-battery",
                           help="HFT harness: every strategy x symbol x fee tier "
-                               "+ triangular monitor -> data/results/hft_battery.json")
+                               "-> data/results/hft_battery.json")
     hbat.add_argument("--days", type=int, default=3)
     hbat.add_argument("--tier", default="both", choices=["perp", "spot", "both"])
     hbat.set_defaults(fn=cmd_hft_battery)

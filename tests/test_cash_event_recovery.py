@@ -190,7 +190,6 @@ def test_engine_open_fill_restarts_with_exact_cash_and_decision_clock(journal, m
     cfg.paper_capital = 10000
     spec = MarketSpec("crypto", "TEST/USDT", "1h")
     cfg.watchlist = [spec]
-    monkeypatch.setattr(TradingEngine, "_init_kronos", lambda self: None)
     monkeypatch.setattr(TradingEngine, "_paused_now", lambda self: False)
     journal.add_equity(10000, 10000)
     engine = TradingEngine(cfg=cfg, quiet=True, journal=journal)

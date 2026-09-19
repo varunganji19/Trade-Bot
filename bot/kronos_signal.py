@@ -21,6 +21,18 @@ Probabilistic use:
     instructions; raw forecasts are not alpha (the Kronos authors say so
     themselves — portfolio construction and risk control sit downstream).
 
+OFFLINE SINCE 2026-09-19. Kronos is no longer wired into the live trading
+loop. Three measurements ended that: it never earned a vote; one 1m forecast
+costs ~41s of CPU (30 sequential paths x 60 bars) against a cycle budget of
+seconds; and two books forecasting at once aborted the process on Metal
+(the model auto-selects MPS, which is single-threaded). It now runs as a
+research job — `main.py kronos` walks history, resolves the IC ledger and
+prints the verdict; the dashboard's Evidence tab reads that ledger. The
+promotion gate below is intact, so the day the ledger says Kronos earns a
+vote, wiring it back in is a decision with evidence behind it rather than a
+hope. (A background forecast worker lived here until that move; git history
+has it.)
+
 Heavy deps (torch, transformers) load lazily; the bot runs fully without them.
 Weights download once into the HF cache (~100MB).
 """
@@ -29,7 +41,6 @@ from __future__ import annotations
 import os
 import threading
 import time
-from collections import OrderedDict
 from dataclasses import dataclass
 
 import pandas as pd
@@ -560,151 +571,3 @@ class KronosSignalEngine:
                                   sig.horizon_bars, market=market)
 
 
-class KronosForecastService:
-    """Runs Kronos OFF the trading cycle, one book-agnostic worker per engine.
-
-    THE PROBLEM THIS SOLVES (measured 2026-09-19, Kronos-small on CPU):
-    a forecast costs 0.5s per path at horizon 24 and 1.4s at horizon 60, and
-    the paths are sequential — 41s for one 1m symbol at 30 paths. The engine
-    called `evaluate()` INLINE inside `_run_cycle`, under the cycle lock. So:
-
-      * the HFT book (2s cadence, 5 symbols) needed ~205s for a cycle whose
-        entire design premise is a 1-3s bar-close-to-fill latency;
-      * the standard book (12 specs, 60s cadence) needed ~180s;
-      * running BOTH pegged the CPU with two loops that never finished a
-        cycle — the "starting both engines crashes it" report.
-
-    The forecast is not a trading trigger (Kronos is a tracked non-voter until
-    its IC earns rights), so it has no business blocking a fill. `request()`
-    returns the CACHED forecast for a market — instantly, possibly None — and
-    schedules a refresh on the worker thread. IC bookkeeping happens where the
-    forecast is produced, anchored to the bar it was computed on, so the
-    ledger stays exactly as honest as before.
-
-    A cached forecast is served for at most `max_stale_bars` bars after its
-    anchor bar: the model forecasts 60 bars ahead, so being one or two bars
-    late is immaterial — but a forecast from an hour ago is not evidence
-    about now, and is dropped rather than voted on."""
-
-    def __init__(self, max_stale_bars: int = 4, quiet: bool = True):
-        # ONE worker for the whole process, shared by every book: the model
-        # lives on Metal, which aborts the process if two threads submit work
-        # (see the note above _SHARED). Each job carries its OWN signal engine
-        # so the per-book IC ledgers stay separate.
-        self.quiet = quiet
-        self.max_stale_bars = max_stale_bars
-        self._cache: OrderedDict[str, tuple[int, KronosSignal]] = OrderedDict()
-        self._inflight: set[str] = set()
-        self._queue: list[dict] = []
-        self._lock = threading.Lock()
-        self._wake = threading.Condition(self._lock)
-        self._stop = False
-        self._thread: threading.Thread | None = None
-        self.forecasts = 0
-        self.last_error: str | None = None
-
-    # --------------------------------------------------------------- worker
-    def start(self):
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._stop = False
-        self._thread = threading.Thread(target=self._run, name="kronos-forecast",
-                                        daemon=True)
-        self._thread.start()
-
-    def stop(self, timeout: float = 2.0):
-        with self._wake:
-            self._stop = True
-            self._wake.notify_all()
-        th = self._thread
-        if th is not None and th.is_alive():
-            th.join(timeout=timeout)
-
-    def _run(self):
-        while True:
-            with self._wake:
-                while not self._queue and not self._stop:
-                    self._wake.wait(timeout=1.0)
-                if self._stop:
-                    return
-                job = self._queue.pop(0)
-            self._forecast(job)
-
-    def _forecast(self, job: dict):
-        market, engine = job["market"], job["engine"]
-        try:
-            sig = engine.evaluate(job["df"], horizon=job["horizon"],
-                                  timeframe=job["timeframe"])
-            if sig is not None:
-                with self._lock:
-                    self._cache[market] = (job["bar_key"], sig)
-                    self._cache.move_to_end(market)
-                    while len(self._cache) > 64:      # bounded: one per market
-                        self._cache.popitem(last=False)
-                    self.forecasts += 1
-                engine.log_and_maybe_resolve(job["df"], sig, market=market)
-            else:
-                err = getattr(engine, "last_error", None)
-                if err and err != self.last_error and not self.quiet:
-                    print(f"[kronos] forecast failed for {market}: {err}")
-                self.last_error = err
-        except Exception as exc:
-            self.last_error = f"{type(exc).__name__}: {exc}"
-            if not self.quiet:
-                print(f"[kronos] forecast crashed for {market}: {self.last_error}")
-        finally:
-            with self._lock:
-                self._inflight.discard(market)
-
-    def drop(self, engine: "KronosSignalEngine"):
-        """Forget a retired book's queued work. The WORKER keeps running (the
-        other book may still be using it) and the model stays loaded — there
-        is only ever one copy."""
-        with self._lock:
-            dropped = [j["market"] for j in self._queue if j["engine"] is engine]
-            self._queue = [j for j in self._queue if j["engine"] is not engine]
-            for market in dropped:
-                self._inflight.discard(market)
-
-    # ---------------------------------------------------------------- caller
-    def request(self, engine: "KronosSignalEngine", market: str, df: pd.DataFrame,
-                bar_key: int, horizon: int, timeframe: str,
-                refresh: bool) -> KronosSignal | None:
-        """Non-blocking. Returns the cached forecast for `market` if it is
-        still fresh, and queues a refresh when the caller says one is due."""
-        self.start()
-        with self._lock:
-            cached = self._cache.get(market)
-            queued = market in self._inflight
-        if refresh and not queued:
-            with self._wake:
-                self._inflight.add(market)
-                # only the LATEST request per market can be pending: a slow
-                # forecast must never build a backlog of stale frames
-                self._queue = [j for j in self._queue if j["market"] != market]
-                self._queue.append({
-                    "market": market, "bar_key": bar_key, "horizon": horizon,
-                    "timeframe": timeframe, "engine": engine,
-                    # the engine mutates its frames between cycles; the worker
-                    # gets its own trimmed copy
-                    "df": df.tail(engine.cfg.max_context).copy()})
-                self._wake.notify()
-        if cached is None:
-            return None
-        anchor, sig = cached
-        if bar_key - anchor > self.max_stale_bars:
-            return None
-        return sig
-
-
-_SERVICE: KronosForecastService | None = None
-_SERVICE_LOCK = threading.Lock()
-
-
-def forecast_service(quiet: bool = True) -> KronosForecastService:
-    """The process's ONE forecast worker (see KronosForecastService)."""
-    global _SERVICE
-    with _SERVICE_LOCK:
-        if _SERVICE is None:
-            _SERVICE = KronosForecastService(quiet=quiet)
-        return _SERVICE

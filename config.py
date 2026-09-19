@@ -288,12 +288,15 @@ class StrategyParams:
     # HFT.md). One contiguous block appended at the END of the dataclass; never
     # reordered (merge rule). These run ONLY on the separate high-frequency
     # paper book (mode='hft'), never on the standard watchlists.
-    # micro-breakout (Zarattini & Aziz ORB analogue at 1m cadence, taker)
-    hft_bo_range: int = 30             # rolling micro-range bars (the "opening range" analogue)
-    hft_bo_atr_min_pct: float = 0.0008 # 1m ATR >= 0.08% of price: the 2R target must clear the taker round trip
+    # micro-breakout (Zarattini & Aziz ORB analogue at a 5m cadence, taker).
+    # BAR counts below are 5m bars: the book moved 1m -> 5m on 2026-09-19 and
+    # every bar-denominated window was re-scaled to keep its wall-clock
+    # meaning (30 x 1m = 6 x 5m), so the research horizons still hold.
+    hft_bo_range: int = 12             # rolling range bars (~1h: the "opening range" analogue)
+    hft_bo_atr_min_pct: float = 0.0008 # ATR >= 0.08% of price (the cost floor raises this when the fee tier demands)
     hft_bo_stop_atr: float = 1.0
     hft_bo_target_rr: float = 2.0      # the papers' 2R take-profit
-    hft_bo_time_stop: int = 30         # bars
+    hft_bo_time_stop: int = 12         # bars (~1h)
     hft_bo_vol_ratio_min: float = 1.3  # volume confirmation vs 20-bar mean
     # exhaustion fade (Carver's 4-8 min mean-reversion horizon + capitulation
     # volume spike; MAKER entry — the gross edge is a few bp)
@@ -301,16 +304,16 @@ class StrategyParams:
     hft_fade_vol_spike: float = 3.0    # vol_ratio (vol vs 20-bar mean) must exceed this
     hft_fade_clv_max: float = -0.8     # close in the extreme tail of the bar's range
     hft_fade_stop_atr: float = 2.0
-    hft_fade_time_stop: int = 45       # bars (~45 min: inside the documented MR half-life band)
+    hft_fade_time_stop: int = 9        # bars (~45 min: inside the documented MR half-life band)
     # Avellaneda-Stoikov-inspired maker (gamma-sigma quote width + drift skew)
     hft_mm_gamma: float = 0.1          # risk aversion (A-S notation)
-    hft_mm_sigma_window: int = 60      # 1m log-return std window
-    hft_mm_width_frac_atr: float = 0.5 # quote half-width = this x 1m ATR (A-S width scales with sigma)
+    hft_mm_sigma_window: int = 60      # log-return std window (bars)
+    hft_mm_width_frac_atr: float = 0.5 # quote half-width = this x ATR (A-S width scales with sigma)
     hft_mm_min_width_bps: float = 2.0  # half-width floor (bp of price)
     hft_mm_max_width_bps: float = 15.0
     hft_mm_target_rr: float = 0.34     # target ~ one half-width against a 3-half-width stop (MM brackets INVERT the swing ratio)
     hft_mm_stop_widths: float = 3.0    # hard stop at 3 half-widths (inventory blowup guard)
-    hft_mm_time_stop: int = 60         # bars
+    hft_mm_time_stop: int = 12         # bars (~1h)
     # ---- cost floors (bp of price), DERIVED from the book's fee tier by
     # bot/hft.build_hft_config — never hand-set per strategy.
     # WHY THIS EXISTS: RiskManager.approve refuses any stop tighter than the
@@ -327,11 +330,11 @@ class StrategyParams:
     # order-flow imbalance momentum (Cont, Kukanov & Stoikov 2014: OFI is
     # near-linearly related to short-horizon price change). OHLCV proxy:
     # signed volume = CLV x volume, summed over a short window, z-scored.
-    hft_ofi_window: int = 5            # bars of signed volume in the imbalance sum
+    hft_ofi_window: int = 3            # bars of signed volume in the imbalance sum (~15 min)
     hft_ofi_z_entry: float = 1.5       # |z| of the imbalance to act on
     hft_ofi_stop_atr: float = 1.0
     hft_ofi_target_rr: float = 1.5
-    hft_ofi_time_stop: int = 10        # bars (the documented OFI horizon is minutes)
+    hft_ofi_time_stop: int = 3         # bars (~15 min: the documented OFI horizon is minutes)
 
 
 @dataclass
@@ -355,25 +358,27 @@ class MarketSpec:
                 "display": self.display}
 
 
-# HFT BOOK universe (bot/hft/): the separate high-frequency paper account.
-# USD-only single-currency accounting (crypto + forex) — the standard book's
-# market-mode toggle (forex vs india) does NOT apply here; India 1m is
-# backtestable via `main.py hft-backtest --symbol RELIANCE.NS` (kind-aware
-# costs) but is excluded from the live HFT book: yfinance caps 1m history at
-# ~7d/request and the two books must not mix currencies.
+# FAST BOOK universe (bot/hft/): the separate intraday paper account.
+# USD-only single-currency accounting (crypto + forex).
+#
+# WHY 5m AND NOT 1m (decided 2026-09-19, on measurement):
+# the book ran 1m bars for one reason — speed — and 1m is where the cost wall
+# wins. The modeled taker round trip is 16bp (perp tier) against a BTC 1m ATR
+# of 5-8bp: a 1-ATR stop cannot pay for its own round trip, so every entry
+# either got vetoed as dust or had to quote so wide it never filled. At 5m
+# the same ATR is ~3-5x larger and clears the round trip honestly. The
+# journal identifier stays 'hft' so the existing record keeps resolving; the
+# book is an INTRADAY book, and the docs now say so rather than claiming a
+# latency edge a polled OHLCV feed cannot have.
 HFT_WATCHLIST: list[MarketSpec] = [
-    # crypto 1m — the only free 24/7 1m feed (ccxt public endpoints)
-    MarketSpec("crypto", "BTC/USDT", "1m", "Bitcoin HFT"),
-    MarketSpec("crypto", "ETH/USDT", "1m", "Ethereum HFT"),
-    MarketSpec("crypto", "SOL/USDT", "1m", "Solana HFT"),
-    MarketSpec("crypto", "ETH/BTC", "1m", "ETH/BTC cross"),
-    # forex 1m (yfinance 1m: ~7d per request, ~30d lookback ceiling)
-    MarketSpec("forex", "EURUSD=X", "1m", "EUR/USD HFT"),
+    # crypto 5m (ccxt public endpoints, 24/7)
+    MarketSpec("crypto", "BTC/USDT", "5m", "Bitcoin fast"),
+    MarketSpec("crypto", "ETH/USDT", "5m", "Ethereum fast"),
+    MarketSpec("crypto", "SOL/USDT", "5m", "Solana fast"),
+    MarketSpec("crypto", "ETH/BTC", "5m", "ETH/BTC cross"),
+    # forex 5m (yfinance: 60d of history per request)
+    MarketSpec("forex", "EURUSD=X", "5m", "EUR/USD fast"),
 ]
-
-# Triangular-arb monitor legs (bot/hft/triangular.py): the implied cross
-# ETH/USDT = ETH/BTC x BTC/USDT must be consistent across all three 1m books.
-TRIANGULAR_LEGS = ("ETH/USDT", "ETH/BTC", "BTC/USDT")
 
 
 def infer_kind(symbol: str) -> str:
@@ -487,19 +492,18 @@ class PortfolioConfig:
 
 @dataclass
 class HFTConfig:
-    """The high-frequency paper book (bot/hft/, HFT.md): a SECOND paper
-    account trading 1m bars — same broker/risk/journal machinery as the
+    """The FAST paper book (bot/hft/, HFT.md): a SECOND paper account
+    trading 5m bars — same broker/risk/journal machinery as the
     standard book, separate capital, universe, cadence, and journal rows
     (mode='hft'; every journal read already filters on mode, so the whole
     HFT trade history is one filtered query)."""
     enabled: bool = _env_int("HFT_ENABLED", 1) == 1
     paper_capital: float = _env_float("HFT_PAPER_CAPITAL", 10_000.0)
-    # 2s default poll: it's PAPER — minimize bar-close -> decision -> fill
-    # latency. The engine pairs this with a 2s data-TTL override and a
-    # new-bar gate (duplicate candles are skipped, not re-decided), so the
-    # end-to-end budget is ~1-3s from bar close to a paper fill. Set
-    # HFT_INTERVAL to raise it; the API floor is 1s.
-    live_interval_seconds: int = _env_int("HFT_INTERVAL", 2)
+    # 10s default poll against 5m bars: the new-bar gate means most cycles
+    # are no-ops, so this only sets how quickly a CLOSED bar is acted on
+    # (worst case ~10s of a 300s bar). The 2s setting the 1m book used bought
+    # latency that a polled OHLCV feed cannot actually deliver on.
+    live_interval_seconds: int = _env_int("HFT_INTERVAL", 10)
     lookback_bars: int = 400
     risk_per_trade: float = 0.005          # 0.5% per trade — faster book, tighter risk
     daily_loss_kill_switch: float = 0.02   # -2% day halts new HFT entries
@@ -510,11 +514,6 @@ class HFTConfig:
     # 0.0 = touch fills (optimistic); raise for an honest adverse-selection sim.
     maker_penetration_bps: float = _env_float("HFT_PENETRATION_BPS", 0.0)
     limit_wait_bars: int = 5               # unfilled maker entries expire after N bars
-    # triangular arb fires only when |mispricing| clears the FULL 3-leg
-    # taker cost PLUS this buffer (bp) — per Muck & Schmidl (2025) it
-    # essentially never does at 1m granularity; the monitor measures that.
-    tri_min_edge_bps: float = 5.0
-    tri_fraction: float = 0.10             # fraction of HFT equity risked per arb
 
 
 @dataclass
@@ -566,7 +565,12 @@ TIMEFRAME_SECONDS = {
 WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "data", "watchlist.json")
 _DEFAULT_WATCHLIST_PATH = os.path.abspath(WATCHLIST_PATH)
 MAX_WATCHLIST_SPECS = 12
-VALID_TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
+# 1m is deliberately NOT here: no strategy trades it since the fast book
+# moved to 5m (a 16bp round trip against a 5-8bp 1m ATR is unpayable), and an
+# offerable timeframe that no strategy owns is a trap — it produces a
+# watchlist spec that can only ever HOLD. TIMEFRAME_SECONDS keeps 1m so
+# historical rows, caches and ad-hoc research frames still resolve.
+VALID_TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")
 VALID_KINDS = ("crypto", "forex", "india")
 
 

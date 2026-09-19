@@ -809,7 +809,7 @@ def test_every_valid_timeframe_is_owned():
     for tf, name in dash_mod.STRATEGY_BY_TF.items():
         assert name in STRATEGY_CLASSES
         assert tf in STRATEGY_CLASSES[name].preferred_timeframes
-    assert dash_mod.STRATEGY_BY_TF["5m"] == "vwap_scalper"
+    assert dash_mod.STRATEGY_BY_TF["5m"] == "vwap_scalper"   # standard book only
     assert dash_mod.STRATEGY_BY_TF["1d"] == "connors_meanrev"
 
 
@@ -1162,9 +1162,8 @@ def test_engine_restores_cash_and_positions_from_journal():
 
         # point the engine at the temp journal; skip Kronos (model load is slow
         # and irrelevant to recovery)
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = db
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             eng = engine_mod.TradingEngine(mode="paper", quiet=True)
             restored_cash = eng.broker.cash
@@ -1173,7 +1172,6 @@ def test_engine_restores_cash_and_positions_from_journal():
             fee = eng.broker.positions[("BTC/USDT", "1h")].entry_fee
         finally:
             CONFIG.db_path = old_db
-            engine_mod.TradingEngine._init_kronos = old_kronos
 
     assert restored_cash == pytest_approx(9_500.0, 1e-6)   # not 10_000, no fee re-charge
     assert eng_keys == [("BTC/USDT", "1h")]
@@ -1192,9 +1190,8 @@ def test_engine_bars_held_counts_bars_not_cycles():
     spec_4h = MarketSpec("crypto", "BTC/USDT", "4h")
 
     with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             eng = engine_mod.TradingEngine(mode="paper", quiet=True)
             i = len(df) - 1
@@ -1210,7 +1207,6 @@ def test_engine_bars_held_counts_bars_not_cycles():
             assert ("BTC/USDT", "4h") in eng.broker.positions   # still open, not stopped
         finally:
             CONFIG.db_path = old_db
-            engine_mod.TradingEngine._init_kronos = old_kronos
 
 
 def test_journal_timeframe_migration():
@@ -1599,9 +1595,8 @@ def test_engine_skips_equity_when_no_marks_available():
     i = len(df) - 1
 
     with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             eng = engine_mod.TradingEngine(mode="paper", quiet=True)
             eng.broker.open_position(spec, _dec("LONG", 0.9, stop=50.0,
@@ -1625,7 +1620,6 @@ def test_engine_skips_equity_when_no_marks_available():
             assert len(eng.journal.equity_curve(limit=10**9)) == n_equity_before + 1
         finally:
             CONFIG.db_path = old_db
-            engine_mod.TradingEngine._init_kronos = old_kronos
 
 
 def test_engine_aborts_journal_row_when_fill_fails():
@@ -1638,9 +1632,8 @@ def test_engine_aborts_journal_row_when_fill_fails():
     i = len(df) - 1
 
     with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             eng = engine_mod.TradingEngine(mode="paper", quiet=True)
 
@@ -1677,7 +1670,6 @@ def test_engine_aborts_journal_row_when_fill_fails():
             assert summary["errors"]
         finally:
             CONFIG.db_path = old_db
-            engine_mod.TradingEngine._init_kronos = old_kronos
 
 
 def test_chatbot_intents_and_single_user_log():
@@ -1950,43 +1942,6 @@ def test_kronos_engine_degrades_gracefully():
     eng.log_and_maybe_resolve(pd.DataFrame(), None)       # no-op, no crash
 
 
-def test_orchestrator_kronos_vote_only_when_promoted():
-    """Kronos joins the weighted vote ONLY with earned rights; either way its
-    forecast is journaled in strategy_signals with the voting flag."""
-    from bot.kronos_signal import KronosSignal
-    o = Orchestrator()
-    df = add_all_indicators(trending_df(500, seed=21))
-    i = len(df) - 2
-    ks = KronosSignal(direction="LONG", p_up=0.78,
-                      dispersion_pct=1.2, expected_return_pct=0.9, horizon_bars=24,
-                      rationale="kronos test signal")
-
-    # not promoted: journaled, but no kronos entry among voting signals
-    d0 = o.decide(df, i, CRYPTO_1H, include_sentiment=False,
-                  kronos_signal=ks, kronos_promoted=False)
-    assert "kronos" in d0.strategy_signals
-    assert d0.strategy_signals["kronos"]["voting"] is False
-    assert d0.strategy_signals["kronos"]["p_up"] == 0.78
-    assert "tracked, no vote" in d0.rationale
-    # no stop distance may ever come from kronos itself
-    if d0.action == "HOLD":
-        assert d0.stop_distance is None
-
-    # promoted: it votes with weight 0.20 and the rationale flags [VOTING]
-    d1 = o.decide(df, i, CRYPTO_1H, include_sentiment=False,
-                  kronos_signal=ks, kronos_promoted=True)
-    assert d1.strategy_signals["kronos"]["voting"] is True
-    assert "[VOTING]" in d1.rationale
-    # conflict guard ignores kronos: it can't manufacture a hold by disagreeing
-    ks_short = KronosSignal(direction="SHORT", p_up=0.2,
-                            dispersion_pct=1.0, expected_return_pct=-0.8, horizon_bars=24,
-                            rationale="kronos short")
-    d2 = o.decide(df, i, CRYPTO_1H, include_sentiment=False,
-                  kronos_signal=ks_short, kronos_promoted=True)
-    assert "kronos" in d2.strategy_signals and d2.strategy_signals["kronos"]["voting"] is True
-
-
-# ------------------------------------------------------------------ shadow
 def _journal_trade(i, entry_i, exit_i, df, strategy="turtle_trend", side="long",
                    exit_reason="strategy exit", pnl=10.0, stop_off=2.0, qty=1.0):
     return {
@@ -2114,17 +2069,15 @@ def _engine_with_db(td):
     """Engine on a temp journal with Kronos skipped (model load is slow and
     irrelevant here). Returns (engine, old-state tuple for restore)."""
     import bot.engine as engine_mod
-    old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+    old_db = CONFIG.db_path
     CONFIG.db_path = os.path.join(td, "t.db")
-    engine_mod.TradingEngine._init_kronos = lambda self: None
-    return engine_mod.TradingEngine(mode="paper", quiet=True), (old_db, old_kronos)
+    return engine_mod.TradingEngine(mode="paper", quiet=True), (old_db,)
 
 
 def test_engine_stop_loss_end_to_end():
     """The owner's core guarantee at the ENGINE level (all prior stop tests
     stopped at the broker): a bar through the stop -> run through the engine's
     manage path -> journal row CLOSED 'stop loss' + cooldown set."""
-    import bot.engine as engine_mod
 
     df = add_all_indicators(trending_df(260, drift=0.004, seed=13))
     spec = MarketSpec("crypto", "TEST/USDT", "1h")
@@ -2159,7 +2112,7 @@ def test_engine_stop_loss_end_to_end():
             # stop-out cooldown is armed on the owning timeframe's clock
             assert eng.risk.cooldowns.get(spec.symbol, 0.0) > 0
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+            CONFIG.db_path = saved[0]
 
 
 def test_engine_replays_missed_stop_breach_after_restart():
@@ -2184,9 +2137,8 @@ def test_engine_replays_missed_stop_breach_after_restart():
                      "turtle_trend", "r", mode="paper",
                      opened_ts=str(df.index[i - 6]), timeframe="1h")
         # rewrite the journaled open row? not needed — restore uses opened_ts
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             eng = engine_mod.TradingEngine(mode="paper", quiet=True)
             assert (spec.symbol, "1h") in eng._replay_pending
@@ -2199,14 +2151,13 @@ def test_engine_replays_missed_stop_breach_after_restart():
                 "breach bar replay must have closed the position"
             assert summary["closed"] and summary["closed"][0]["reason"] == "stop loss"
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+            CONFIG.db_path = old_db
 
 
 def test_engine_no_phantom_stop_on_entry_bar():
     """The stop is computed FROM the entry bar, so scanning that same bar
     would instant-stop every trade whose entry bar had a wide range. The
     manage path must only scan bars strictly AFTER the decision bar."""
-    import bot.engine as engine_mod
 
     df = add_all_indicators(trending_df(260, drift=0.004, seed=13))
     spec = MarketSpec("crypto", "TEST/USDT", "1h")
@@ -2240,7 +2191,7 @@ def test_engine_no_phantom_stop_on_entry_bar():
                                  else float(df.index[i].timestamp()) + 3600.0)
             assert (spec.symbol, "1h") not in eng.broker.positions
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+            CONFIG.db_path = saved[0]
 
 
 def test_engine_data_outage_surfaces_then_closes():
@@ -2280,7 +2231,7 @@ def test_engine_data_outage_surfaces_then_closes():
             eng._refresh_health_note()
             assert eng.health_note is None        # position gone, note cleared
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+            CONFIG.db_path = saved[0]
 
 
 def test_engine_closes_null_stop_restored_row():
@@ -2299,9 +2250,8 @@ def test_engine_closes_null_stop_restored_row():
         j.open_trade(spec.symbol, "long", 1.0, 100.0, None, None,
                      "turtle_trend", "r", mode="paper",
                      opened_ts=str(df.index[i - 2]), timeframe="1h")
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             eng = engine_mod.TradingEngine(mode="paper", quiet=True)
             assert (spec.symbol, "1h") in eng._unguarded_pending
@@ -2311,7 +2261,7 @@ def test_engine_closes_null_stop_restored_row():
             assert summary["closed"] and summary["closed"][0]["reason"] == "restored without stop"
             assert eng.journal.recent_trades()[0]["status"] == "CLOSED"
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+            CONFIG.db_path = old_db
 
 
 # ------------------------------------------------- audit fixes (2026-09-06)
@@ -2450,7 +2400,7 @@ def test_data_outage_close_retries_when_no_mark_available():
             eng._note_fetch_fail(spec, summary)                  # next attempt closes
             assert (spec.symbol, "1h") not in eng.broker.positions
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+            CONFIG.db_path = saved[0]
 
 
 def test_chatbot_paper_record_excludes_demo_rows():
@@ -2618,7 +2568,7 @@ def test_hft_strategy_filter_lists_registered_strategies_not_just_traded_ones():
     from fastapi.testclient import TestClient
     client = TestClient(dash.app, base_url="http://127.0.0.1")
     meta = client.get("/api/lab/meta").json()
-    registered = meta["strategies"]["hft"]["1m"]
+    registered = meta["strategies"]["hft"]["5m"]
     for name in HFT_STRATEGY_NAMES:
         assert name in registered, name
     with open(dash.__file__) as f:
@@ -3019,121 +2969,45 @@ def test_kronos_ledger_quarantines_torn_file_and_survives_restart():
         assert tr2.n() == 1 and tr2.records == tr.records
 
 
-def test_kronos_never_runs_inference_inside_a_trading_cycle():
-    """REGRESSION (starting BOTH engines froze the app): the engine called
-    KronosSignalEngine.evaluate() INLINE, under the cycle lock. Measured on
-    CPU: 0.5s per forecast path at horizon 24, 1.4s at horizon 60, and the
-    paths run sequentially — 41s for ONE 1m symbol at 30 paths. That made a
-    2s HFT cycle take ~205s (5 symbols), a 60s standard cycle ~180s (12
-    specs), and two books together pegged every core without either
-    completing a cycle. The forecast now runs on a worker thread and the
-    cycle only reads a cache."""
+def test_kronos_is_not_wired_into_the_live_trading_loop():
+    """Kronos moved OFFLINE on 2026-09-19 and must stay there until its IC
+    ledger earns it back. Three measurements put it there: it never earned a
+    vote; one 1m forecast costs ~41s of CPU against a cycle budget of
+    seconds; and two books forecasting at once ABORTED the process on Metal
+    (the vendored predictor auto-selects MPS, which is single-threaded).
+    The engine and the orchestrator must carry no Kronos coupling at all —
+    an inline model call is a latency bug that only shows up in production."""
+    import ast
+    import inspect
+
     import bot.engine as engine_mod
-    from bot.kronos_signal import KronosForecastService, KronosSignal
+    import bot.orchestrator as orch_mod
 
-    calls = []
-
-    class _SlowEngine:
-        """Stands in for the model: records that it was NOT called inline."""
-        cfg = type("C", (), {"max_context": 512, "evaluate_every_bars": 4,
-                             "ic_half_life": 100})()
-        last_error = None
-        tracker = type("T", (), {"resolve": lambda self, c, market="": None})()
-
-        def evaluate(self, df, horizon=24, timeframe=None):
-            calls.append((horizon, timeframe))
-            return KronosSignal(direction="LONG", p_up=0.7, dispersion_pct=1.0,
-                                expected_return_pct=0.4, horizon_bars=horizon,
-                                bar_ts=str(df.index[-1]))
-
-        def log_and_maybe_resolve(self, df, sig, market=""):
-            pass
-
-        def promoted(self):
-            return False
-
-    eng = engine_mod.TradingEngine.__new__(engine_mod.TradingEngine)
-    eng.quiet = True
-    eng.kronos = _SlowEngine()
-    eng.kronos_service = KronosForecastService(max_stale_bars=4)
-    eng._kronos_last_bar = {}
-    eng._kronos_promoted = False
-    eng._kronos_last_error = None
-    idx = pd.date_range("2024-01-01", periods=200, freq="1min", tz="UTC")
-    df = pd.DataFrame({"close": np.linspace(100, 101, 200)}, index=idx)
-    spec = MarketSpec("crypto", "BTC/USDT", "1m")
-
-    t0 = time.monotonic()
-    sig, promoted = eng._kronos_eval(spec, df, len(df) - 1)
-    elapsed = time.monotonic() - t0
-    # the first read has nothing cached yet — and it returns IMMEDIATELY
-    assert sig is None and promoted is False
-    assert elapsed < 0.5, f"the cycle blocked for {elapsed:.2f}s"
-    # the worker does the work, with the 1m horizon policy
-    deadline = time.monotonic() + 5.0
-    while not calls and time.monotonic() < deadline:
-        time.sleep(0.02)
-    assert calls == [(60, "1m")], calls
-    # ...and the NEXT cycle reads it from cache, still without inference
-    sig2, _ = eng._kronos_eval(spec, df, len(df) - 1)
-    assert sig2 is not None and sig2.direction == "LONG"
-    assert len(calls) == 1, "a cached forecast must not re-run the model"
-    svc = eng.kronos_service
-    eng.shutdown()
-    assert eng.kronos_service is None
-    svc.stop()
-
-
-def test_kronos_forecast_cache_expires_and_never_backlogs():
-    """A stale forecast is not evidence about now: the cache serves a
-    forecast for at most `max_stale_bars` bars after its anchor. And a slow
-    forecast must not build a queue of stale frames — only the latest request
-    per market survives."""
-    from bot.kronos_signal import KronosForecastService, KronosSignal
-
-    class _Engine:
-        cfg = type("C", (), {"max_context": 512, "evaluate_every_bars": 4})()
-        last_error = None
-
-        def evaluate(self, df, horizon=24, timeframe=None):
-            return KronosSignal(direction="SHORT", p_up=0.2, dispersion_pct=1.0,
-                                expected_return_pct=-0.3, horizon_bars=horizon)
-
-        def log_and_maybe_resolve(self, df, sig, market=""):
-            pass
-
-    engine = _Engine()
-    svc = KronosForecastService(max_stale_bars=4)
-    idx = pd.date_range("2024-01-01", periods=80, freq="1min", tz="UTC")
-    df = pd.DataFrame({"close": np.linspace(10, 11, 80)}, index=idx)
-    svc.request(engine, "BTC/USDT|1m", df, bar_key=1000, horizon=60,
-                timeframe="1m", refresh=True)
-    deadline = time.monotonic() + 5.0
-    while svc.forecasts == 0 and time.monotonic() < deadline:
-        time.sleep(0.02)
-    assert svc.forecasts == 1
-    assert svc.request(engine, "BTC/USDT|1m", df, 1000, 60, "1m", False) is not None
-    assert svc.request(engine, "BTC/USDT|1m", df, 1004, 60, "1m", False) is not None
-    # 5 bars past the anchor, with max_stale_bars=4: dropped, not voted on
-    assert svc.request(engine, "BTC/USDT|1m", df, 1005, 60, "1m", False) is None
-    # queue coalescing: many requests for one market collapse to one job
-    svc.stop()
-    for k in range(1010, 1020):
-        svc._inflight.discard("BTC/USDT|1m")
-        svc._queue.append({"market": "BTC/USDT|1m", "bar_key": k, "horizon": 60,
-                           "timeframe": "1m", "df": df, "engine": engine})
-        svc.request(engine, "BTC/USDT|1m", df, k, 60, "1m", refresh=True)
-    assert len([j for j in svc._queue if j["market"] == "BTC/USDT|1m"]) == 1
-    # a retired book's work is dropped without stopping the shared worker
-    svc.drop(engine)
-    assert svc._queue == [] and not svc._inflight
-    svc.stop()
+    # AST, not text: the modules still DOCUMENT why Kronos left (that history
+    # is the point), so what must be absent is executable coupling — an
+    # import of the module or an attribute access on a kronos object
+    for mod in (engine_mod, orch_mod):
+        tree = ast.parse(inspect.getsource(mod))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                assert "kronos" not in (node.module or ""), mod.__name__
+            if isinstance(node, ast.Import):
+                assert not any("kronos" in a.name for a in node.names), mod.__name__
+            if isinstance(node, ast.Attribute):
+                assert "kronos" not in node.attr.lower(), (mod.__name__, node.attr)
+    assert not hasattr(engine_mod.TradingEngine, "_kronos_eval")
+    assert not hasattr(engine_mod.TradingEngine, "_init_kronos")
+    # the offline path still works and still owns the horizon policy
+    from bot.kronos_signal import KronosSignalEngine, kronos_horizon
+    assert kronos_horizon("1h") == 24
+    assert hasattr(KronosSignalEngine, "promoted")   # the gate is intact
 
 
 def test_kronos_model_is_shared_between_books_and_inference_serialized():
-    """Two engines used to load the 25M-param model twice (~1GB RSS with both
-    books running) and forecast concurrently, which only makes torch fight
-    itself for cores. One model per process, one inference at a time."""
+    """One model per process, one inference at a time. Two loads used to put
+    two copies of the 25M-param model on Metal (~1GB RSS with both books) and
+    the concurrent submission aborted the process. Kronos is offline-only
+    now, but the offline job and any future caller still share this path."""
     import bot.kronos_signal as ks
 
     sentinel = object()
@@ -3153,8 +3027,9 @@ def test_kronos_model_is_shared_between_books_and_inference_serialized():
                 ks._SHARED[key] = previous
     # the LOAD takes the same lock as inference — two engines loading
     # concurrently put two models on Metal and aborted the process
+    # load and inference take the SAME lock: two threads loading the model
+    # concurrently put two copies on Metal and aborted the process
     assert ks._INFERENCE_LOCK is ks._SHARED_LOCK
-    assert ks.forecast_service() is ks.forecast_service()   # one worker
 
 
 def test_kronos_sample_budget_is_smaller_on_fast_books():
@@ -3248,33 +3123,28 @@ def test_kronos_over_long_horizon_fails_loudly_not_per_cycle():
     assert eng.last_error is None
 
 
-def test_kronos_engine_horizon_matches_ic_resolution_horizon():
-    """The forecast horizon and the horizon the IC ledger resolves on are the
-    same number — Kronos must be scored on the question it was asked."""
-    import bot.engine as engine_mod
-    from bot.kronos_signal import KronosSignal, KronosSignalEngine, kronos_horizon
-
-    eng = engine_mod.TradingEngine.__new__(engine_mod.TradingEngine)
-    eng.kronos = type("K", (), {"cfg": type("C", (), {"max_context": 512})()})()
-    assert eng._kronos_horizon("1m") == kronos_horizon("1m") == 60
-    assert eng._kronos_horizon("1h") == 24
-
-    horizon = eng._kronos_horizon("1m")
+def test_kronos_forecast_and_ic_horizons_stay_identical():
+    """The horizon Kronos forecasts on and the horizon the IC ledger resolves
+    on are the SAME number — the offline job must score the model on the
+    question it was asked. (The engine used to own this pairing; since Kronos
+    went offline it lives entirely in kronos_signal.)"""
+    from bot.kronos_signal import (KronosSignal, KronosSignalEngine,
+                                   kronos_horizon)
+    horizon = kronos_horizon("1h")
+    assert horizon == 24
     sig = KronosSignal(direction="LONG", p_up=0.8, dispersion_pct=1.0,
                        expected_return_pct=0.5, horizon_bars=horizon,
                        bar_ts="2024-01-01T00:00:00Z")
     logged = []
-    ksig = KronosSignalEngine.__new__(KronosSignalEngine)
-    ksig.tracker = type("T", (), {
+    eng = KronosSignalEngine.__new__(KronosSignalEngine)
+    eng.tracker = type("T", (), {
         "resolve": lambda self, closes, market="": None,
-        "log_forecast": (lambda self, score, ts, h, market="":
-                         logged.append(h)),
+        "log_forecast": (lambda self, score, ts, h, market="": logged.append(h)),
     })()
-    idx = pd.date_range("2024-01-01", periods=5, freq="1min", tz="UTC")
-    ksig.log_and_maybe_resolve(pd.DataFrame({"close": [1.0] * 5}, index=idx),
-                               sig, market="BTC/USDT|1m")
-    assert logged == [horizon] == [60]        # resolved on the forecast horizon
-
+    idx = pd.date_range("2024-01-01", periods=5, freq="1h", tz="UTC")
+    eng.log_and_maybe_resolve(pd.DataFrame({"close": [1.0] * 5}, index=idx),
+                              sig, market="BTC/USDT|1h")
+    assert logged == [horizon]
 
 def test_bars_per_year_forex_weekday_scaling():
     """Crypto trades 24/7 but Yahoo forex trades ~24x5 (weekend gaps): the
@@ -3541,7 +3411,7 @@ def test_engine_crash_window_cash_reconciliation_is_exact():
                 assert eng5.broker.cash == pytest_approx(truth, 1e-6), \
                     (eng5.broker.cash, truth)
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+            CONFIG.db_path = saved[0]
 
 
 def test_allocator_keeps_crypto_weekend_bars():
@@ -3691,9 +3561,8 @@ def test_engine_open_gross_notional_marks_and_fallback():
     never 0.0, which would under-count exposure and silently dis-arm the cap."""
     import bot.engine as engine_mod
     with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             eng = engine_mod.TradingEngine(mode="paper", quiet=True)
             spec_a = MarketSpec("crypto", "TEST/USDT", "1h")
@@ -3716,7 +3585,6 @@ def test_engine_open_gross_notional_marks_and_fallback():
             assert eng._open_gross_notional() == 0.0
         finally:
             CONFIG.db_path = old_db
-            engine_mod.TradingEngine._init_kronos = old_kronos
 
 
 def test_engine_passes_open_gross_into_approve():
@@ -3729,11 +3597,10 @@ def test_engine_passes_open_gross_into_approve():
     spec = MarketSpec("crypto", "TEST/USDT", "1h")
 
     with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         old_wl = list(CONFIG.watchlist)
         CONFIG.db_path = os.path.join(td, "t.db")
         CONFIG.watchlist[:] = [spec]
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             eng = engine_mod.TradingEngine(mode="paper", quiet=True)
             eng.market_data.latest = lambda s, limit=None: df
@@ -3774,7 +3641,6 @@ def test_engine_passes_open_gross_into_approve():
         finally:
             CONFIG.db_path = old_db
             CONFIG.watchlist[:] = old_wl
-            engine_mod.TradingEngine._init_kronos = old_kronos
 
 
 def test_manual_pause_blocks_new_entries_not_exits():
@@ -3853,9 +3719,8 @@ def test_engine_cycle_mirrors_pause_flag():
     import bot.engine as engine_mod
     from bot.pause import set_paused
     with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             eng = engine_mod.TradingEngine(mode="paper", quiet=True)
             eng.market_data.latest = lambda s, limit=None: None   # no fetches/entries
@@ -3868,7 +3733,6 @@ def test_engine_cycle_mirrors_pause_flag():
             assert summary["paused"] is False and eng.risk.paused is False
         finally:
             CONFIG.db_path = old_db
-            engine_mod.TradingEngine._init_kronos = old_kronos
 
 
 def test_dashboard_pause_resume_endpoints():
@@ -4522,7 +4386,6 @@ def test_engine_india_session_gate_blocks_entries_not_management():
     stop-loss scan / close path. Frozen clock via monkeypatched
     is_nse_session_open — the gate's own clock is irrelevant to the test."""
     import bot.calendar as cal_mod
-    import bot.engine as engine_mod
 
     df = add_all_indicators(trending_df(260, drift=0.004, seed=13))
     spec = MarketSpec("india", "RELIANCE.NS", "1h")
@@ -4567,7 +4430,7 @@ def test_engine_india_session_gate_blocks_entries_not_management():
                     "closed session must still manage exits (stop scan)"
                 assert summary["closed"] and summary["closed"][0]["reason"] == "stop loss"
             finally:
-                CONFIG.db_path, engine_mod.TradingEngine._init_kronos = saved
+                CONFIG.db_path = saved[0]
     finally:
         eng_mod_for_patch.is_nse_session_open = real_open
     # the frozen 'closed_now' anchor really is outside the NSE session
@@ -5222,33 +5085,39 @@ def test_fxmr_causal_no_lookahead():
 
 # =================================================================== HFT book
 def test_hft_config_and_registry():
-    """The HFT book config: separate capital, perp fee tier, 1m universe, and
-    every registered HFT strategy owns '1m' (the VALID_TIMEFRAMES coverage
-    test upstream now passes because of these strategies)."""
+    """The fast book's config: separate capital, perp fee tier, 5m universe,
+    and every registered fast-book strategy owns '5m' AND declares
+    book='fast' (the boundary that keeps it off the standard book's 5m
+    specs — timeframe alone stopped separating them at 5m)."""
     from bot.hft import build_hft_config, HFT_WATCHLIST
     from bot.strategies import STRATEGY_CLASSES, HFT_STRATEGY_NAMES
     cfg = build_hft_config(fee_tier="perp")
     assert cfg.paper_capital == CONFIG.hft.paper_capital
     assert cfg.watchlist == HFT_WATCHLIST
-    assert all(s.timeframe == "1m" for s in HFT_WATCHLIST)
+    assert all(s.timeframe == "5m" for s in HFT_WATCHLIST)
     assert cfg.risk.risk_per_trade < CONFIG.risk.risk_per_trade      # tighter
     assert cfg.costs.fee_crypto < CONFIG.costs.fee_crypto            # perp tier
     assert cfg.costs.maker_fee_crypto < cfg.costs.fee_crypto
     for name in HFT_STRATEGY_NAMES:
         assert name in STRATEGY_CLASSES
-        assert "1m" in STRATEGY_CLASSES[name].preferred_timeframes
+        assert "5m" in STRATEGY_CLASSES[name].preferred_timeframes
+        assert STRATEGY_CLASSES[name].book == "fast", name
+    # ...and no standard-book strategy leaks into the fast book
+    for name, cls in STRATEGY_CLASSES.items():
+        if name not in HFT_STRATEGY_NAMES:
+            assert getattr(cls, "book", "standard") == "standard", name
     # spot tier keeps the standard costs byte-identical
     cfg_spot = build_hft_config(fee_tier="spot")
     assert cfg_spot.costs.fee_crypto == CONFIG.costs.fee_crypto
 
 
-def test_hft_orchestrator_votes_on_1m():
-    """HFT strategies must carry nonzero vote weight: weights.get(name, 0.0)
-    would silence them forever on 1m specs."""
+def test_hft_orchestrator_votes_on_5m():
+    """Fast-book strategies must carry nonzero vote weight:
+    weights.get(name, 0.0) would silence them forever on 5m specs."""
     from bot.orchestrator import REGIME_WEIGHTS
     from bot.strategies import CANDIDATE_STRATEGIES, HFT_STRATEGY_NAMES
     voters = [n for n in HFT_STRATEGY_NAMES if n not in CANDIDATE_STRATEGIES]
-    assert voters, "the 1m book has no voting strategy left"
+    assert voters, "the fast book has no voting strategy left"
     for regime, weights in REGIME_WEIGHTS.items():
         for name in voters:
             assert weights.get(name, 0.0) > 0, (regime, name)
@@ -5489,7 +5358,7 @@ def test_candidate_strategies_never_steer_a_live_decision():
     from bot.strategies import CANDIDATE_STRATEGIES
     from config import MarketSpec
     assert CANDIDATE_STRATEGIES, "the invariant is vacuous with no candidates"
-    orch = Orchestrator()
+    orch = Orchestrator(book="fast")
     seen = {}
     for name, strat in orch.strategies.items():
         orig = strat.evaluate
@@ -5500,10 +5369,10 @@ def test_candidate_strategies_never_steer_a_live_decision():
             return _o(df, i)
         strat.evaluate = counted
     df = add_all_indicators(make_df(50_000 * np.cumprod(
-        1 + np.random.default_rng(6).normal(0, 0.003, 700)), freq="1min"))
-    orch.decide(df, 650, MarketSpec("crypto", "BTC/USDT", "1m"),
+        1 + np.random.default_rng(6).normal(0, 0.003, 700)), freq="5min"))
+    orch.decide(df, 650, MarketSpec("crypto", "BTC/USDT", "5m"),
                 include_sentiment=False)
-    assert seen["hft_market_maker"] > 0            # the 1m incumbents ran
+    assert seen["hft_micro_breakout"] > 0          # the fast-book incumbents ran
     for name in CANDIDATE_STRATEGIES:
         assert seen[name] == 0, name
 
@@ -5559,61 +5428,6 @@ def test_journal_open_trades_mode_filter():
             CONFIG.db_path = old_db
 
 
-def test_hft_triangular_math_and_costs():
-    """The implied-cross math + the full 3-leg cost gate: a 3bp mispricing
-    against a 30bp cost must NOT fire; a 40bp one must."""
-    from bot.hft.triangular import tri_cost_rate, triangular_edge, tri_backtest
-    from config import CostConfig
-    idx = pd.date_range("2024-01-01", periods=30, freq="1min", tz="UTC")
-    base = 100.0
-    eth_btc = np.full(30, 0.05)
-    btc_usdt = np.full(30, base)
-    eth_usdt = eth_btc * btc_usdt * 1.0            # perfectly consistent: d = 0
-    # a 60bp mispricing persisting TWO bars: bar 15 (60bp) fires a decision,
-    # filled at bar 16's open where the spike STILL exists -> net positive;
-    # bar 16 (60bp) fires again, filled at bar 17's open where it DECAYED ->
-    # net negative. That second trade is the Muck & Schmidl (2025) finding:
-    # triangular edges decay within seconds, before slow fills can harvest.
-    eth_usdt[15] = eth_btc[15] * btc_usdt[15] * 1.006
-    eth_usdt[16] = eth_btc[16] * btc_usdt[16] * 1.006
-
-    def fr(c):
-        return pd.DataFrame({"open": c * 0.999, "high": c * 1.001, "low": c * 0.998,
-                             "close": c, "volume": 10.0}, index=idx)
-    d = triangular_edge(fr(eth_usdt), fr(eth_btc), fr(btc_usdt))
-    assert abs(float(d["d"].iloc[0])) < 1e-12
-    assert abs(float(d["d"].iloc[15]) - 0.006) < 1e-12
-    assert abs(float(d["d"].iloc[16]) - 0.006) < 1e-12
-
-    costs = CostConfig()
-    cost = tri_cost_rate(costs)                    # 3 x (taker + slippage)
-    assert abs(cost - 3 * (costs.fee_crypto + costs.slippage_crypto)) < 1e-12
-    out = tri_backtest({"ETH/USDT": fr(eth_usdt), "ETH/BTC": fr(eth_btc),
-                        "BTC/USDT": fr(btc_usdt)}, costs, min_edge_bps=5.0)
-    s = out["summary"]
-    assert s["bars_aligned"] == 30
-    assert s["fired"] == 2                         # two decisions cleared cost+buffer
-    # persisted spike -> positive fill; decayed spike -> the honest loss
-    assert out["trades"][0]["pnl_pct"] > 0
-    assert out["trades"][1]["pnl_pct"] < 0
-    # fills happen at the NEXT bar's open, never the decision bar
-    assert out["trades"][0]["exit_ts"] == str(idx[16])
-
-
-def test_hft_triangular_stale_legs_refused():
-    """Non-synchronized legs produce NO fake edges (inner join drops them)."""
-    from bot.hft.triangular import triangular_edge
-    idx_a = pd.date_range("2024-01-01", periods=10, freq="1min", tz="UTC")
-    idx_b = pd.date_range("2024-01-01", periods=10, freq="1min", tz="UTC") + pd.Timedelta("11min")
-
-    def fr(idx, c):
-        return pd.DataFrame({"close": c}, index=idx)
-    d = triangular_edge(fr(idx_a, np.full(10, 5.0)),
-                        fr(idx_b, np.full(10, 0.05)),
-                        fr(idx_a, np.full(10, 100.0)))
-    assert d.empty, "misaligned timestamps must yield zero evaluable bars"
-
-
 def test_hft_dashboard_endpoints_and_tab():
     """The HFT page: endpoints answer, the tab renders, engine start/stop
     round-trips, and body-less POSTs are rejected (CSRF rule)."""
@@ -5660,9 +5474,8 @@ def test_hft_engine_isolation_from_standard_book():
     import bot.engine as engine_mod
     from bot.hft import build_hft_config
     with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             from bot.journal import Journal
             j = Journal()
@@ -5675,51 +5488,7 @@ def test_hft_engine_isolation_from_standard_book():
                 "standard-book OPEN rows must not restore into the HFT broker"
             assert eng.broker.cash == CONFIG.hft.paper_capital
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
-
-
-def test_hft_triangular_scan_journals_and_settles():
-    """A firing arb journals a decision + an atomic round-trip trade and
-    moves broker cash (the equity point lands in the same cycle)."""
-    import bot.engine as engine_mod
-    from bot.hft import build_hft_config
-    from bot.journal import Journal
-    from config import utc_now
-    with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
-        CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
-        try:
-            j = Journal()
-            eng = engine_mod.TradingEngine(cfg=build_hft_config(), mode="hft",
-                                           journal=j, quiet=True)
-            cash0 = eng.broker.cash
-            # exercise the SETTLEMENT path the scanner calls on a firing arb:
-            # journal-first open -> close -> broker cash delta (perp-tier cost)
-            import bot.hft.triangular as tri_mod
-            px = 3000.0
-            notional = eng.broker.equity({}) * eng.cfg.hft.tri_fraction
-            cost = tri_mod.tri_cost_rate(eng.cfg.costs)
-            pnl = notional * (0.0040 - cost)
-            tid = j.open_trade(symbol="TRI-ETH", side="long", qty=notional / px,
-                               entry_price=px, stop=None, target=None,
-                               strategy="hft_triangular_arb", rationale="test",
-                               mode="hft", opened_ts=utc_now(), timeframe="1m")
-            j.close_trade(tid, exit_price=px, pnl=round(pnl, 4),
-                          pnl_pct=round((0.0040 - cost) * 100, 4),
-                          fees=round(notional * cost, 4),
-                          exit_reason="triangular round trip", rationale_close="",
-                          closed_ts=utc_now(), mode="hft")
-            eng.broker.cash += pnl
-            stats = j.stats(mode="hft")
-            assert stats["closed_trades"] == 1
-            assert abs(stats["total_pnl"] - pnl) < 0.01
-            assert eng.broker.cash == cash0 + pnl
-            # the standard book's stats are untouched
-            assert j.stats(mode="paper")["closed_trades"] == 0
-        finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
-
+            CONFIG.db_path = old_db
 
 
 # ================================================================== Strategy Lab
@@ -5884,10 +5653,10 @@ def test_lab_dashboard_endpoints():
             client = TestClient(dash_mod.app, base_url="http://127.0.0.1")
             meta = client.get("/api/lab/meta").json()
             assert set(meta["suggestions"]) == {"crypto", "forex", "india"}
-            assert "1m" in meta["timeframes"]["hft"]["crypto"]
+            assert "5m" in meta["timeframes"]["hft"]["crypto"]
             assert "15m" not in meta["timeframes"]["standard"]["india"]
             assert "turtle_trend" in meta["strategies"]["standard"]["1h"]
-            assert "hft_market_maker" in meta["strategies"]["hft"]["1m"]
+            assert "hft_micro_breakout" in meta["strategies"]["hft"]["5m"]
             assert client.get("/api/lab/status").json()["status"] == "idle"
             r = client.post("/api/lab/run", json={"book": "standard", "kind": "crypto",
                                                   "symbol": "NOTACOIN", "timeframe": "1h",
@@ -5908,13 +5677,14 @@ def test_orchestrator_flat_votes_do_not_dilute():
     """A FLAT strategy is an ABSTENTION, not a vote against: its weight must
     not enter the vote denominator. The old total_weight counted abstaining
     voters, so a lone directional signal on any timeframe with several
-    registered strategies (the HFT 1m trio) was diluted below the entry
+    registered strategies (the fast book's trio) was diluted below the entry
     threshold into permanent HOLD."""
     from bot.orchestrator import Orchestrator
     from bot.strategies import Signal
 
     class Fake:
-        preferred_timeframes = ("1m",)
+        preferred_timeframes = ("5m",)
+        book = "fast"
 
         def __init__(self, name, sig):
             self.name, self._sig = name, sig
@@ -5922,42 +5692,44 @@ def test_orchestrator_flat_votes_do_not_dilute():
         def evaluate(self, df, i):
             return self._sig
 
-    orch = Orchestrator(CONFIG.params, llm_client=None, sentiment_overlay=None, cfg=CONFIG)
+    orch = Orchestrator(CONFIG.params, llm_client=None, sentiment_overlay=None,
+                        cfg=CONFIG, book="fast")
     orch.strategies = {
-        "hft_market_maker": Fake("hft_market_maker",
-                                 Signal("hft_market_maker", "LONG", 0.60,
-                                        stop_distance=1.0, limit_price=99.0)),
+        "hft_exhaustion_fade": Fake("hft_exhaustion_fade",
+                                    Signal("hft_exhaustion_fade", "LONG", 0.60,
+                                           stop_distance=1.0, limit_price=99.0)),
         "hft_micro_breakout": Fake("hft_micro_breakout",
                                    Signal("hft_micro_breakout", "FLAT", 0.0)),
     }
     df = add_all_indicators(make_df(
-        100 * np.cumprod(1 + np.random.default_rng(5).normal(0, 0.002, 400)), freq="1min"))
-    d = orch.decide(df, 350, MarketSpec("crypto", "TEST/USDT", "1m"), include_sentiment=False)
+        100 * np.cumprod(1 + np.random.default_rng(5).normal(0, 0.002, 400)), freq="5min"))
+    d = orch.decide(df, 350, MarketSpec("crypto", "TEST/USDT", "5m"), include_sentiment=False)
     assert d.action == "LONG", d.rationale
     assert d.confidence >= CONFIG.risk.min_confidence
     assert d.limit_price == 99.0        # the maker entry rides through ensemble mode
 
 
 def test_hft_low_latency_profile():
-    """The HFT book's latency package: 2s poll default, 2s data TTL, and the
-    standard book untouched (timeframe-scaled TTL, 60s default)."""
+    """The fast book's cadence package: a 10s poll against 5m bars with a
+    matching data TTL, and the standard book untouched (timeframe-scaled
+    TTL, 60s default)."""
     import bot.engine as engine_mod
     from bot.hft import build_hft_config
     from bot.journal import Journal
     with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             hft = engine_mod.TradingEngine(cfg=build_hft_config(), mode="hft",
                                            journal=Journal(), quiet=True)
-            assert hft.market_data._ttl_override == 2.0
-            assert hft.cfg.live_interval_seconds == 2
+            # the fast book's cache TTL follows its own 10s cadence
+            assert hft.market_data._ttl_override == 10.0
+            assert hft.cfg.live_interval_seconds == 10
             std = engine_mod.TradingEngine(mode="paper", quiet=True)
             assert std.market_data._ttl_override is None
             assert std.cfg.live_interval_seconds >= 5   # the standard book keeps its floor
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+            CONFIG.db_path = old_db
 
 
 def test_hft_new_bar_gate():
@@ -5970,9 +5742,8 @@ def test_hft_new_bar_gate():
     df = add_all_indicators(make_df(100 * np.cumprod(
         1 + np.random.default_rng(21).normal(0, 0.002, 300)), freq="1min"))
     with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
+        old_db = CONFIG.db_path
         CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
         try:
             j = Journal()
             eng = engine_mod.TradingEngine(cfg=build_hft_config(), mode="hft",
@@ -6001,43 +5772,7 @@ def test_hft_new_bar_gate():
             n2 = len(j.recent_decisions(limit=1000, mode="paper"))
             assert n2 > n1, "standard book re-evaluates (existing behavior)"
         finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
-
-
-def test_hft_triangular_scan_gate():
-    """The TRI-ETH monitor obeys the same new-bar gate: an unchanged
-    synchronized triple is NOT re-observed (no duplicate decision rows)."""
-    import bot.engine as engine_mod
-    from bot.hft import build_hft_config
-    from bot.journal import Journal
-    idx = pd.date_range("2024-01-01", periods=200, freq="1min", tz="UTC")
-    def leg(price):
-        return pd.DataFrame({"open": price, "high": price * 1.001, "low": price * 0.999,
-                             "close": price, "volume": 10.0}, index=idx)
-    with tempfile.TemporaryDirectory() as td:
-        old_db, old_kronos = CONFIG.db_path, engine_mod.TradingEngine._init_kronos
-        CONFIG.db_path = os.path.join(td, "t.db")
-        engine_mod.TradingEngine._init_kronos = lambda self: None
-        try:
-            j = Journal()
-            eng = engine_mod.TradingEngine(cfg=build_hft_config(), mode="hft",
-                                           journal=j, quiet=True)
-            histories = {("ETH/USDT", "1m"): leg(3000.0), ("ETH/BTC", "1m"): leg(0.05),
-                         ("BTC/USDT", "1m"): leg(60000.0)}
-            eng._triangular_scan(histories, {"holds": 0, "errors": []})
-            n1 = len(j.recent_decisions(limit=10, mode="hft"))
-            assert n1 == 1, "one synchronized observation -> one monitor row"
-            eng._triangular_scan(histories, {"holds": 0, "errors": []})
-            assert len(j.recent_decisions(limit=10, mode="hft")) == n1, \
-                "unchanged triple must not be re-observed"
-            # a new bar on every leg re-arms the monitor
-            idx2 = idx.append(pd.DatetimeIndex([idx[-1] + pd.Timedelta("1min")]))
-            histories2 = {k: pd.concat([v, leg(v["close"].iloc[-1]).iloc[[-1]].set_index(idx2[[-1]])])
-                          for k, v in histories.items()}
-            eng._triangular_scan(histories2, {"holds": 0, "errors": []})
-            assert len(j.recent_decisions(limit=10, mode="hft")) == n1 + 1
-        finally:
-            CONFIG.db_path, engine_mod.TradingEngine._init_kronos = old_db, old_kronos
+            CONFIG.db_path = old_db
 
 
 if __name__ == "__main__":

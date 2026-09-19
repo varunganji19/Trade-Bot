@@ -19,9 +19,9 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 
-from config import CONFIG, HFT_WATCHLIST, TRIANGULAR_LEGS, Config
+from config import CONFIG, HFT_WATCHLIST, Config
 
-__all__ = ["build_hft_config", "build_hft_engine", "HFT_WATCHLIST", "TRIANGULAR_LEGS"]
+__all__ = ["build_hft_config", "build_hft_engine", "HFT_WATCHLIST"]
 
 
 # perp-style fee tier (the HFT book's default cost model, see module docstring)

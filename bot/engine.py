@@ -15,7 +15,6 @@ Positions survive restarts: open journal trades are restored into the broker.
 """
 from __future__ import annotations
 
-import os
 import sqlite3
 import time
 import threading
@@ -36,8 +35,7 @@ from bot.pause import is_paused
 from bot.risk import RiskManager
 from bot.sentiment import SentimentOverlay
 from bot.strategies import get_strategy
-from config import (CONFIG, TIMEFRAME_SECONDS, MarketSpec, db_dir as config_db_dir,
-                    infer_kind, utc_now)
+from config import (CONFIG, TIMEFRAME_SECONDS, MarketSpec, infer_kind, utc_now)
 
 
 class TradingEngine:
@@ -48,14 +46,14 @@ class TradingEngine:
     FETCH_FAIL_CLOSE = 10
 
     def _build_market_data(self) -> MarketData:
-        """Latency profile per book. The HFT book polls 1m bars every ~2s, so
-        the default 30s TTL cache (1m) would dominate the decision latency —
-        it runs with a 2s TTL instead. The standard book keeps the default.
-        Paper trading lets us poll as fast as the exchange allows; the REAL
-        latency budget: bar close -> <=interval wake -> fresh fetch -> decide
-        -> fill in the same cycle (~1-3s end to end for the HFT book)."""
+        """Latency profile per book. The fast book polls 5m bars every ~10s,
+        so its cache TTL follows its own cadence: a TTL longer than the poll
+        would serve the same stale frame the new-bar gate is waiting on, and
+        a much shorter one just refetches bars that cannot have changed. The
+        standard book keeps the default timeframe-scaled TTL."""
         if self.mode == "hft":
-            return MarketData(ttl_seconds=2.0)
+            return MarketData(ttl_seconds=float(
+                max(1, min(30, self.cfg.live_interval_seconds))))
         return MarketData()
 
     def __init__(self, cfg=None, mode: str = "paper", quiet: bool = False,
@@ -79,7 +77,8 @@ class TradingEngine:
         self.llm = LLMClient(self.cfg.llm)
         self.sentiment = SentimentOverlay(self.llm if self.llm.enabled else None)
         self.orchestrator = Orchestrator(llm_client=self.llm, sentiment_overlay=self.sentiment,
-                                          cfg=self.cfg, kronos_engine=None)
+                                          cfg=self.cfg,
+                                          book="fast" if mode == "hft" else "standard")
         self.market_data = self._build_market_data()
         self.cycles = 0
         # per-spec health state (see _note_fetch_fail / _refresh_health_note):
@@ -98,11 +97,6 @@ class TradingEngine:
         # last PROCESSED closed-bar timestamp per (symbol, timeframe) — the
         # HFT book's low-latency gate (see _build_market_data / _run_cycle)
         self._last_bar_ts: dict[tuple[str, str], str] = {}
-        self._last_tri_ts: tuple | None = None   # tri monitor: same gate
-        # deferred triangular-arb fill (HFT book): a firing signal is STORED
-        # here and settled at the next synchronized open (backtest shift(1)) —
-        # in-memory like _pending: a dead process drops it, never a ghost row
-        self._pending_tri: dict | None = None
         # start-of-cycle marked equity for entry sizing (pass 1 of
         # _run_cycle_locked); None until the first cycle runs or when no mark
         # exists — _approval_equity() falls back to the cash basis then
@@ -111,75 +105,15 @@ class TradingEngine:
         # engine actually starts trading (construction alone claims nothing,
         # so backtests, the Lab and tests never contend for it)
         self.book_token: str | None = None
-        self.kronos = None
-        self.kronos_service = None
-        self._kronos_last_bar: dict[tuple[str, str], int] = {}
-        self._kronos_promoted = False
-        self._kronos_last_error: str | None = None
-        self._init_kronos()
         self._restore_positions()
         self._refresh_health_note()
 
-    def _init_kronos(self):
-        """Attach the Kronos engine when deps + weights are available; the bot
-        runs fully without it (no signal, no vote, no crash)."""
-        try:
-            from dataclasses import replace as _replace
-
-            from bot.kronos_signal import KronosConfig, KronosSignalEngine
-            # per-BOOK ledger: both engines used to write data/kronos_ic.json,
-            # so two in-memory trackers overwrote each other's records and the
-            # IC that gates promotion mixed 1m forecasts with 1h ones
-            base = KronosConfig()
-            track = os.path.join(config_db_dir(),
-                                 f"kronos_ic_{self.mode}.json")
-            self.kronos = KronosSignalEngine(_replace(base, track_file=track))
-        except Exception as exc:
-            if not self.quiet:
-                print(f"[engine] Kronos init skipped: {type(exc).__name__}: {exc}")
-            self.kronos = None
-            return
-        # Config-time horizon check, OUTSIDE the degrade-gracefully path: a
-        # horizon the predictor cannot generate is a policy bug, and
-        # evaluate() swallows it into last_error — which is exactly how the
-        # 1m book ran with a permanently silent Kronos.
-        from bot.kronos_signal import forecast_service, validate_horizon_policy
-        validate_horizon_policy(self.kronos.cfg.max_context)
-        try:
-            if not self.kronos.predictor.available:
-                if not self.quiet:
-                    print("[engine] Kronos unavailable (model not vendored or "
-                          "torch missing) — running without the forecast voter")
-                self.kronos = None
-            else:
-                if not self.quiet:
-                    print("[engine] Kronos loaded — tracked non-voter until its "
-                          "IC earns voting rights (forecasts run off-cycle)")
-                # the forecast NEVER runs inside a trading cycle: one 1m
-                # forecast measured 41s against a 2s cadence, and two books
-                # forecasting inline pegged the CPU at cycle 0
-                self.kronos_service = forecast_service(quiet=self.quiet)
-                self.orchestrator.kronos = self.kronos
-        except Exception as exc:
-            if not self.quiet:
-                print(f"[engine] Kronos init skipped: {type(exc).__name__}: {exc}")
-            self.kronos = None
-
     def shutdown(self):
-        """Release background workers. Stopping an engine used to leave its
-        Kronos worker alive: a stop/start cycle then had two threads
-        forecasting into one ledger, and the model stayed resident for a book
-        the operator had switched off."""
-        svc, kr = self.kronos_service, self.kronos
-        self.kronos_service = None
-        if svc is not None and kr is not None:
-            try:
-                # drop THIS book's queued forecasts; the worker is shared with
-                # the other book and keeps running (one thread, one model —
-                # Metal aborts the process if two threads touch it)
-                svc.drop(kr)
-            except Exception:
-                pass
+        """Release background workers. Nothing holds one today — the forecast
+        model moved out of the live loop on 2026-09-19 — but every engine
+        retirement funnels through here, so a future worker has one obvious
+        place to be stopped."""
+        return
 
     # ------------------------------------------------------------- recovery
     def _restore_positions(self):
@@ -414,16 +348,6 @@ class TradingEngine:
             for spec, df in due:
                 self._process_market(spec, summary, df)
 
-            # triangular-arb monitor (HFT book only): runs before the equity
-            # write so an arb's cash delta lands in the same cycle's point
-            if self.mode == "hft" and getattr(self.cfg.hft, "tri_min_edge_bps", None) is not None:
-                try:
-                    self._triangular_scan(histories, summary)
-                except BookOwnedError:
-                    raise            # never a degraded-cycle error (see below)
-                except Exception as exc:
-                    summary["errors"].append(f"triangular: {type(exc).__name__}: {exc}")
-
             # progressed = this cycle actually saw a new bar. The HFT book
             # polls every 2s against 1m bars, so most cycles are idle re-polls:
             # re-running the allocator and re-writing an identical equity point
@@ -610,68 +534,6 @@ class TradingEngine:
                 time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
 
     # ------------------------------------------------------------- per market
-    def _kronos_horizon(self, timeframe: str) -> int:
-        """Forecast horizon in bars for this book's timeframe.
-
-        The policy lives in bot/kronos_signal.py (~1 day ahead, 1h on sub-5m
-        books) because it is bounded by the predictor's max_context; it is the
-        SAME number the IC ledger resolves on, so the model is always scored
-        on the horizon it was asked for."""
-        from bot.kronos_signal import kronos_horizon
-        max_context = self.kronos.cfg.max_context if self.kronos else None
-        if max_context is None:
-            return kronos_horizon(timeframe)
-        return kronos_horizon(timeframe, max_context=max_context)
-
-    def _kronos_eval(self, spec: MarketSpec, df, i: int):
-        """Kronos read for this bar. Returns (signal, promoted) — NEVER blocks.
-
-        The forecast itself runs on KronosForecastService's worker thread:
-        measured at 41s for one 1m symbol (30 sequential paths x 60 bars) on
-        CPU, an inline call made a 2s HFT cycle take minutes and two books
-        running together never finished a cycle at all. What happens here is
-        cheap: read the cached forecast, ask for a refresh every
-        `evaluate_every_bars` bars, and resolve matured IC records (pure
-        pandas). The cached forecast is only served while it is fresh — see
-        KronosForecastService.request."""
-        if self.kronos is None or self.kronos_service is None:
-            return None, False
-        market = f"{spec.symbol}|{spec.timeframe}"
-        try:
-            bar_key = int(df.index[i].timestamp() // TIMEFRAME_SECONDS[spec.timeframe])
-            last = self._kronos_last_bar.get((spec.symbol, spec.timeframe))
-            every = max(1, self.kronos.cfg.evaluate_every_bars)
-            due = last is None or bar_key - last >= every
-            sig = self.kronos_service.request(
-                self.kronos, market, df.iloc[: i + 1], bar_key,
-                horizon=self._kronos_horizon(spec.timeframe),
-                timeframe=spec.timeframe, refresh=due)
-            if due:
-                # book the bar on the REQUEST, not on the result: the worker
-                # answers later, and re-queueing the same market every bar
-                # would starve every other market behind it
-                self._kronos_last_bar[(spec.symbol, spec.timeframe)] = bar_key
-            # forecasts logged on earlier bars mature against this close
-            # whether or not a new one arrived — the ledger must advance every
-            # cycle, not only on forecast bars
-            try:
-                self.kronos.tracker.resolve(df["close"].iloc[: i + 1], market=market)
-            except Exception:
-                pass
-            err = self.kronos_service.last_error
-            if err and err != self._kronos_last_error and not self.quiet:
-                print(f"[engine] kronos forecast failed for {spec.symbol} "
-                      f"{spec.timeframe}: {err}")
-            self._kronos_last_error = err
-            if sig is not None:
-                self._kronos_promoted = self.kronos.promoted()
-            return sig, self._kronos_promoted
-        except Exception as exc:
-            if not self.quiet:
-                print(f"[engine] kronos eval failed for {spec.symbol} "
-                      f"{spec.timeframe}: {type(exc).__name__}: {exc}")
-            return None, False
-
     def _last_price(self, spec: MarketSpec, df: pd.DataFrame | None = None) -> float | None:
         """Last CLOSED bar's close, or None when no data is available. Callers
         must skip the mark on None — pricing a position at 0.0 journals a
@@ -749,163 +611,6 @@ class TradingEngine:
             gross += pos.qty * mark
         return gross
 
-    def _triangular_scan(self, histories: dict, summary: dict):
-        """Triangular-arb monitor (HFT book only, bot/hft/triangular.py).
-
-        Journals ONE decision per cycle for the synthetic TRI-ETH book: the
-        measured mispricing d = ETH/USDT/(ETH/BTC x BTC/USDT) - 1 against the
-        full 3-leg taker cost. Fires an ATOMIC paper round trip only when
-        |d| clears cost + buffer — cash-settled through the broker + a
-        transactions row (a real arb is an instant 3-leg sequence, not a held
-        position). Published mispricings last seconds and are 1-5bp, so the
-        expected finding is a measured absence — the monitor is the point."""
-        from bot.hft.triangular import tri_cost_rate, triangular_edge
-        from config import TRIANGULAR_LEGS
-        if self.risk.halted or self.risk.persistence_error or self._paused_now():
-            # Pending arb signals are unfilled orders, not open positions.
-            # Drop them while entries are blocked; held positions elsewhere
-            # in the book continue through their normal exit management.
-            self._pending_tri = None
-            return
-        legs = {}
-        for sym in TRIANGULAR_LEGS:
-            for (symbol, _tf), frame in histories.items():
-                if symbol == sym and frame is not None and len(frame) >= 2:
-                    legs[sym] = frame
-                    break
-        d = triangular_edge(legs["ETH/USDT"], legs["ETH/BTC"], legs["BTC/USDT"]) \
-            if len(legs) == 3 else None
-        if d is None or d.empty:
-            return
-        d_last = float(d["d"].iloc[-1])
-        ts_last = str(d.index[-1])
-        # same new-bar discipline as the per-market gate: with a 2s poll the
-        # synchronized triple is unchanged most cycles — re-observing would
-        # journal duplicate monitor rows without new information
-        gate = tuple(str(legs[s_].index[-1]) for s_ in legs)
-        if gate == self._last_tri_ts:
-            return
-        self._last_tri_ts = gate
-        cost = tri_cost_rate(self.cfg.costs)
-        threshold = cost + self.cfg.hft.tri_min_edge_bps / 1e4
-
-        action, conf = "HOLD", 0.0
-        if d_last > threshold:
-            action, conf = "LONG", min(0.9, 0.5 + abs(d_last) / threshold * 0.4)
-        elif d_last < -threshold:
-            action, conf = "SHORT", min(0.9, 0.5 + abs(d_last) / threshold * 0.4)
-        rationale = (f"triangular monitor: d {d_last * 1e4:+.2f}bp vs 3-leg cost "
-                     f"{cost * 1e4:.2f}bp + buffer {self.cfg.hft.tri_min_edge_bps:.0f}bp "
-                     f"(threshold {threshold * 1e4:.2f}bp)")
-        from bot.orchestrator import Decision
-        self.journal.add_decision("TRI-ETH", "1m", Decision(
-            action=action, confidence=round(conf, 3), regime="microstructure",
-            rationale=rationale, price=float(legs["ETH/USDT"]["close"].iloc[-1]),
-            strategy_name="hft_triangular_arb"), mode=self.mode)
-        # a signal stored on an EARLIER triple fills NOW, at this triple's
-        # synchronized OPEN (the backtest's shift(1): decide on bar i's close,
-        # fill at i+1's open) — never on the decision bar's own close
-        if self._pending_tri is not None:
-            self._settle_tri_pending(legs, ts_last, summary)
-
-        if action == "HOLD":
-            summary["holds"] += 1
-            return
-
-        # signal fires: STORE for the next synchronized open. Same-bar
-        # settlement priced the round trip at the close that MEASURED the edge
-        # (fantasy: published mispricings last seconds at 1-5bp — the edge is
-        # gone before the next print). The realized edge is measured at fill
-        # time in _settle_tri_pending; this cycle journals only the signal.
-        equity = self.broker.equity({})
-        notional = equity * self.cfg.hft.tri_fraction
-        self._pending_tri = {
-            "side": "long" if d_last > 0 else "short",
-            "notional": notional,
-            "d": d_last,
-            "gate": gate,
-            "rationale": rationale,
-            "ts": ts_last,
-        }
-        if not self.quiet:
-            print(f"[hft] TRI-ETH signal {'LONG' if d_last > 0 else 'SHORT'}: "
-                  f"d {d_last * 1e4:+.2f}bp vs cost {cost * 1e4:.2f}bp — "
-                  f"stored, fills next synchronized open")
-
-    def _settle_tri_pending(self, legs: dict, ts_last: str, summary: dict):
-        """Settle the stored arb signal at this triple's synchronized OPEN.
-
-        Atomic 3-leg paper round trip, cash-settled (no broker position: the
-        arb starts and ends flat by construction). PnL books the SIGNED
-        realized edge minus cost — positive on BOTH sides when the edge
-        survives to the fill (the old code multiplied the short leg by -1 and
-        booked a loss on every SHORT fill even with edge > cost). A fill whose
-        edge decayed past cost books the honest (possibly negative) realized
-        number, exactly like tri_backtest. Fail-safe: a torn frame drops the
-        pending with an error, never wedges it across cycles."""
-        from bot.hft.triangular import tri_cost_rate
-        pend, self._pending_tri = self._pending_tri, None
-        if self.risk.halted or self.risk.persistence_error or self._paused_now():
-            return
-        try:
-            o_usdt = float(legs["ETH/USDT"]["open"].iloc[-1])
-            o_ethbtc = float(legs["ETH/BTC"]["open"].iloc[-1])
-            o_btcusdt = float(legs["BTC/USDT"]["open"].iloc[-1])
-        except (KeyError, TypeError, ValueError, IndexError) as exc:
-            summary["errors"].append(f"triangular pending fill dropped "
-                                      f"(unreadable synchronized open: {type(exc).__name__})")
-            return
-        if o_usdt <= 0 or o_ethbtc <= 0 or o_btcusdt <= 0:
-            summary["errors"].append("triangular pending fill dropped (non-positive synchronized open)")
-            return
-        cost = tri_cost_rate(self.cfg.costs)
-        notional = float(pend["notional"])
-        realized = o_usdt / (o_ethbtc * o_btcusdt) - 1.0
-        signed = realized if pend["side"] == "long" else -realized
-        pnl = notional * (signed - cost)
-        px = o_usdt
-        # ONE journal transaction for a round trip that is flat by
-        # construction. Written as open-then-close it had two defects: a
-        # process death in between stranded an OPEN TRI-ETH row that no
-        # watchlist could ever mark or close (a ghost position every later
-        # restart restored), and close_trade's `pnl + fees/2` fallback booked
-        # half the round-trip cost a second time, because the arb's pnl is
-        # already net of cost. The broker moves only after the commit, so a
-        # failure anywhere leaves ledger and broker on the pre-arb number.
-        settled = round(pnl, 6)
-        cash_after = round(self.broker.cash + settled, 6)
-        # equity({}) marks every open position at its ENTRY price, so using it
-        # here stamped an anchor with zero unrealized P&L — a phantom drawdown
-        # in the curve long after the cycle tail corrected the live number.
-        # The cycle's own marked equity is set earlier in this same cycle.
-        marked = self._cycle_equity if self._cycle_equity is not None else self.broker.equity({})
-        equity_after = round(marked + settled, 6)
-        self.journal.record_round_trip(
-            symbol="TRI-ETH", side=pend["side"],
-            qty=round(notional / px, 6) if px > 0 else 0.0, price=px,
-            pnl=round(pnl, 4), pnl_pct=round(signed * 100.0 - cost * 100.0, 4),
-            fees=round(notional * cost, 4), cash_delta=settled,
-            strategy="hft_triangular_arb",
-            rationale=pend.get("rationale", ""),
-            rationale_close=(f"signal d {float(pend.get('d', 0.0)) * 1e4:+.2f}bp @ {pend.get('ts', '?')} "
-                             f"-> realized {realized * 1e4:+.2f}bp at next synchronized open "
-                             f"vs cost {cost * 1e4:.2f}bp"),
-            exit_reason="triangular round trip",
-            cash_after=cash_after, equity_after=equity_after,
-            transaction=("arb", round(pnl, 4),
-                         f"TRI-ETH 3-leg round trip, realized {realized * 1e4:+.2f}bp @ {ts_last}"),
-            mode=self.mode, timeframe="1m", ts=utc_now(),
-            owner_token=self.book_token)
-        self.broker.cash += settled
-        self.broker.realized_pnl += settled
-        summary["closed"].append({
-            "symbol": "TRI-ETH", "pnl": round(pnl, 4),
-            "reason": "triangular round trip",
-        })
-        if not self.quiet:
-            print(f"[hft] TRI-ETH round trip: realized {realized * 1e4:+.2f}bp vs cost "
-                  f"{cost * 1e4:.2f}bp -> pnl {pnl:+.2f}")
-
     def _age_pending(self, spec: MarketSpec, summary: dict) -> bool:
         """Waited/expiry bookkeeping for this book's resting maker limit.
         Returns True when an order EXPIRED (and was removed — the caller falls
@@ -934,10 +639,6 @@ class TradingEngine:
         df = add_all_indicators(df, self.cfg.params)
         i = len(df) - 1  # last closed candle
         bar_epoch = float(df.index[i].timestamp())
-
-        # Kronos probabilistic forecast: tracked every KRONOS_EVERY bars, votes
-        # only when its rolling IC earned rights (bot/kronos_signal.py)
-        kronos_sig, kronos_promoted = self._kronos_eval(spec, df, i)
 
         pos = self.broker.positions.get(self.broker.position_key(spec.symbol, spec.timeframe))
         if pos is not None:
@@ -1001,8 +702,7 @@ class TradingEngine:
                 return   # still resting — no new decisions while it waits
             # expired — fall through to a fresh decision below
 
-        decision = self.orchestrator.decide(df, i, spec, kronos_signal=kronos_sig,
-                                            kronos_promoted=kronos_promoted)
+        decision = self.orchestrator.decide(df, i, spec)
         self.journal.add_decision(spec.symbol, spec.timeframe, decision, mode=self.mode)
         if decision.action == "HOLD":
             summary["holds"] += 1

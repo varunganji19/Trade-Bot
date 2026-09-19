@@ -18,14 +18,16 @@ Decision orchestrator — the bot's "brain".
    SHORT conviction => HOLD) — dormant while shipped watchlists keep one
    strategy per timeframe, live the day Milestone-C strategies join one
    (Kronos, when promoted, votes but is excluded from the conflict guard).
-4. Kronos (financial foundation model, bot/kronos_signal.py): its probabilistic
-   forecast is ALWAYS journaled in strategy_signals (tracked non-voter), and it
-   joins the vote with weight KRONOS_VOTE_WEIGHT only after its rolling IC
-   earned voting rights (promoted() gate — the same evidence standard the bot
-   applies to any other signal).
-5. Sentiment overlay may veto/shrink (never initiates).
-6. Optional LLM: acts as tie-breaker/veto with guardrails; in quant mode the
+4. Sentiment overlay may veto/shrink (never initiates).
+5. Optional LLM: acts as tie-breaker/veto with guardrails; in quant mode the
    deterministic vote is the decision.
+
+Kronos (the foundation-model forecaster) was REMOVED from this path on
+2026-09-19. It never earned its vote, a single 1m forecast measured 41s of
+CPU against a 2s cycle, and running it in two books at once aborted the
+process on Metal. It lives on as an OFFLINE research job — `main.py kronos`
+writes the IC ledger, the Evidence tab reads it — and it can come back to
+the vote the day its ledger says it deserves one. See bot/kronos_signal.py.
 """
 from __future__ import annotations
 
@@ -37,14 +39,11 @@ from bot.strategies import CANDIDATE_STRATEGIES, get_strategies, Signal
 REGIME_WEIGHTS = {
     "trending": {"turtle_trend": 0.55, "vwap_scalper": 0.30, "connors_meanrev": 0.15,
                  "ts_momentum": 0.55, "fx_regime_meanrev": 0.15,
-                 "hft_micro_breakout": 0.45, "hft_exhaustion_fade": 0.30,
-                 "hft_market_maker": 0.25},
+                 "hft_micro_breakout": 0.45, "hft_exhaustion_fade": 0.30},
     "ranging": {"connors_meanrev": 0.55, "vwap_scalper": 0.30, "turtle_trend": 0.15,
                 "fx_regime_meanrev": 0.55, "ts_momentum": 0.15,
-                "hft_exhaustion_fade": 0.45, "hft_market_maker": 0.30,
-                "hft_micro_breakout": 0.25},
+                "hft_exhaustion_fade": 0.45, "hft_micro_breakout": 0.25},
 }
-KRONOS_VOTE_WEIGHT = 0.20   # only applied once Kronos has earned voting rights
 
 
 @dataclass
@@ -80,18 +79,18 @@ def detect_regime(df, i: int) -> tuple[str, dict]:
 
 class Orchestrator:
     def __init__(self, params=None, llm_client=None, sentiment_overlay=None, cfg=None,
-                 kronos_engine=None):
+                 book: str = "standard"):
         from config import CONFIG
         self.cfg = cfg or CONFIG
+        # which book's strategies may vote here (BaseStrategy.book). Timeframe
+        # alone stopped separating the books when the fast one moved to 5m.
+        self.book = book
         self.strategies = get_strategies(params)
         self.llm = llm_client
         self.sentiment = sentiment_overlay
-        # kronos_engine: bot.kronos_signal.KronosSignalEngine (lazy; may be None)
-        self.kronos = kronos_engine
 
     # ------------------------------------------------------------------ main
-    def decide(self, df, i: int, spec, include_sentiment: bool = True,
-               kronos_signal=None, kronos_promoted: bool = False) -> Decision:
+    def decide(self, df, i: int, spec, include_sentiment: bool = True) -> Decision:
         regime, regime_meta = detect_regime(df, i)
         weights = dict(REGIME_WEIGHTS.get(regime, REGIME_WEIGHTS["ranging"]))
 
@@ -101,6 +100,9 @@ class Orchestrator:
         for name, strat in self.strategies.items():
             if tf not in strat.preferred_timeframes:
                 continue
+            if getattr(strat, "book", "standard") != self.book:
+                continue    # fast-book strategies never vote on the standard
+                            # book's 5m specs, and vice versa
             # candidates are registered for the Lab and the battery but do not
             # vote until the harness says they beat the incumbents. Skipping
             # the EVALUATION (not just the weight) is deliberate: `best` below
@@ -110,26 +112,6 @@ class Orchestrator:
             if name in CANDIDATE_STRATEGIES:
                 continue
             raw_signals[name] = strat.evaluate(df, i)
-
-        # Kronos: tracked always, voting only with earned rights. It provides
-        # direction/confidence but NEVER a stop distance — sizing stays with the
-        # strategy signals, so `best` below only considers real strategies.
-        kronos_note = ""
-        kronos_meta: dict = {}
-        if kronos_signal is not None:
-            ks = kronos_signal
-            kronos_meta = {"action": ks.direction, "confidence": round(ks.p_up, 3),
-                           "p_up": ks.p_up,
-                           "expected_return_pct": ks.expected_return_pct,
-                           "dispersion_pct": ks.dispersion_pct,
-                           "horizon_bars": ks.horizon_bars, "voting": kronos_promoted}
-            kronos_note = (f"Kronos{' [VOTING]' if kronos_promoted else ' [tracked, no vote]'}: "
-                           f"P(up) {ks.p_up:.0%} over {ks.horizon_bars} bars")
-            if kronos_promoted and ks.direction in ("LONG", "SHORT"):
-                weights["kronos"] = KRONOS_VOTE_WEIGHT
-                conf = float(min(0.90, max(0.30, ks.p_up if ks.direction == "LONG" else 1.0 - ks.p_up)))
-                raw_signals["kronos"] = Signal("kronos", ks.direction, conf,
-                                               rationale=ks.rationale)
 
         price = float(df["close"].iloc[i])
 
@@ -146,7 +128,7 @@ class Orchestrator:
 
         action = "HOLD"
         confidence = 0.0
-        strategy_only = {n: s for n, s in raw_signals.items() if n != "kronos"}
+        strategy_only = dict(raw_signals)
         best = max(strategy_only.values(), key=lambda s: s.confidence, default=None)
 
         if long_score >= short_score and long_score / total_weight >= 0.25:
@@ -155,7 +137,6 @@ class Orchestrator:
             action, confidence = "SHORT", short_score / total_weight
 
         # conflict guard: two strategies with strong opposite conviction
-        # (kronos excluded — it can't manufacture a conflict by itself)
         strong_longs = [n for n, s in strategy_only.items() if s.action == "LONG" and s.confidence >= 0.6]
         strong_shorts = [n for n, s in strategy_only.items() if s.action == "SHORT" and s.confidence >= 0.6]
         conflict = bool(strong_longs and strong_shorts)
@@ -168,20 +149,18 @@ class Orchestrator:
 
         rationale_parts = [f"Regime {regime} (ADX {regime_meta.get('adx', '?')}, bias {regime_meta.get('bias', '?')})."]
         rationale_parts.append(self._signals_summary(raw_signals))
-        if kronos_note:
-            rationale_parts.append(kronos_note + ".")
         if action != "HOLD":
             rationale_parts.append(f"Weighted vote: {action} @ {confidence:.2f}.")
         elif conflict:
             rationale_parts.append("Conflict guard: strong opposing signals -> standing down.")
 
-        # P0: a directional vote with no strategy stop (the Kronos-only case:
-        # promoted Kronos LONG/SHORT while every real strategy is FLAT) used
-        # to emit stop_distance=None — an unbracketed trade the risk layer
-        # must refuse downstream. Fall back to a 2xATR stop from the frame's
-        # own ATR; if ATR is missing/non-finite, refuse with a clear reason
-        # instead of emitting a stop-less decision.
-        kronos_fallback = False
+        # A directional vote with no strategy stop would be an unbracketed
+        # trade the risk layer must refuse downstream. Fall back to a 2xATR
+        # stop from the frame's own ATR; if ATR is missing/non-finite, refuse
+        # with a clear reason instead of emitting a stop-less decision. (This
+        # guarded the promoted-Kronos-only case; it stays as the general
+        # invariant: every directional decision leaves here bracketed.)
+        atr_fallback = False
         if action != "HOLD" and stop_distance is None:
             atr_fb = None
             try:
@@ -190,7 +169,7 @@ class Orchestrator:
                 atr_fb = None
             if atr_fb is not None and math.isfinite(atr_fb) and atr_fb > 0:
                 stop_distance = 2.0 * atr_fb
-                kronos_fallback = True
+                atr_fallback = True
                 rationale_parts.append(
                     f"No strategy stop — ATR fallback stop "
                     f"2.0xATR ({stop_distance:.6g}).")
@@ -247,8 +226,6 @@ class Orchestrator:
         out_signals = {n: {"action": s.action, "confidence": round(s.confidence, 3),
                            "rationale": s.rationale, "meta": s.meta}
                        for n, s in raw_signals.items()}
-        if kronos_meta:
-            out_signals["kronos"] = kronos_meta
         return Decision(
             action=action,
             confidence=confidence,
@@ -260,7 +237,7 @@ class Orchestrator:
             sentiment=self.sentiment.last_result or {} if self.sentiment else {},
             price=price,
             strategy_name=(best.strategy if (best and best.action == action and action != "HOLD")
-                           else ("kronos" if (kronos_fallback and action != "HOLD") else "")),
+                           else ("atr_fallback" if (atr_fallback and action != "HOLD") else "")),
             limit_price=limit_price if action != "HOLD" else None,
         )
 

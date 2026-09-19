@@ -1,14 +1,22 @@
-"""HFT strategies — high-frequency PAPER strategies on 1m bars.
+"""Fast-book strategies — intraday PAPER strategies on 5m bars.
 
-These run ONLY on the separate high-frequency book (mode='hft', bot/hft/):
-same stateless evaluate/check_exit contract as every other strategy, so the
+These run ONLY on the separate fast book (mode='hft', bot/hft/): same
+stateless evaluate/check_exit contract as every other strategy, so the
 backtester and the live engine execute identical code.
+
+WHY 5m (decided 2026-09-19, on measurement): the book ran 1m, where the
+modeled 16bp taker round trip exceeds a typical 5-8bp 1m ATR — a 1-ATR stop
+cannot pay for its own fees, so the risk manager (correctly) vetoed every
+entry as dust and the book traded ZERO times in a week of running. At 5m the
+same ATR is 3-5x larger and clears the round trip honestly. Bar-denominated
+stops below were re-scaled to keep their WALL-CLOCK meaning (a 45-bar fade
+stop was 45 minutes at 1m; it is 9 bars at 5m).
 
 Research grounding (full citations + fee math in HFT.md; strategy scraping
 done via the agent-reach channels + web research):
 
 - hft_micro_breakout (taker) — Zarattini & Aziz 2023 (SSRN 4416622) opening-
-  range-breakout logic at a 1m cadence: rolling micro-range breakout, 2R
+  range-breakout logic at a 5m cadence: rolling micro-range breakout, 2R
   take-profit, volume confirmation, and a volatility-regime gate (the 2R
   target must clear the taker round trip, so dead-flat minutes are refused).
 - hft_exhaustion_fade (maker entry) — Rob Carver (2025) documents mean-
@@ -23,7 +31,7 @@ done via the agent-reach channels + web research):
   book's own min_rr floor).
 
 Fee reality (measured by the harness, not assumed): with spot base-tier
-fees the 1m taker round trip (~30bp) exceeds nearly every 1m gross edge —
+fees the taker round trip (~30bp) exceeds nearly every intraday gross edge —
 the HFT book therefore models a perp-style tier (maker 2bp / taker 5bp,
 configurable HFT_FEE_TIER=spot to measure the difference). Any backtest
 gross of fees at this cadence is fiction; the harness always reports both.
@@ -69,7 +77,8 @@ def _clv(df, i: int) -> float:
 class HFTMicroBreakout(BaseStrategy):
     """Rolling micro-range breakout with a 2R target, volatile regimes only."""
     name = "hft_micro_breakout"
-    preferred_timeframes = ("1m",)
+    preferred_timeframes = ("5m",)
+    book = "fast"
 
     def evaluate(self, df, i: int) -> Signal:
         p = self.p
@@ -101,7 +110,7 @@ class HFTMicroBreakout(BaseStrategy):
             return Signal(self.name, "LONG", conf,
                           stop_distance=stop,
                           target_rr=p.hft_bo_target_rr,
-                          rationale=f"1m breakout over {p.hft_bo_range}-bar high "
+                          rationale=f"breakout over {p.hft_bo_range}-bar high "
                                     f"{hi:.6g} (ATR {atr / close * 1e4:.1f}bp, vol {vol:.2f}x)")
         if close < lo and close < ema50 and vol_ok:
             strength = min(1.0, (lo - close) / atr)
@@ -109,7 +118,7 @@ class HFTMicroBreakout(BaseStrategy):
             return Signal(self.name, "SHORT", conf,
                           stop_distance=stop,
                           target_rr=p.hft_bo_target_rr,
-                          rationale=f"1m breakdown under {p.hft_bo_range}-bar low "
+                          rationale=f"breakdown under {p.hft_bo_range}-bar low "
                                     f"{lo:.6g} (ATR {atr / close * 1e4:.1f}bp, vol {vol:.2f}x)")
         return Signal(self.name, "FLAT", 0.0, rationale="no breakout")
 
@@ -128,7 +137,8 @@ class HFTExhaustionFade(BaseStrategy):
     paid the spread instead of paying it); exit on reversion through the
     mean or the time stop inside Carver's documented reversion band."""
     name = "hft_exhaustion_fade"
-    preferred_timeframes = ("1m",)
+    preferred_timeframes = ("5m",)
+    book = "fast"
 
     def _z(self, df, i: int) -> float:
         dev = np.log(df["close"] / df["ema50"])
@@ -198,7 +208,8 @@ class HFTMarketMaker(BaseStrategy):
     3-half-width inventory stop — the inverted ratio the HFT book's own
     min_rr floor permits (HFT.md)."""
     name = "hft_market_maker"
-    preferred_timeframes = ("1m",)
+    preferred_timeframes = ("5m",)
+    book = "fast"
 
     def _half_width(self, df, i: int, close: float) -> float | None:
         """A-S width in PRICE units: sigma-scaled, floored and capped."""
@@ -281,7 +292,8 @@ class HFTOFIMomentum(BaseStrategy):
     or a 3x volume capitulation. It still refuses any setup whose stop
     cannot clear the round trip — frequency is never worth paying for."""
     name = "hft_ofi_momentum"
-    preferred_timeframes = ("1m",)
+    preferred_timeframes = ("5m",)
+    book = "fast"
 
     def _imbalance_z(self, df, i: int) -> float:
         p = self.p

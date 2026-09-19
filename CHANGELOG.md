@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased] — v1 cut: the fast book moves to 5m, three features retired
+
+The post-v1 cut, decided on measurement rather than taste.
+
+**The fast book trades 5m, not 1m.** 1m was chosen for speed and 1m is where
+the cost wall wins: a 16bp modeled round trip against a 5-8bp 1m ATR means a
+1-ATR stop cannot pay its own fees, so entries were vetoed as dust and the
+book traded ZERO times in a week. Measured at 5m over 14 days (perp tier):
+the book trades, and nothing has earned a vote yet — `hft_ofi_momentum` 1.26
+on BTC, `hft_market_maker` 1.08 on ETH/BTC, `hft_exhaustion_fade` 1.05 on
+BTC, while `hft_micro_breakout` — the strategy carrying the most vote weight
+— is the worst cell on the board at PF 0.39/0.43. Vote weights came from
+research lineage, not results; that is what the promotion gate is for.
+
+- Every bar-denominated window was re-scaled to keep its wall-clock meaning
+  (a 45-bar fade stop was 45 min at 1m; it is 9 bars at 5m). Cadence 2s ->
+  10s, and the data-cache TTL now follows the cadence instead of a constant.
+- **The books are separated EXPLICITLY now.** They were separated by
+  timeframe alone, so moving the fast book to 5m silently made fast
+  strategies eligible on the standard book's 5m specs and vice versa.
+  `BaseStrategy.book` ("standard" | "fast") is the boundary; the
+  orchestrator, the backtester, the Lab and the dashboard badge all filter
+  on it. 1m left VALID_TIMEFRAMES — no strategy owns it, and an offerable
+  timeframe that nothing trades is a spec that can only ever HOLD.
+- **Triangular-arb monitor removed** (code, config, engine hooks, dashboard
+  rows, tests): 0 opportunities in 4,319 aligned bars, max edge 11bp against
+  a 24bp cost. The question is answered and the answer is in HFT.md.
+- **Kronos left the live loop.** It never earned a vote, one 1m forecast cost
+  ~41s of CPU against a cycle budget of seconds, and two books forecasting at
+  once aborted the process on Metal. It is now an offline research job
+  (`main.py kronos` writes the ledger, the Evidence tab reads it) with its
+  promotion gate intact. The engine and orchestrator carry no Kronos
+  coupling at all — pinned by an AST test, not a grep.
+- `hft_market_maker` demoted to CANDIDATE: a maker with no order book cannot
+  see its own adverse selection, so its near-breakeven PF is not evidence.
+
 ## [Unreleased] — running both engines no longer kills the process
 
 **Starting the standard and HFT books together aborted the app.** Not a

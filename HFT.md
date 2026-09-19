@@ -1,9 +1,19 @@
-# HFT.md — the high-frequency paper book
+# HFT.md — the fast (5m) paper book
 
 *Strategy research scraped via the agent-reach channels (r.jina.ai web reads +
 web search over SSRN/arXiv/Quantitative Finance/GitHub) and implemented on
 this repo's own fill model. Read this as a lab notebook, not a brochure —
 every expectation below is stated before the measurement that tests it.*
+
+> **2026-09-19 — this book moved from 1m to 5m.** It ran 1m for one reason
+> (speed) and 1m is where the cost wall wins: a 16bp modeled round trip
+> against a 5-8bp 1m ATR means a 1-ATR stop cannot pay for its own fees, so
+> the risk manager vetoed every entry as dust and the book traded **zero**
+> times in a week of live running. The triangular-arb monitor was retired at
+> the same time (0 opportunities in 4,319 aligned bars — the question is
+> answered), and the foundation-model forecaster moved offline. What follows
+> is measured at 5m unless a section says otherwise; sections dated 2026-09-13
+> are kept as the 1m record.
 
 ## What this is (and is not)
 
@@ -47,10 +57,9 @@ fee tiers so the fee sensitivity is a measured number, never a claim.**
 
 | Strategy | Execution | Lineage | The honest risk |
 |---|---|---|---|
-| `hft_market_maker` | **maker** entry (resting limit), maker TP / taker stop | Avellaneda & Stoikov 2008: quote width scales with realized vol (the γσ² term), quotes skew against the drift (the OHLCV stand-in for inventory skew); simplified to a single-position loop | Adverse selection is INVISIBLE on OHLCV: a limit that fills is disproportionately the one the market moved through. The bracket inverts the swing ratio (target ~⅓ of stop), so the win rate must exceed ~75% to break even |
+| `hft_market_maker` *(candidate)* | **maker** entry (resting limit), maker TP / taker stop | Avellaneda & Stoikov 2008: quote width scales with realized vol (the γσ² term), quotes skew against the drift (the OHLCV stand-in for inventory skew); simplified to a single-position loop | Adverse selection is INVISIBLE on OHLCV: a limit that fills is disproportionately the one the market moved through. The bracket inverts the swing ratio (target ~⅓ of stop), so the win rate must exceed ~75% to break even |
 | `hft_exhaustion_fade` | **maker** entry at the exhaustion close | Carver 2025 (4–8min reversion horizon) + capitulation filter: 3× volume spike, close in the bar's extreme tail (CLV ≤ −0.8), z of log(close/ema50) beyond ±2.5 | The fade fires INTO momentum; a regime that keeps trending costs 2×ATR + time |
 | `hft_micro_breakout` | **taker** at next open | Zarattini & Aziz 2023 (SSRN 4416622) ORB: rolling micro-range break with 2R target, volume confirmation, and a volatility floor (0.08% 1m ATR) because the 2R target must clear the round trip | The only family with net-of-cost academic validation — on 5m US equities, not 1m crypto; the floor gate refuses most minutes |
-| `hft_triangular_arb` | atomic 3-leg round trip, cash-settled | Muck & Schmidl 2025 (FRL 73, 106508): single-venue triangular mispricings are 1–5bp and last seconds | **Implemented as a monitor that is expected to fire ~never** — see the first measured result below |
 
 ### Candidates (registered, backtestable, NOT voting)
 
@@ -93,7 +102,40 @@ What it did to the market maker (BTC, 3d, perp): quotes went from 2bp to
 below 1.0 — the fix makes the book trade honestly, it does not manufacture
 an edge that the fee schedule does not permit.
 
-## First measured results (2026-09-13, real exchange data, 3 days / ~4,320 bars per cell)
+## Measured at 5m (2026-09-19, real exchange data, 14 days / ~4,030 bars per cell)
+
+`hft-battery --days 14`, perp tier (taker 5bp / maker 2bp / slippage 3bp),
+full costs, after the cost floors:
+
+| strategy | BTC/USDT | ETH/USDT | ETH/BTC | trades/cell |
+|---|---|---|---|---|
+| `hft_micro_breakout` | PF 0.39 | 0.43 | 0.0 | 4-58 |
+| `hft_exhaustion_fade` | **1.05** | 0.96 | 0.54 | 8-12 |
+| `hft_market_maker` | 0.94 | 0.91 | **1.08** | 161-264 |
+| `hft_ofi_momentum` | **1.26** | 0.49 | 0.0 | 8-55 |
+
+On the spot tier every cell is negative again (PF 0.03-1.00) — the fee
+sensitivity that has held since the first battery.
+
+**What this says, stated plainly:**
+
+1. The book trades now. At 1m it did not: 15 entry decisions, 0 fills.
+2. **Nothing has earned a live vote yet.** The best cells (OFI on BTC 1.26,
+   MM on ETH/BTC 1.08, fade on BTC 1.05) are single-symbol, single-regime,
+   14-day, in-sample numbers. That is a hint, not evidence.
+3. The strategy currently carrying the most vote weight, `hft_micro_breakout`,
+   is the WORST cell on the board (PF 0.39/0.43 on real trade counts). Vote
+   weights were set from research lineage, not from results.
+4. The market maker is the only frequent trader (161-264 trades/cell) and
+   sits near breakeven at the perp tier — which is what a spread-capture
+   strategy paying 2bp maker in and 5bp taker out should look like. It is
+   still a CANDIDATE: a maker with no order book cannot see its own adverse
+   selection, so a near-1.0 PF here is not evidence that it works.
+
+Point 3 is the argument for the promotion gate: a strategy's weight should be
+a measurement, not a citation.
+
+## The 1m record (2026-09-13, real exchange data, 3 days / ~4,320 bars per cell)
 
 **Full battery (24 cells, `hft-battery`): every cell is net-negative after
 full costs** — which is the fee math of the previous section made empirical,
@@ -152,14 +194,12 @@ status as the standard book's Round-1 scalper autopsy.
 ## Using it
 
 ```bash
-# backtest one strategy on real 1m data (perp tier by default)
+# backtest one strategy on real 5m data (perp tier by default)
 python3 main.py hft-backtest --symbol BTC/USDT --timeframe 1m --days 3 \
   --strategy hft_market_maker
 python3 main.py hft-backtest --symbol BTC/USDT --days 3 --strategy hft_exhaustion_fade --fee-tier spot
 python3 main.py hft-backtest --symbol RELIANCE.NS --days 3 --strategy hft_micro_breakout  # india 1m: backtestable, kind-aware costs
 
-# the triangular-arb monitor over real history
-python3 main.py hft-backtest --triangular --days 3
 
 # the harness: every strategy x symbol x fee tier + the monitor
 python3 main.py hft-battery --days 3            # both tiers
@@ -188,7 +228,7 @@ for minimal bar-close -> fill latency:
 | Poll interval | 60 s default | **2 s** (`HFT_INTERVAL`, floor 1 s via the API) |
 | Data cache TTL | max(tf/2, 15 s) = 30 s on 1m | **2 s override** (`MarketData(ttl_seconds=2.0)`) |
 | Wake granularity | 1 s sleep slices | **0.25 s** |
-| Duplicate candles | re-evaluated every cycle | **skipped** (new-bar gate: one decision per closed bar, per market AND the TRI-ETH monitor) |
+| Duplicate candles | re-evaluated every cycle | **skipped** (new-bar gate: one decision per closed bar, per market) |
 | Fill | decision price + slippage in the same cycle | same |
 
 End-to-end: a 1m bar closes -> the engine wakes within <=2 s -> fetches a

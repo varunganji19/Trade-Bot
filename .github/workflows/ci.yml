@@ -20,10 +20,8 @@ jobs:
       # core requirements only — torch/transformers are optional Kronos extras
       # (requirements-kronos.txt); the bot and the whole test suite run without them
       - run: pip install -r requirements.txt ruff==0.16.5
-      - name: Lint (ruff)
-        run: ruff check bot main.py config.py run_battery.py tests scripts
-      - name: Tests (offline, network mocked)
-        run: python -m pytest tests/ -q
+      - name: Verify (tests, lint, live/backtest parity — offline)
+        run: make verify
 
   smoke:
     # import + CLI surface smoke: every subcommand must at least parse --help
@@ -64,7 +62,5 @@ jobs:
         run: pip install -r requirements.lock ruff==0.16.5
       - name: Verify the lock is the installed set
         run: pip check
-      - name: Locked lint and tests
-        run: |
-          ruff check bot main.py config.py run_battery.py tests scripts
-          python -m pytest tests/ -q
+      - name: Verify locked environment (offline)
+        run: make verify

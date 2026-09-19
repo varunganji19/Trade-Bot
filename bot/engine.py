@@ -313,8 +313,29 @@ class TradingEngine:
             # fetches land before any _process_market call. `due` preserves
             # watchlist order, so management/entries still run spec by spec
             # exactly as before.
+            # EVERY spec this cycle must touch: the watchlist (for entries)
+            # PLUS any spec that HOLDS a position but is no longer on it.
+            # Marks already followed held positions; MANAGEMENT did not, so
+            # editing the watchlist (or, as on 2026-09-19, moving the whole
+            # book from 1m to 5m) left an open position with no stop checks,
+            # no exits and no time stop — unmanaged, not just unwatched.
+            cycle_specs = list(self.cfg.watchlist)
+            watched = {(sp.symbol, sp.timeframe) for sp in cycle_specs}
+            for pos in self.broker.positions_snapshot():
+                if (pos.symbol, pos.timeframe) in watched:
+                    continue
+                orphan = self._spec_for(pos.symbol)
+                if orphan is None or orphan.timeframe != pos.timeframe:
+                    orphan = MarketSpec(infer_kind(pos.symbol), pos.symbol,
+                                        pos.timeframe)
+                cycle_specs.append(orphan)
+                watched.add((pos.symbol, pos.timeframe))
+                if not self.quiet:
+                    print(f"[engine] managing off-watchlist position "
+                          f"{pos.symbol} {pos.timeframe} (exits only)")
+
             due: list[tuple] = []
-            for spec in self.cfg.watchlist:
+            for spec in cycle_specs:
                 key = (spec.symbol, spec.timeframe)
                 try:
                     df = self.market_data.latest(spec)

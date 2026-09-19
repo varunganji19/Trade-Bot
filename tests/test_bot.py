@@ -3089,6 +3089,41 @@ def test_engine_counts_vetoes_and_says_when_it_never_enters():
     assert eng.health_note is None
 
 
+def test_off_watchlist_positions_are_still_managed():
+    """REGRESSION created by this very refactor: moving the fast book from 1m
+    to 5m left an OPEN 1m position on a spec the watchlist no longer carries.
+    Marks already followed held positions; MANAGEMENT iterated the watchlist,
+    so that position had no stop checks, no strategy exit and no time stop —
+    unmanaged, not merely unwatched. Any held spec is now part of the cycle."""
+    import bot.engine as engine_mod
+
+    df = add_all_indicators(make_df(100.0 * np.cumprod(1 + np.full(120, 0.001)), seed=4))
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    with tempfile.TemporaryDirectory() as td:
+        old_db, old_wl = CONFIG.db_path, list(CONFIG.watchlist)
+        CONFIG.db_path = os.path.join(td, "t.db")
+        CONFIG.watchlist[:] = [spec]
+        try:
+            eng = engine_mod.TradingEngine(mode="paper", quiet=True)
+            eng.market_data.latest = lambda s, limit=None: df
+            # a position on a spec that is NOT on the watchlist (exactly what
+            # the 1m -> 5m move produced on the live book)
+            orphan = MarketSpec("crypto", "ORPHAN/USDT", "1m")
+            eng.broker.open_position(orphan, _dec("LONG", 0.9, stop=1.0, price=50.0),
+                                     qty=2.0, price=50.0, trade_id=-1)
+            processed = []
+            real_process = eng._process_market
+            eng._process_market = lambda sp, summary, d=None: (
+                processed.append((sp.symbol, sp.timeframe)), real_process(sp, summary, d))[1]
+            from bot.orchestrator import Decision
+            eng.orchestrator.decide = lambda *a, **k: Decision(action="HOLD")
+            eng.run_cycle()
+            assert ("ORPHAN/USDT", "1m") in processed, processed
+            assert ("TEST/USDT", "1h") in processed
+        finally:
+            CONFIG.db_path, CONFIG.watchlist[:] = old_db, old_wl
+
+
 def test_cycle_budget_is_measured_and_surfaced():
     """A cycle that outruns its own interval is a latency bug that only shows
     up in production: the inline forecast model made a 2s cycle take minutes
@@ -3748,8 +3783,13 @@ def test_engine_passes_open_gross_into_approve():
             eng.risk.approve = spy
             eng.run_cycle()
             # the TEST/USDT entry was evaluated with the OTHER book's
-            # mark-priced gross in hand
-            assert captured["gross"] == pytest_approx(pos.qty * 60.0, 1e-9)
+            # mark-priced gross in hand. The mark comes from that position's
+            # OWN fresh frame: since 2026-09-19 a held spec that is not on
+            # the watchlist is still fetched and managed (exits only), so it
+            # no longer falls back to the stale _last_good_price of 60.
+            mark = float(df["close"].iloc[-1])
+            assert captured["gross"] == pytest_approx(pos.qty * mark, 1e-9)
+            assert captured["gross"] > 0
         finally:
             CONFIG.db_path = old_db
             CONFIG.watchlist[:] = old_wl

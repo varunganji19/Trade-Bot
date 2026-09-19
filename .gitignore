@@ -19,6 +19,7 @@ data/kronos_ic.json
 .DS_Store
 .ruff_cache/
 .zcode/
+node_modules/
 data/watchlist.json
 data/engine_state.json
 

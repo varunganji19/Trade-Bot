@@ -28,6 +28,7 @@ test:
 
 lint:
 	python3 -m ruff check bot main.py config.py run_battery.py tests scripts
+	npm run lint:js
 
 # ONE command before you trust a change: tests + lint + a live-vs-backtest
 # parity smoke on the same bar (the property this codebase is built on —

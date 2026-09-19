@@ -84,7 +84,7 @@ const fmtTs = ts => {
    fetch. A normal browser navigation cannot send headers, so the page shell
    is served unguarded (no secrets in it) and the SPA supplies the header. */
 const _tok = () => { try { return localStorage.getItem('algo-token') || ''; }
-                     catch (e) { return ''; } };
+                     catch { return ''; } };
 function askForToken() {
   /* the gate: shown once when the API answers 401 and no token is stored */
   const gate = $('#tokenGate');
@@ -95,7 +95,7 @@ function askForToken() {
 $('#tokenSave').addEventListener('click', () => {
   const v = $('#tokenInput').value.trim();
   try { v ? localStorage.setItem('algo-token', v) : localStorage.removeItem('algo-token'); }
-  catch (e) { /* private mode: token just won't persist */ }
+  catch { /* private mode: token just won't persist */ }
   closeDialog('#tokenGate');
   location.reload();   // re-boot the pollers with the header attached
 });
@@ -123,7 +123,7 @@ async function jreq(u, method, body) {
                             body: body == null ? undefined : JSON.stringify(body)});
   if (r.status === 401) { askForToken(); throw new Error('token required (401)'); }
   let data = {};
-  try { data = await r.json(); } catch (e) { /* non-JSON error body */ }
+  try { data = await r.json(); } catch { /* non-JSON error body */ }
   if (!r.ok) {
     const msg = (data && data.detail) ? data.detail : (r.status + ' ' + r.statusText);
     const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
@@ -257,7 +257,7 @@ function applyTheme(t, persist) {
     evLoaded.v = false;
   }
   document.documentElement.setAttribute('data-theme', t);
-  if (persist) { try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* private mode */ } }
+  if (persist) { try { localStorage.setItem(THEME_KEY, t); } catch { /* private mode */ } }
   $$('.theme-switch button').forEach(b =>
     b.setAttribute('aria-pressed', String(b.dataset.theme === t)));
   const meta = document.querySelector('meta[name="theme-color"]');
@@ -421,7 +421,7 @@ async function refreshStats() {
   statsBusy = true;
   let s;
   try { s = await jget('/api/stats'); }
-  catch (e) { statsFailed = true; updateFreshness(); return; }
+  catch { statsFailed = true; updateFreshness(); return; }
   finally { statsBusy = false; }
   lastStatsAt = Date.now(); statsFailed = false; updateFreshness();
   const cards = [
@@ -546,14 +546,14 @@ $$('.range-switch button').forEach(b => b.addEventListener('click', () => {
 async function refreshEquity() {
   if (!equityChart) return;   // offline: the boot banner already says so
   let eq;
-  try { eq = await jget('/api/equity'); } catch (e) { return; }
+  try { eq = await jget('/api/equity'); } catch { return; }
   equityHistory = eq;
   renderEquityHistory();
 }
 
 async function refreshDecisions() {
   let ds;
-  try { ds = await jget('/api/decisions?limit=30'); } catch (e) { return; }
+  try { ds = await jget('/api/decisions?limit=30'); } catch { return; }
   renderDecisionRows($('#decisionFeed'), ds, d => (d.mode === 'demo' ? ' <span class="tag demo">demo</span>' : ''));
 }
 
@@ -642,7 +642,7 @@ async function loadHftStrategies() {
     const byTf = (meta.strategies || {}).hft || {};
     hftRegisteredStrategies = [...new Set([].concat(...Object.values(byTf)))];
     hftRegisteredStrategies = hftRegisteredStrategies.filter(x => x !== 'all' && x !== 'ensemble');
-  } catch (e) { /* the filter falls back to strategies seen in trades */ }
+  } catch { /* the filter falls back to strategies seen in trades */ }
 }
 function buildHftEquityChart() {
   hftChart = buildLineChart('#hftEquityChart', 'HFT equity');
@@ -682,7 +682,7 @@ async function refreshHftPrice() {
   let d;
   try { d = await jget('/api/hft/candles?limit=180' +
                        (hftMarket ? '&symbol=' + encodeURIComponent(hftMarket) : '')); }
-  catch (e) { return; }
+  catch { return; }
   hftMarket = d.symbol || hftMarket;
   const sel = $('#hftMarketSel');
   if (sel.options.length !== (d.markets || []).length) {
@@ -710,7 +710,7 @@ $('#hftMarketSel').addEventListener('change', () => {
 
 async function refreshHft() {
   let s;
-  try { s = await jget('/api/hft/stats'); } catch (e) { return; }
+  try { s = await jget('/api/hft/stats'); } catch { return; }
   hftDefaultInterval = s.interval || hftDefaultInterval;
   /* follow the ENGINE's cadence unless the operator is mid-choice */
   if (document.activeElement !== $('#hftIntervalSel') &&
@@ -756,7 +756,7 @@ async function refreshHft() {
 
   if (hftChart) {
     let eq;
-    try { eq = await jget('/api/hft/equity'); } catch (e) { eq = []; }
+    try { eq = await jget('/api/hft/equity'); } catch { eq = []; }
     $('#hftEquityEmpty').hidden = eq.length > 0;
     if (eq.length) {
       hftChart.data.labels = eq.map(p => fmtTs(p.ts));
@@ -767,7 +767,7 @@ async function refreshHft() {
 
   /* ALL HFT trades — the one place for the high-frequency history */
   let trades;
-  try { trades = await jget('/api/hft/trades?limit=1000'); } catch (e) { trades = []; }
+  try { trades = await jget('/api/hft/trades?limit=1000'); } catch { trades = []; }
   /* the picker lists every strategy REGISTERED for the fast book, not just the
      ones that happen to appear in the trade history — with an empty history
      (which is the normal state of a fresh book) it used to render a single
@@ -793,7 +793,7 @@ async function refreshHft() {
 
   /* decision feed (HOLDs included) */
   let ds;
-  try { ds = await jget('/api/hft/decisions?limit=30'); } catch (e) { ds = []; }
+  try { ds = await jget('/api/hft/decisions?limit=30'); } catch { ds = []; }
   renderDecisionRows($('#hftDecisions'), ds);
 }
 $('#hftStratFilter').addEventListener('change', refreshHft);
@@ -847,7 +847,7 @@ function buildLabEquityChart() {
 
 async function refreshLab() {
   if (!labMeta) {
-    try { labMeta = await jget('/api/lab/meta'); } catch (e) { return; }
+    try { labMeta = await jget('/api/lab/meta'); } catch { return; }
     labFormRefresh();
   }
   /* while a run is in flight, poll its status (the form's 4s poll is too
@@ -1131,7 +1131,7 @@ function renderTradeHistory() {
 async function refreshTrades() {
   let trades;
   try { trades = await jget('/api/trades?limit=1000'); }
-  catch (e) {
+  catch {
     if (!tradeHistoryLoaded) $('#tradeCount').textContent = 'Unable to load trade history. Retrying automatically…';
     return;
   }
@@ -1346,7 +1346,7 @@ $('#evReportSel').addEventListener('change', () => { renderEvidenceCards(); rend
 /* ===================================================== watchlist */
 async function refreshWatchlist() {
   let specs;
-  try { specs = await jget('/api/watchlist'); } catch (e) { return; }
+  try { specs = await jget('/api/watchlist'); } catch { return; }
   $('#wlCount').textContent = specs.length + ' / 12 specs';
   $('#wlEmpty').hidden = specs.length > 0;
   const grid = $('#wlGrid');
@@ -1412,7 +1412,8 @@ $$('.preset-btn').forEach(b => b.addEventListener('click', () => {
     (async () => {
       try {   // clear then re-add the shipped default list
         let cur = [];
-        try { cur = await jget('/api/watchlist'); } catch (e) {}
+        try { cur = await jget('/api/watchlist'); }
+        catch (err) { toastErr('Reset failed', err); return; }
         for (const s of cur) {
           try { await jdel('/api/watchlist/' + s.kind + '/' + encodeURIComponent(s.symbol) + '/' + s.timeframe); }
           catch (err) { toastErr('Remove failed', err); }
@@ -1428,7 +1429,7 @@ $$('.preset-btn').forEach(b => b.addEventListener('click', () => {
 /* ===================================================== account */
 async function refreshAccount() {
   let a;
-  try { a = await jget('/api/account'); } catch (e) { return; }
+  try { a = await jget('/api/account'); } catch { return; }
   const pnl = a.equity - a.capital;
   const big = $('#balanceBig');
   big.textContent = fmt$(a.equity);
@@ -1447,7 +1448,7 @@ async function refreshAccount() {
 /* deposit/withdrawal ledger — typed rows beat scraping add_equity notes */
 async function refreshTransactions() {
   let txs;
-  try { txs = await jget('/api/account/transactions'); } catch (e) { return; }
+  try { txs = await jget('/api/account/transactions'); } catch { return; }
   $('#txnEmpty').hidden = txs.length > 0;
   const tagCls = {deposit: 'long', withdrawal: 'short', reset: 'close'};
   $('#txnTable tbody').innerHTML = txs.map(t => '<tr>' +
@@ -1532,7 +1533,7 @@ function addMsg(text, role) {
 async function loadChatHistory() {
   chatLoaded.v = true;
   let hist;
-  try { hist = await jget('/api/chat'); } catch (e) { return; }
+  try { hist = await jget('/api/chat'); } catch { return; }
   hist.forEach(m => addMsg(m.content, m.role === 'user' ? 'user' : 'bot'));
   if (!hist.length) addMsg("Hi! I'm the bot's assistant. Ask me: 'how much did you earn?', " +
     "'which strategy is best?', 'why did you buy BTC?', 'explain the turtle strategy'…", 'bot');

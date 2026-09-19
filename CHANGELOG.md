@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] — the dashboard JavaScript enters the lint gate
+
+`bot/static/app.js` was executable production code with no JavaScript parser
+or lint pass. ESLint's recommended rules found 21 errors: 20 unused catch
+bindings and one empty catch in the default-watchlist reset. The unused
+bindings now use optional catch syntax; the empty catch now shows a visible
+"Reset failed" toast and aborts instead of continuing from an unknown server
+state. No formatting pass was applied.
+
+ESLint 10 flat config is scoped to the first-party app file (the vendored
+minified Chart.js stays excluded), `make lint` runs it after Ruff, and both CI
+verification jobs install the locked npm dependencies before `make verify`.
+
 ## [Unreleased] — promotion evidence moves out of sample
 
 The gate used one full battery window — the same window strategies were

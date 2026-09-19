@@ -17,9 +17,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
       # core requirements only — torch/transformers are optional Kronos extras
       # (requirements-kronos.txt); the bot and the whole test suite run without them
       - run: pip install -r requirements.txt ruff==0.16.5
+      - run: npm ci
       - name: Verify (tests, lint, live/backtest parity — offline)
         run: make verify
 
@@ -56,10 +61,15 @@ jobs:
           python-version: "3.14"
           cache: pip
           cache-dependency-path: requirements.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
       - name: Install fully pinned environment
         # ruff is a zero-dependency maintainer tool, pinned here rather than in
         # the application lock so it cannot perturb the pinned runtime set.
         run: pip install -r requirements.lock ruff==0.16.5
+      - run: npm ci
       - name: Verify the lock is the installed set
         run: pip check
       - name: Verify locked environment (offline)

@@ -66,14 +66,25 @@ def _path_bounds(path: np.ndarray) -> list[tuple[int, int]]:
 
 
 def _ts_to_index(ts, df: pd.DataFrame) -> int | None:
-    """Positional bar index of a timestamp; None when ts is missing/absent."""
+    """Positional bar index of a timestamp; None when ts is missing/absent.
+
+    The match tolerance scales with the frame's own cadence (2x the median
+    bar step): the old fixed 7-day window misassigned fast bars (a 1m/5m/15m
+    trade matched a NEIGHBOUR bar days away instead of missing), smearing
+    purged-CV labels across path boundaries. Unparseable frames fall back to
+    the old 7-day bound."""
     try:
         dt = pd.Timestamp(ts)
         pos = df.index.searchsorted(dt, side="right") - 1
         if pos < 0:
             return None
         bar_ts = df.index[pos]
-        if abs((bar_ts - dt).total_seconds()) > 7 * 86400:  # ts not in this frame
+        try:
+            step = float(pd.Series(df.index).diff().dropna().median().total_seconds())
+        except Exception:
+            step = float("nan")
+        tol = 2.0 * step if step == step and step > 0 else 7 * 86400
+        if abs((bar_ts - dt).total_seconds()) > tol:  # ts not in this frame
             return None
         return pos
     except Exception:

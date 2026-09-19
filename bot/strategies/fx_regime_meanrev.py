@@ -40,9 +40,12 @@ TARGET: fxmr_target_rr = 1.5, a FIXED declared R. The z-snapback IS the
         modest, risk-floor-clearing multiple) and lets the acceptance run
         measure what the snapback actually delivers on N-bar horizons.
 Exit:   z crosses back through -/+fxmr_z_exit toward the mean (the snapback
-        complete) OR the half-life gate RE-REFUSES while holding (the
-        regime died — mean reversion's precondition is gone; exit rather
-        than wait for a reversion that no longer has a time scale) OR the
+        complete) OR the half-life gate re-measures SLOW/INF while holding
+        (the regime died — mean reversion's precondition is gone; exit rather
+        than wait for a reversion that no longer has a time scale). An
+        UNKNOWN half-life (NaN) while holding does NOT exit — it holds
+        through thin information; NaN refuses only on ENTRY, where taking a
+        new trade without a measured time scale is the paper's bleed. OR the
         1.5R target OR the hard stop OR the time stop (fxmr_time_stop_bars
         = 24 bars ~ one trading day: intraday reversion must not become a
         position trade).
@@ -186,11 +189,20 @@ class FXRegimeMeanRev(BaseStrategy):
             if position.side == "short" and z <= p.fxmr_z_exit:
                 return f"z-score snapback to {z:+.2f} (<= +{p.fxmr_z_exit:.1f})", None
 
-        # regime died while holding: the half-life gate re-refusing at exit
-        # time means mean reversion's precondition is gone — exit rather
-        # than wait for a reversion with no time scale
+        # regime died while holding: the half-life gate re-refusing on a
+        # MEASURED bad reading (finite-but-slow or inf/diverging) means mean
+        # reversion's precondition is gone — exit rather than wait for a
+        # reversion with no time scale. P0: an UNKNOWN reading (NaN — thin
+        # warmup window, degenerate fit) HOLDS through instead of force-
+        # exiting; NaN refuses only on ENTRY (see _hl_refusal/evaluate),
+        # where taking a new trade without a measured time scale is the
+        # paper's random-walk bleed. Exiting a live position on "unknown"
+        # realized the loss exactly when information was thinnest.
         hl = self._at(df, "halflife", i)
-        if self._hl_refusal(hl):
+        hl_refusal = self._hl_refusal(hl)
+        # NaN = unknown: hold through it. Measured-bad (finite-but-slow or
+        # inf/diverging): the regime died, exit.
+        if hl_refusal and not (isinstance(hl, float) and math.isnan(hl)):
             return (f"reversion regime died while holding (half-life now "
                     f"{hl if self._ok(hl) else 'NaN'})", None)
 

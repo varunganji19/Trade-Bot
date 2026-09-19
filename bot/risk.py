@@ -24,6 +24,9 @@ simulates identically in backtest and paper — no calendar divergence.
 from __future__ import annotations
 
 import math
+import json
+import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -47,7 +50,7 @@ class RiskManager:
     targets and strategy exits while either is engaged.
     """
 
-    def __init__(self, cfg=None):
+    def __init__(self, cfg=None, *, state_db_path=None, mode: str = "paper"):
         self.cfg = cfg or CONFIG
         self.daily_start_equity: float | None = None
         self.daily_day: str | None = None
@@ -65,11 +68,120 @@ class RiskManager:
         # and the risk multiplier it implies (1.0 -> 0.5 -> 0.25)
         self.peak_equity: float = 0.0
         self.dd_risk_scale: float = 1.0
+        # Backtests remain memory-only. Live books share the journal database,
+        # but each has an independent durable risk checkpoint.
+        self.state_db_path = state_db_path
+        self.mode = mode
+        self.persistence_error: str | None = None
+        self._invalid_checkpoint = False
+        self._saved_state: str | None = None
+        if state_db_path is not None:
+            self._restore_state()
+
+    def _state_json(self) -> str:
+        return json.dumps({"version": 1, "daily_start_equity": self.daily_start_equity,
+                           "daily_day": self.daily_day, "halted": self.halted,
+                           "peak_equity": self.peak_equity,
+                           "dd_risk_scale": self.dd_risk_scale,
+                           "cooldowns": self.cooldowns}, sort_keys=True, allow_nan=False)
+
+    def _restore_state(self):
+        try:
+            with closing(sqlite3.connect(self.state_db_path, timeout=10)) as conn, conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS risk_state "
+                             "(mode TEXT PRIMARY KEY, state_json TEXT NOT NULL)")
+                row = conn.execute("SELECT state_json FROM risk_state WHERE mode=?",
+                                   (self.mode,)).fetchone()
+            if row is None:
+                self.persist_state()
+                return
+            state = json.loads(row[0])
+            if not isinstance(state, dict) or state.get("version") != 1:
+                raise ValueError("unsupported risk checkpoint")
+            def finite(value):
+                return type(value) in (int, float) and math.isfinite(value)
+            day = state["daily_day"]
+            baseline = state["daily_start_equity"]
+            if day is not None:
+                if not isinstance(day, str) or datetime.strptime(day, "%Y-%m-%d").strftime("%Y-%m-%d") != day:
+                    raise ValueError("invalid daily date")
+                if not finite(baseline):
+                    raise ValueError("invalid daily baseline")
+            elif baseline is not None:
+                raise ValueError("baseline without daily date")
+            if type(state["halted"]) is not bool:
+                raise ValueError("invalid daily halt")
+            if not finite(state["peak_equity"]) or state["peak_equity"] < 0:
+                raise ValueError("invalid peak equity")
+            if not finite(state["dd_risk_scale"]) or state["dd_risk_scale"] not in (0.25, 0.5, 1.0):
+                raise ValueError("invalid drawdown scale")
+            cooldowns = state["cooldowns"]
+            if not isinstance(cooldowns, dict) or any(
+                not isinstance(symbol, str) or not finite(until) or until < 0
+                for symbol, until in cooldowns.items()
+            ):
+                raise ValueError("invalid cooldowns")
+            self.daily_day, self.daily_start_equity = day, baseline
+            self.halted = state["halted"]
+            self.peak_equity = state["peak_equity"]
+            self.dd_risk_scale = state["dd_risk_scale"]
+            self.cooldowns = cooldowns
+            self._saved_state = self._state_json()
+        except (sqlite3.Error, ValueError, TypeError, KeyError, OverflowError) as exc:
+            # Retain the bad row for diagnosis; do not overwrite it with clean
+            # defaults on the next mark. Exits remain available, entries vetoed.
+            self._invalid_checkpoint = True
+            self.persistence_error = f"risk checkpoint restore failed: {exc}"
+
+    def persist_state(self, conn=None):
+        """Persist changed controls; an optional journal transaction is owned
+        by the caller. Failed writes block new entries until a write succeeds."""
+        if self.state_db_path is None or self._invalid_checkpoint:
+            return
+        try:
+            payload = self._state_json()
+            if conn is None and payload == self._saved_state and not self.persistence_error:
+                return
+            statement = ("INSERT INTO risk_state (mode, state_json) VALUES (?,?) "
+                         "ON CONFLICT(mode) DO UPDATE SET state_json=excluded.state_json")
+            if conn is not None:
+                conn.execute(statement, (self.mode, payload))
+                # The caller may roll its transaction back, so never cache
+                # an externally-owned transaction as durably committed.
+                self._saved_state = None
+            else:
+                with closing(sqlite3.connect(self.state_db_path, timeout=10)) as db, db:
+                    db.execute(statement, (self.mode, payload))
+                self._saved_state = payload
+            self.persistence_error = None
+        except (sqlite3.Error, ValueError, TypeError) as exc:
+            self.persistence_error = f"risk checkpoint write failed: {exc}"
+            if conn is not None:
+                raise
+
+    def adjust_cash_flow(self, delta: float, conn=None):
+        """Shift both reference levels by external cash flow, preserving the
+        accumulated trading loss and any halt/cooldowns. Never reset risk."""
+        if self._invalid_checkpoint:
+            raise ValueError(self.persistence_error)
+        if not math.isfinite(delta):
+            raise ValueError("cash-flow adjustment must be finite")
+        if self.daily_start_equity is not None:
+            self.daily_start_equity += delta
+        self.peak_equity = max(0.0, self.peak_equity + delta)
+        self.persist_state(conn=conn)
 
     def set_allocation(self, weights: dict[str, float]):
         """Install portfolio weights (bot.allocator) so `approve` can scale
         per-trade risk by the symbol's share of the book's total budget."""
         self.alloc_weights = weights or {}
+
+    def clear_allocation(self):
+        """Drop all portfolio weights (safe on empty/missing state).
+
+        The engine calls this when the allocator is unavailable so the book
+        falls back to equal risk split instead of trading on stale weights."""
+        self.alloc_weights = {}
 
     # ------------------------------------------------------------------ core
     def size_position(self, equity: float, price: float, stop_distance: float,
@@ -79,23 +191,28 @@ class RiskManager:
         `risk_fraction` overrides the default risk_per_trade (portfolio
         allocation passes a scaled share here). The drawdown throttle scales
         the result down in deep drawdowns (never up)."""
-        if equity <= 0 or price <= 0 or stop_distance is None or stop_distance <= 0:
+        if any(v is None or not math.isfinite(v) or v <= 0
+               for v in (equity, price, stop_distance)):
             return 0.0
         frac = risk_fraction if risk_fraction is not None else self.cfg.risk.risk_per_trade
         frac *= self.dd_risk_scale
+        if not math.isfinite(frac) or frac <= 0:
+            return 0.0
         risk_amount = equity * frac
         qty = risk_amount / stop_distance
         max_qty = (equity * self.cfg.risk.max_position_pct) / price
         qty = min(qty, max_qty)
+        if not math.isfinite(qty) or qty <= 0:
+            return 0.0
         # round down to a sensible granularity; respect min notional
         # India equities are whole-share, like forex units: fractional
         # quantities don't exist on NSE cash (NSE's own minimum is the stock
         # price itself — one share; the bot's generic ₹10/$10 min-notional
         # floor still guards dust entries).
         if kind in ("forex", "india"):
-            qty = round(qty, 0)
+            qty = float(math.floor(qty))
         else:
-            qty = round(qty, 6)
+            qty = math.floor(qty * 1_000_000) / 1_000_000
         if qty * price < 10.0:
             return 0.0
         return qty
@@ -114,11 +231,13 @@ class RiskManager:
                 else datetime.now(timezone.utc).strftime("%Y-%m-%d")
         else:
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if equity is None or not math.isfinite(equity):
+            return
         if self.daily_day != today:
             self.daily_day = today
             self.daily_start_equity = equity
             self.halted = False
-        elif self.daily_start_equity and equity is not None:
+        elif self.daily_start_equity is not None and equity is not None and self.daily_start_equity > 0:
             day_loss = (equity / self.daily_start_equity - 1.0)
             if day_loss <= -self.cfg.risk.daily_loss_kill_switch:
                 if not self.halted:
@@ -139,6 +258,7 @@ class RiskManager:
                 self.dd_risk_scale = 0.5
             else:
                 self.dd_risk_scale = 1.0
+        self.persist_state()
 
     def mark_stopped_out(self, symbol: str, bar_epoch: float, timeframe: str = "1h"):
         """Block re-entries on `symbol` for cooldown_bars_after_stop bars of the
@@ -148,7 +268,10 @@ class RiskManager:
 
     def set_cooldown(self, symbol: str, until_epoch: float):
         """Explicit cooldown: `symbol` may not re-enter before `until_epoch`."""
+        if not math.isfinite(until_epoch) or until_epoch < 0:
+            raise ValueError("cooldown expiry must be finite and nonnegative")
         self.cooldowns[symbol] = float(until_epoch)
+        self.persist_state()
 
     def apply_exit_cooldown(self, spec, closed_pos, reason: str, bar_epoch: float | None):
         """One exit-cooldown policy for both live and backtest paths (they used to
@@ -185,6 +308,8 @@ class RiskManager:
         stack to the full cap.
         """
         r = self.cfg.risk
+        if self.persistence_error:
+            return RiskDecision(False, reason=self.persistence_error)
         # manual pause FIRST — it outranks every other consideration because
         # the operator set it deliberately; the automatic kill switch below is
         # a separate, equity-triggered mechanism
@@ -200,6 +325,14 @@ class RiskManager:
             return RiskDecision(False, reason="already in a position on this symbol")
         if open_positions >= r.max_open_positions:
             return RiskDecision(False, reason=f"max concurrent positions ({r.max_open_positions}) reached")
+        if not math.isfinite(equity) or equity <= 0:
+            return RiskDecision(False, reason="invalid account equity")
+        if not math.isfinite(open_gross_notional) or open_gross_notional < 0:
+            return RiskDecision(False, reason="invalid open gross notional")
+        if not math.isfinite(decision.confidence) or not 0 <= decision.confidence <= 1:
+            return RiskDecision(False, reason="invalid confidence")
+        if decision.target_rr is not None and not math.isfinite(decision.target_rr):
+            return RiskDecision(False, reason="non-finite reward target")
         if decision.confidence < r.min_confidence:
             return RiskDecision(False, reason=f"confidence {decision.confidence:.2f} < floor {r.min_confidence:.2f}")
         if decision.stop_distance is None or decision.stop_distance <= 0:
@@ -209,6 +342,16 @@ class RiskManager:
         # strategies NaN-guard ATR today, but this must not depend on that)
         if not (math.isfinite(decision.price) and math.isfinite(decision.stop_distance)):
             return RiskDecision(False, reason="non-finite price or stop distance")
+        # tiny-stop dust: the stop must cover the modeled round-trip cost
+        # (taker entry + taker exit, fee + slippage per kind). A stop tighter
+        # than the round trip loses money even when "right" — the win can't
+        # pay its own fees, so sizing it is manufacturing dust.
+        rt = self.round_trip_rate(spec.kind)
+        if decision.price > 0 and decision.stop_distance < rt * decision.price:
+            return RiskDecision(False, reason=f"tiny stop (dust): stop distance "
+                                             f"{decision.stop_distance:.6g} < round-trip cost "
+                                             f"{rt * decision.price:.6g} "
+                                             f"({rt * 1e4:.1f}bps of price {decision.price:.6g})")
         # R-distance sanity: a stop far beyond the norm means ATR exploded; the
         # trade would be sized to a vol regime the exit rules can't manage
         if decision.price > 0 and decision.stop_distance > decision.price * r.max_r_per_trade:
@@ -242,6 +385,14 @@ class RiskManager:
                                              f"cap {r.max_gross_leverage:.0f}x equity "
                                              f"{equity:.0f} (gross leverage gate)")
         return RiskDecision(True, qty=qty, reason=f"{decision.action} {qty:.6g} @ {decision.price:.6g}")
+
+    def round_trip_rate(self, kind: str) -> float:
+        """Modeled taker-entry + taker-exit cost as a fraction of price
+        (fee + slippage per leg, per kind). Conservative by design: the live
+        take-profit leg may earn maker pricing, but dust must fail against
+        the worst case, not the best."""
+        c = self.cfg.costs
+        return c.fee(kind) + c.slippage(kind) + c.fee(kind) + c.slippage(kind)
 
     def risk_fraction(self, symbol: str) -> float:
         """Per-symbol risk fraction: base risk_per_trade scaled by the symbol's

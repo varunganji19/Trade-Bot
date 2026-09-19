@@ -34,11 +34,14 @@ DAYS_DEFAULT = 3          # 1m bars: 3d = ~4320 bars per spec
 WARMUP_BARS = 400         # clears the ema200 column the shared indicator builder computes
 
 
-def _round_trip_cost_bps(cfg) -> float:
-    """Modeled round trip for a TAKER entry + TAKER exit (bp), for display."""
+def _round_trip_cost_bps(cfg, kind: str = "crypto") -> float:
+    """Modeled round trip for a TAKER entry + TAKER exit (bp), for display —
+    priced in the SPEC's own kind (forex legs pay the spread model, not the
+    crypto taker fee; the old crypto-hardcoded display overstated EUR/USD
+    round trips ~2.7x)."""
     c = cfg.costs
-    return round((c.fee("crypto") + c.slippage("crypto")
-                  + c.fee("crypto") + c.slippage("crypto")) * 1e4, 1)
+    return round((c.fee(kind) + c.slippage(kind)
+                  + c.fee(kind) + c.slippage(kind)) * 1e4, 1)
 
 
 def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spot"),
@@ -73,7 +76,7 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
                         "tier": tier, "symbol": spec.symbol, "timeframe": spec.timeframe,
                         "strategy": strat, "runtime_s": round(time.time() - t0, 1),
                         "bars": len(df),
-                        "taker_round_trip_bps": _round_trip_cost_bps(cfg),
+                        "taker_round_trip_bps": _round_trip_cost_bps(cfg, spec.kind),
                     })
                     results["cells"].append(s)
                     if not quiet:

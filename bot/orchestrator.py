@@ -36,9 +36,11 @@ from bot.strategies import get_strategies, Signal
 
 REGIME_WEIGHTS = {
     "trending": {"turtle_trend": 0.55, "vwap_scalper": 0.30, "connors_meanrev": 0.15,
+                 "ts_momentum": 0.55, "fx_regime_meanrev": 0.15,
                  "hft_micro_breakout": 0.45, "hft_exhaustion_fade": 0.30,
                  "hft_market_maker": 0.25},
     "ranging": {"connors_meanrev": 0.55, "vwap_scalper": 0.30, "turtle_trend": 0.15,
+                "fx_regime_meanrev": 0.55, "ts_momentum": 0.15,
                 "hft_exhaustion_fade": 0.45, "hft_market_maker": 0.30,
                 "hft_micro_breakout": 0.25},
 }
@@ -165,6 +167,31 @@ class Orchestrator:
         elif conflict:
             rationale_parts.append("Conflict guard: strong opposing signals -> standing down.")
 
+        # P0: a directional vote with no strategy stop (the Kronos-only case:
+        # promoted Kronos LONG/SHORT while every real strategy is FLAT) used
+        # to emit stop_distance=None — an unbracketed trade the risk layer
+        # must refuse downstream. Fall back to a 2xATR stop from the frame's
+        # own ATR; if ATR is missing/non-finite, refuse with a clear reason
+        # instead of emitting a stop-less decision.
+        kronos_fallback = False
+        if action != "HOLD" and stop_distance is None:
+            atr_fb = None
+            try:
+                atr_fb = float(df["atr"].iloc[i]) if "atr" in df.columns else None
+            except Exception:
+                atr_fb = None
+            if atr_fb is not None and math.isfinite(atr_fb) and atr_fb > 0:
+                stop_distance = 2.0 * atr_fb
+                kronos_fallback = True
+                rationale_parts.append(
+                    f"No strategy stop — ATR fallback stop "
+                    f"2.0xATR ({stop_distance:.6g}).")
+            else:
+                rationale_parts.append(
+                    "No strategy stop and ATR unavailable — refusing "
+                    "(no stop could be bracketed) -> HOLD.")
+                action, confidence = "HOLD", 0.0
+
         # sentiment overlay (live mode only)
         sentiment_note = ""
         if include_sentiment and self.sentiment is not None and action in ("LONG", "SHORT"):
@@ -176,8 +203,10 @@ class Orchestrator:
                 rationale_parts.append(f"Sentiment: {sentiment_note}.")
             action, confidence = action2, confidence2
 
-        # optional LLM tie-breaker / veto
-        if self.llm is not None and self.llm.enabled and tf in ("5m", "15m", "1h"):
+        # optional LLM tie-breaker / veto — applies on ALL timeframes (no
+        # timeframe exemption: a 4h/1d decision deserves the same guardrail
+        # as a 5m one; the LLM must never break trading regardless).
+        if self.llm is not None and self.llm.enabled:
             try:
                 llm_res = self.llm.decide({
                     "market": spec.display, "timeframe": tf, "price": price,
@@ -222,7 +251,8 @@ class Orchestrator:
             strategy_signals=out_signals,
             sentiment=self.sentiment.last_result or {} if self.sentiment else {},
             price=price,
-            strategy_name=(best.strategy if (best and best.action == action and action != "HOLD") else ""),
+            strategy_name=(best.strategy if (best and best.action == action and action != "HOLD")
+                           else ("kronos" if (kronos_fallback and action != "HOLD") else "")),
             limit_price=limit_price if action != "HOLD" else None,
         )
 

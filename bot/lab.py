@@ -240,8 +240,26 @@ def run_lab(spec: LabSpec) -> dict:
 
     kind_spec = MarketSpec(spec.kind, spec.symbol, spec.timeframe)
     t0 = time.time()
+    # pinned windows bypass days_cap by construction — enforce the cap here:
+    # refuse windows longer than the cap and absurd bar counts (422).
+    if spec.start and spec.end:
+        try:
+            from datetime import datetime as _dt
+            _a = _dt.fromisoformat(str(spec.start).replace("Z", "+00:00"))
+            _b = _dt.fromisoformat(str(spec.end).replace("Z", "+00:00"))
+            span_d = abs((_b - _a).days) + 1
+        except Exception:
+            span_d = 0
+        cap = days_cap(spec.kind, spec.timeframe)
+        if span_d and span_d > cap:
+            raise LabError(
+                f"window {span_d}d exceeds the {timeframe_cap_note(spec.kind, spec.timeframe, cap)}")
     df = fetch_history(kind_spec, days=spec.days or None,
                        start=spec.start, end=spec.end)
+    _MAX_BARS = 100_000
+    if df is not None and len(df) > _MAX_BARS:
+        raise LabError(f"only {len(df)} bars returned — exceeds the {_MAX_BARS}-bar lab cap "
+                       f"(shorten the window or pick a longer timeframe)")
     warmup = warmup_for(spec.book, spec.timeframe)
     if len(df) < warmup + 10:
         raise LabError(
@@ -282,7 +300,7 @@ def run_lab(spec: LabSpec) -> dict:
         "taker_round_trip_bps": round(c * 2 * 1e4, 1),
         "stats": best[2],
         "trades": best[1].trades[-200:],
-        "equity_curve": best[1].equity_curve,
+        "equity_curve": _downsample_curve(best[1].equity_curve, 500),
         "exit_reasons": _exit_histogram(best[1].trades),
         "comparison": comparison if spec.strategy == "all" else None,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -299,16 +317,55 @@ def _exit_histogram(trades: list) -> dict:
     return dict(sorted(hist.items(), key=lambda kv: -kv[1]))
 
 
-def _write_artifact(payload: dict) -> str:
+def _safe_slug(symbol: str) -> str:
+    # allowlist: everything not A-Z0-9 becomes _ (kills ../, ^, ., /, =)
+    return re.sub(r"[^A-Z0-9]+", "_", (symbol or "").upper()).strip("_") or "SYM"
+
+
+def _downsample_curve(curve: list, cap: int = 500) -> list:
+    if len(curve) <= cap:
+        return curve
+    step = len(curve) / cap
+    return [curve[int(i * step)] for i in range(cap)]
+
+
+def lab_artifacts(limit: int = 20, offset: int = 0) -> list[str]:
+    """Paginated newest-first lab artifact names (evidence loaders page
+    through this instead of globbing+parsing the whole dir)."""
+    d = os.path.join("data", "results")
+    try:
+        files = sorted((f for f in os.listdir(d)
+                        if f.startswith("lab_") and f.endswith(".json")),
+                       key=lambda f: os.path.getmtime(os.path.join(d, f)),
+                       reverse=True)
+    except OSError:
+        return []
+    return files[offset:offset + max(1, limit)]
+
+
+def _write_artifact(payload: dict, keep_n: int = 20) -> str:
     try:
         s = payload["spec"]
-        name = f"lab_{s['book']}_{s['symbol'].replace('/', '').replace('=X', '')}_" \
-               f"{s['timeframe']}_{s['strategy'].replace(' ', '')}_" \
-               f"{time.strftime('%Y%m%d_%H%M%S')}.json"
+        name = (f"lab_{s['book']}_{_safe_slug(s['symbol'])}_"
+                f"{re.sub(r'[^A-Z0-9]+', '_', str(s['timeframe']).upper())}_"
+                f"{_safe_slug(str(s['strategy']))}_"
+                f"{time.strftime('%Y%m%d_%H%M%S')}.json")
         path = os.path.join("data", "results", name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             json.dump(payload, f, indent=1, default=str)
+        # prune to the N newest lab_*.json (each holds a full equity curve —
+        # unbounded growth was disk blowup)
+        try:
+            d = os.path.dirname(path)
+            files = sorted((os.path.join(d, f) for f in os.listdir(d)
+                            if f.startswith("lab_") and f.endswith(".json")),
+                           key=os.path.getmtime, reverse=True)
+            for old in files[keep_n:]:
+                if os.path.abspath(old) != os.path.abspath(path):
+                    os.remove(old)
+        except OSError:
+            pass
         return path
     except Exception:
         return ""
@@ -327,24 +384,21 @@ def start_lab_run(params: dict) -> dict:
     """Validate + spawn the run on a worker thread. Returns the API response.
     Raises LabError for bad input (422); refuses a second concurrent run."""
     global _lab_thread
+    try:
+        days = int(params.get("days") or 0) or 0
+    except (TypeError, ValueError):
+        raise LabError(f"days must be an integer (got {params.get('days')!r})")
     spec = _validate(LabSpec(
         book=params.get("book", "standard"),
         kind=params.get("kind", "crypto"),
         symbol=params.get("symbol", ""),
         timeframe=params.get("timeframe", "1h"),
         strategy=params.get("strategy", "ensemble"),
-        days=int(params.get("days") or 0) or 0,
+        days=days,
         start=params.get("start") or None,
         end=params.get("end") or None,
         fee_tier=params.get("fee_tier") or None,
     ))
-    with _lab_lock:
-        if _lab_thread is not None and _lab_thread.is_alive():
-            raise LabError("a lab run is already in progress — wait for it (poll /api/lab/status)")
-        _lab_state.update(status="running", note=f"fetching {spec.symbol} {spec.timeframe}…",
-                          result=None, error=None,
-                          started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                          finished_at=None)
 
     def _worker(s: LabSpec):
         global _lab_thread
@@ -364,10 +418,18 @@ def start_lab_run(params: dict) -> dict:
             if not isinstance(exc, LabError):
                 traceback.print_exc()
         finally:
-            _lab_thread = None
+            with _lab_lock:
+                _lab_thread = None
 
-    _lab_thread = threading.Thread(target=_worker, args=(spec,), daemon=True)
-    _lab_thread.start()
+    with _lab_lock:
+        if _lab_thread is not None and _lab_thread.is_alive():
+            raise LabError("a lab run is already in progress — wait for it (poll /api/lab/status)")
+        _lab_state.update(status="running", note=f"fetching {spec.symbol} {spec.timeframe}…",
+                          result=None, error=None,
+                          started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                          finished_at=None)
+        _lab_thread = threading.Thread(target=_worker, args=(spec,), daemon=True)
+        _lab_thread.start()
     return {"status": "started", "spec": {"book": spec.book, "kind": spec.kind,
                                           "symbol": spec.symbol,
                                           "timeframe": spec.timeframe,

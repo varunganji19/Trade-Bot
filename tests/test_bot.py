@@ -485,17 +485,22 @@ def test_risk_r_distance_gate():
 
 def test_risk_r_distance_gate_boundaries():
     """Realistic-scale and boundary semantics: a normal crypto-sized stop
-    (2 on a 20000 entry = 0.01% of price) sails through, and a stop sitting
-    EXACTLY at the cap is allowed — the gate is >, not >=. Pin that so no one
-    'fixes' it to >= later (a boundary trade is inside the vol regime the
-    exits were designed for)."""
+    (400 on a 20000 entry = 200bps, above the ~30bps round-trip dust cost)
+    sails through, and a stop sitting EXACTLY at the cap is allowed — the
+    gate is >, not >=. Pin that so no one 'fixes' it to >= later (a
+    boundary trade is inside the vol regime the exits were designed for).
+    A dust stop (2 on 20000 = 1bp, below cost) is rejected as tiny."""
     from bot.risk import RiskManager
     rm = RiskManager(CONFIG)
     rm.note_equity(10_000)
-    # realistic sized trade: BTC-like entry, ATR stop a hundredth of a percent
-    real = _dec("LONG", 0.7, stop=2.0, price=20000.0)
+    # realistic sized trade: BTC-like entry, ATR stop 2% of price (200bps)
+    real = _dec("LONG", 0.7, stop=400.0, price=20000.0)
     d = rm.approve(real, CRYPTO_1H, 10_000, 0, False)
     assert d.approved and d.qty > 0
+    # dust stop: 2 on 20000 = 1bp round-trip cost 60 dwarfs it -> rejected
+    dust = _dec("LONG", 0.7, stop=2.0, price=20000.0)
+    d = rm.approve(dust, CRYPTO_1H, 10_000, 0, False)
+    assert not d.approved and "tiny stop (dust)" in d.reason
     # boundary: stop == price * max_r_per_trade (10 on a 100 entry) is ALLOWED
     edge = _dec("LONG", 0.8, stop=100.0, price=1000.0)
     assert edge.stop_distance == edge.price * CONFIG.risk.max_r_per_trade
@@ -1059,22 +1064,25 @@ def test_marketdata_cache_keys_by_limit():
 
 def test_watchlist_save_is_atomic_and_load_tolerates_corruption():
     """A crash mid-save must not leave torn JSON (atomic replace), and a
-    corrupt file must be renamed aside — never silently traded around."""
+    corrupt file must be renamed aside with .corrupt.<epoch> suffix — never
+    silently traded around. No .tmp* residue (including pid-tmp patterns)."""
     from config import save_watchlist, apply_saved_watchlist
     import json
+    import glob
     with tempfile.TemporaryDirectory() as td:
         path = os.path.join(td, "watchlist.json")
         specs = [MarketSpec("crypto", "BTC/USDT", "1h", "Bitcoin")]
         assert save_watchlist(specs, path)
-        assert not os.path.exists(path + ".tmp")          # no temp residue
+        assert not glob.glob(path + ".tmp*")          # no temp residue (any pid-tmp pattern)
         with open(path) as fh:
             assert json.load(fh)["specs"][0]["symbol"] == "BTC/USDT"
         # torn/corrupt file: loader renames it and falls back, loudly
         with open(path, "w") as fh:
             fh.write('{"specs": [trunc')
         apply_saved_watchlist(path)
-        assert os.path.exists(path + ".corrupt")
-        assert not os.path.exists(path) or json.load(open(path)) != "x"
+        corrupt_matches = glob.glob(path + ".corrupt.*")
+        assert len(corrupt_matches) == 1
+        assert not glob.glob(path + ".tmp*")          # also no .tmp residue after load
 
 
 def test_journal_stats_aggregates_match_python_math():
@@ -2214,6 +2222,10 @@ def test_engine_no_phantom_stop_on_entry_bar():
             pos = eng.broker.open_position(spec, d, qty=1.0, price=price, trade_id=-1,
                                            ts=str(df.index[i]),
                                            decision_bar_ts=float(df.index[i].timestamp()))
+            pos.trade_id = eng.journal.open_trade(
+                spec.symbol, pos.side, pos.qty, pos.entry_price, pos.stop, pos.target,
+                pos.strategy, "fixture", opened_ts=pos.opened_ts, timeframe=spec.timeframe,
+                entry_fee=pos.entry_fee, decision_bar_ts=pos.entry_bar_ts)
             assert float(df.iloc[i]["low"]) <= pos.stop, "fixture must pierce the stop"
             summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
             eng._manage_position(spec, pos, df, i, summary,
@@ -2247,9 +2259,13 @@ def test_engine_data_outage_surfaces_then_closes():
         eng, saved = _engine_with_db(td)
         try:
             d = _dec("LONG", 0.9, stop=2.0, price=price)
-            eng.broker.open_position(spec, d, qty=1.0, price=price, trade_id=-1,
+            pos = eng.broker.open_position(spec, d, qty=1.0, price=price, trade_id=-1,
                                      ts=str(df.index[i]),
                                      decision_bar_ts=float(df.index[i].timestamp()))
+            pos.trade_id = eng.journal.open_trade(
+                spec.symbol, pos.side, pos.qty, pos.entry_price, pos.stop, pos.target,
+                pos.strategy, "fixture", opened_ts=pos.opened_ts, timeframe=spec.timeframe,
+                entry_fee=pos.entry_fee, decision_bar_ts=pos.entry_bar_ts)
             eng._last_good_price[(spec.symbol, "1h")] = price
             summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
             for n in range(1, engine_mod.TradingEngine.FETCH_FAIL_CLOSE):
@@ -2417,8 +2433,12 @@ def test_data_outage_close_retries_when_no_mark_available():
         eng, saved = _engine_with_db(td)
         try:
             d = _dec("LONG", 0.9, stop=2.0, price=100.0)
-            eng.broker.open_position(spec, d, qty=1.0, price=100.0, trade_id=-1,
+            pos = eng.broker.open_position(spec, d, qty=1.0, price=100.0, trade_id=-1,
                                      ts="2026-09-05T00:00:00+00:00")
+            pos.trade_id = eng.journal.open_trade(
+                spec.symbol, pos.side, pos.qty, pos.entry_price, pos.stop, pos.target,
+                pos.strategy, "fixture", opened_ts=pos.opened_ts, timeframe=spec.timeframe,
+                entry_fee=pos.entry_fee, decision_bar_ts=pos.entry_bar_ts)
             summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0,
                              "errors": []}
             for _ in range(engine_mod.TradingEngine.FETCH_FAIL_CLOSE + 3):
@@ -2817,7 +2837,16 @@ def test_ccxt_source_cooldown_benches_dead_exchanges():
     df = data_mod._fetch_with_fallback("X/USDT", "1h", "auto", spy)
     assert df.attrs["source"] == "bybit"
     assert "binance" not in probed        # benched: not even probed
-    # success resets strikes: bybit has none now, and a direct binance win clears its bench
+    # Naming a source does not bypass its cooldown. Once it expires, a
+    # successful explicit probe clears the strikes.
+    probed.clear()
+    try:
+        data_mod._fetch_with_fallback("X/USDT", "1h", "binance", spy)
+        raise AssertionError("benched explicit source was fetched")
+    except RuntimeError as exc:
+        assert "benched" in str(exc)
+    assert probed == []
+    data_mod._source_fails["binance"] = (3, time.time() - 1)
     df2 = data_mod._fetch_with_fallback("X/USDT", "1h", "binance", fetch_one_ok)
     assert df2.attrs["source"] == "binance"
     assert data_mod._source_fails.get("binance") is None
@@ -3723,14 +3752,13 @@ def _w3_rolling_cache_path(td, spec, days, stamp):
     """The exact rolling cache name _disk_cache_path would write for a
     days-window request (same dashed-ISO + day-stamp conventions)."""
     safe = spec.symbol.replace("/", "").replace("=X", "")
-    return os.path.join(td, f"{safe}_{spec.timeframe}_{days}d_{stamp}.parquet")
+    return os.path.join(td, f"{spec.kind}_{safe}_{spec.timeframe}_{days}d_{stamp}.parquet")
 
 
 def _w3_plant_rolling_cache(td, spec, frame, stamp="20260101"):
     """Write a plausible parquet under a ROLLING days-form cache name with an
     OLD date-stamp in the name (the pre-fix regime refetched it tomorrow)."""
-    safe = spec.symbol.replace("/", "").replace("=X", "")
-    path = os.path.join(td, f"{safe}_{spec.timeframe}_7d_{stamp}.parquet")
+    path = _w3_rolling_cache_path(td, spec, 7, stamp)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     frame.to_parquet(path)
     return path
@@ -3781,8 +3809,7 @@ def test_fetch_history_stale_rolling_cache_refetches():
             data_mod.fetch_crypto_history = lambda *a, **k: fresh_frame.copy()
             # age the planted file past the 24h window (mtime, not the name's
             # day-stamp, is the freshness clock — backdate by 2 days)
-            safe = spec.symbol.replace("/", "").replace("=X", "")
-            planted = os.path.join(td, f"{safe}_{spec.timeframe}_7d_20260101.parquet")
+            planted = _w3_rolling_cache_path(td, spec, 7, "20260101")
             two_days_ago = time.time() - 2 * 86400
             os.utime(planted, (two_days_ago, two_days_ago))
             # under TODAY's date stamp: the file the pre-4.1 exact-name path
@@ -3841,7 +3868,7 @@ def test_fetch_history_pinned_window_never_globs_rolling_decoy():
                     decoy["close"].iloc[0], 1e-9)
                 # the ONLY cache file the pinned branch read was its exact
                 # pinned name — never the days-form decoy
-                assert reads == ["TESTUSDT_1h_2024-01-01_2024-01-03.parquet"], reads
+                assert reads == ["crypto_TESTUSDT_1h_2024-01-01_2024-01-03.parquet"], reads
             finally:
                 data_mod._load_cached = real_load
         finally:
@@ -4048,14 +4075,14 @@ def test_infer_kind_india_detection():
 
 def test_india_whole_share_sizing():
     """India equities are whole-share: size_position(kind='india') must
-    return an integer quantity (round(qty, 0) semantics), the min-notional
-    dust guard still applies, and forex behavior is unchanged. Pre-fix,
+    return an integer quantity rounded DOWN to respect the risk budget, the
+    min-notional dust guard still applies, and forex uses the same rule. Pre-fix,
     'india' fell into the round(qty, 6) crypto branch."""
     rm = RiskManager()
     qty = rm.size_position(10_000, 100.0, 5.0, "india")      # 20.0 exactly
     assert qty == 20.0 and float(qty).is_integer()
-    qty2 = rm.size_position(10_000, 100.0, 6.0, "india")    # 16.67 -> 17 shares
-    assert qty2 == 17.0 and float(qty2).is_integer()
+    qty2 = rm.size_position(10_000, 100.0, 6.0, "india")    # 16.67 -> 16 shares
+    assert qty2 == 16.0 and float(qty2).is_integer()
     # dust guard: a size whose notional < 10 (currency units) returns 0
     assert rm.size_position(10_000, 5.0, 100.0, "india") == 0.0
     # forex unchanged: still whole units
@@ -4082,7 +4109,8 @@ def test_bars_per_year_india_sessions():
 def test_nse_calendar_session_open_pure_function():
     """is_nse_session_open is a pure function of its input: Mon 10:00 IST
     open; Sat/Sun, pre-open 08:00, post-close 16:00 closed; Republic Day
-    2026 (a Monday) closed. Explicit datetimes — no clock mocking."""
+    2026 (a Monday) closed. Explicit datetimes — no clock mocking.
+    Boundary is end-exclusive: start <= t < end (09:15 inclusive, 15:30 exclusive)."""
     def ist(y, m, d, hh, mm):
         return datetime(y, m, d, hh, mm, tzinfo=IST)
     # 2026-06-15 is a Monday
@@ -4091,9 +4119,10 @@ def test_nse_calendar_session_open_pure_function():
     assert is_nse_session_open(ist(2026, 6, 14, 10, 0)) is False      # Sunday
     assert is_nse_session_open(ist(2026, 6, 15, 8, 0)) is False       # pre-open
     assert is_nse_session_open(ist(2026, 6, 15, 16, 0)) is False      # post-close
-    # boundary inclusivity: 09:15 and 15:30 are in-session
+    # boundary inclusivity: 09:15 inclusive, 15:30 EXCLUSIVE (end-exclusive)
     assert is_nse_session_open(ist(2026, 6, 15, 9, 15)) is True
-    assert is_nse_session_open(ist(2026, 6, 15, 15, 30)) is True
+    assert is_nse_session_open(ist(2026, 6, 15, 15, 30)) is False
+    assert is_nse_session_open(ist(2026, 6, 15, 15, 29)) is True
     # holiday Monday: Republic Day 2026-01-26
     assert is_nse_session_open(ist(2026, 1, 26, 10, 0)) is False
     # the same instant expressed in UTC lands in-session (05:30 IST offset)
@@ -4252,24 +4281,24 @@ def test_india_fetch_via_yahoo_path_hermetic():
             assert len(df) == 5
             assert calls and calls[0][0] == "RELIANCE.NS" and calls[0][1] == "1h"
             assert calls[0][2] is True, "auto_adjust must stay on for equities"
-            assert df.attrs["caliber"] == "adjusted"
+            assert df.attrs["caliber"] == "adjusted-equity"
             assert df.attrs["source"] == "yahoo"
             # deterministic, collision-free cache names for india tickers
             nsei = MarketSpec("india", "^NSEI", "1h")
             p = data_mod._disk_cache_path(nsei, 90)
-            assert os.path.basename(p) == "NSEI_1h_90d_" + os.path.basename(p).split("_")[-1]
+            assert os.path.basename(p) == "india_NSEI_1h_90d_" + os.path.basename(p).split("_")[-1]
             assert "NSEI" in os.path.basename(p) and "^" not in os.path.basename(p)
             rel = MarketSpec("india", "RELIANCE.NS", "4h")
             assert os.path.basename(data_mod._disk_cache_path(rel, 90)) == \
-                "RELIANCE.NS_4h_90d_" + os.path.basename(
+                "india_RELIANCE.NS_4h_90d_" + os.path.basename(
                     data_mod._disk_cache_path(rel, 90)).split("_")[-1]
-            # forex/crypto cache names unchanged by the new transform
+            # Each market kind has its own cache namespace.
             assert os.path.basename(
                 data_mod._disk_cache_path(MarketSpec("forex", "EURUSD=X", "1h"), 90)
-            ).startswith("EURUSD_1h_90d_")
+            ).startswith("forex_EURUSD_1h_90d_")
             assert os.path.basename(
                 data_mod._disk_cache_path(MarketSpec("crypto", "BTC/USDT", "1h"), 90)
-            ).startswith("BTCUSDT_1h_90d_")
+            ).startswith("crypto_BTCUSDT_1h_90d_")
         finally:
             yf.download = real_download
             CONFIG.data_cache_dir = real_cache_dir
@@ -4285,7 +4314,7 @@ def test_india_fetch_real_network_smoke():
     import bot.data as data_mod
     df = data_mod.fetch_india_ohlcv("^NSEI", "1d", start="2026-09-01", end="2026-09-10")
     assert len(df) >= 3
-    assert df.attrs["caliber"] == "adjusted"
+    assert df.attrs["caliber"] == "adjusted-equity"
 
 
 # ---------------------------------------------------------------------------
@@ -4487,13 +4516,17 @@ def _tsmom_downtrend(n=2560, drift=-0.0012, vol=0.004, seed=9):
 
 
 def test_tsmom_warmup_returns_flat():
-    """i below the warmup line (max(lookback, 52w_bars, 30)+2 = 2452) must
-    be FLAT 'warming up' — a 400-bar frame never even reaches evaluation."""
+    """i below the warmup line (max(lookback, 30)+2 = 242) must be FLAT.
+    New adaptive warmup drops the 52w_bars requirement (partial 52w proxy used).
+    A 400-bar frame exceeds warmup at i>=242; i<242 is FLAT, i=399 evaluates."""
     df = _tsmom_frame(400, seed=11)
     ts = TimeSeriesMomentum()
-    for i in (0, 100, len(df) - 1):
+    for i in (0, 100, 241):
         sig = ts.evaluate(df, i)
         assert sig.action == "FLAT" and "warm" in (sig.rationale or "").lower()
+    # i=399 is past warmup -> evaluates (may be LONG/FLAT/SHORT but not "warm")
+    sig = ts.evaluate(df, 399)
+    assert sig.action != "FLAT" or "warm" not in (sig.rationale or "").lower()
 
 
 def test_tsmom_uptrend_goes_long():

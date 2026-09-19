@@ -4,9 +4,17 @@ AI Trading Bot — command line interface.
 
 Usage:
   python3 main.py backtest [--symbol BTC/USDT] [--timeframe 1h] [--days 365]
-                           [--strategy turtle_trend|connors_meanrev|vwap_scalper|ensemble]
+                           [--strategy ensemble|turtle_trend|connors_meanrev|vwap_scalper|fx_regime_meanrev|ts_momentum]
                            [--walk-forward] [--json out.json]
+  python3 main.py validate --symbol BTC/USDT [--strategy turtle_trend]
+                           [--trial-sharpes 0.8 1.1 ...] [--report REPORT.md]
   python3 main.py run [--once]                 # paper-trade (live loop or one cycle)
+  python3 main.py hft-backtest [--symbol BTC/USDT] [--strategy hft_market_maker|hft_exhaustion_fade|hft_micro_breakout] [--triangular]
+  python3 main.py hft-run [--once]             # high-frequency paper book (separate 1m account)
+  python3 main.py hft-status                   # HFT book journal summary
+  python3 main.py hft-battery [--days 3] [--tier perp|spot|both]
+  python3 main.py kronos [--symbol BTC/USDT]   # offline Kronos IC evaluation (tracked non-voter verdict)
+  python3 main.py shadow [--include-demo]      # journal-vs-own-rules Shadow Account report
   python3 main.py pause [note]                 # manual halt: blocks NEW entries only
   python3 main.py resume                       # clear the manual pause (new entries allowed)
   python3 main.py market [--mode forex|india]  # show or switch the active market universe
@@ -26,22 +34,44 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-def _load_env_file(path: str = ".env") -> None:
+def _strip_inline_comment(s: str) -> str:
+    """Cut a ` #` comment outside quotes (a `#` inside '...'/"..." stays)."""
+    in_single = in_double = False
+    for i, ch in enumerate(s):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == "#" and not in_single and not in_double \
+                and i > 0 and s[i - 1] in (" ", "\t"):
+            return s[:i].rstrip()
+    return s
+
+
+def _load_env_file(path: str | None = None) -> None:
     """Load KEY=VALUE pairs from .env into os.environ BEFORE config reads
-    them (existing process env wins). The documented workflow ships
-    .env.example -> .env — but nothing ever loaded it, so a DASHBOARD_TOKEN
-    placed there silently left dashboard auth OFF while the operator
-    believed it was on. Deliberately dependency-free; no export/shell
-    expansion, no multiline values."""
+    them (existing process env wins). Defaults to the SCRIPT dir's .env
+    (not the CWD's) so `python3 path/to/main.py` works from anywhere. The
+    documented workflow ships .env.example -> .env — but nothing ever loaded
+    it, so a DASHBOARD_TOKEN placed there silently left dashboard auth OFF
+    while the operator believed it was on. Deliberately dependency-free;
+    no shell expansion, no multiline values. A leading `export ` is stripped
+    and ` #` comments outside quotes are ignored."""
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     try:
         with open(path) as fh:
             for line in fh:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
+                if line.startswith("export "):
+                    line = line[len("export "):].lstrip()
                 key, _, value = line.partition("=")
                 key = key.strip()
-                value = value.strip().strip('"').strip("'")
+                value = _strip_inline_comment(value.strip())
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
                 if key and key not in os.environ:
                     os.environ[key] = value
     except OSError:
@@ -205,17 +235,37 @@ def cmd_hft_backtest(args):
         print(f"[hft-backtest] wrote {args.json}")
 
 
+def _run_owned(engine, once: bool, interval: int, label: str):
+    """Run a live engine holding its book's lease, with a readable refusal.
+
+    A second engine on one book would fork the account, so the lease is not
+    advisory — but the operator's fix is simply to stop the other one, which
+    deserves a sentence rather than a traceback.
+    """
+    from bot.journal import BookOwnedError
+    try:
+        if once:
+            # a single cycle owns the book for its duration too — it writes
+            # the same checkpoints a continuous loop does
+            with engine.own_book():
+                return engine.run_cycle()
+        engine.run_forever(interval=interval)   # claims the lease itself
+    except BookOwnedError as exc:
+        print(f"[{label}] refusing to start — {exc}")
+        sys.exit(1)
+    return None
+
+
 def cmd_hft_run(args):
     """Run the HFT paper engine (the separate high-frequency book)."""
     from bot.hft import build_hft_engine
     from config import apply_market_mode
     apply_market_mode()  # keeps the standard book's watchlist normalized; HFT book ignores it
     engine = build_hft_engine()
+    interval = args.interval or CONFIG.hft.live_interval_seconds
+    summary = _run_owned(engine, args.once, interval, "hft")
     if args.once:
-        summary = engine.run_cycle()
         print(json.dumps(summary, indent=1, default=str))
-    else:
-        engine.run_forever(interval=args.interval or CONFIG.hft.live_interval_seconds)
 
 
 def cmd_hft_status(args):
@@ -377,11 +427,10 @@ def cmd_run(args):
     from config import apply_market_mode
     apply_market_mode()  # the persisted market mode seeds/normalizes watchlist.json
     engine = TradingEngine(mode="paper")
+    interval = args.interval or CONFIG.live_interval_seconds
+    summary = _run_owned(engine, args.once, interval, "engine")
     if args.once:
-        summary = engine.run_cycle()
         print(json.dumps(summary, indent=1, default=str))
-    else:
-        engine.run_forever(interval=args.interval or CONFIG.live_interval_seconds)
 
 
 def cmd_pause(args):
@@ -430,6 +479,13 @@ def cmd_market(args):
         print("[market] close them first (dashboard or close_manual) so nothing "
               "gets orphaned when its market's feed drops out of the watchlist.")
         sys.exit(1)
+    live = _live_engine_state()
+    if live:
+        print(f"[market] REFUSING to switch: the {live} engine reports "
+              f"desired='running' (engine_state.json) — stop the engine "
+              f"(dashboard Stop, or kill the run loop) before switching, so no "
+              f"live cycle trades the old universe mid-switch.")
+        sys.exit(1)
     if not set_market_mode(args.mode):
         print(f"[market] could not persist mode {args.mode!r} (disk error?) — "
               "the market is NOT switched")
@@ -476,6 +532,23 @@ def cmd_dashboard(args):
 
     print(f"[dashboard] http://127.0.0.1:{args.port}  (Ctrl-C to stop)")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+
+
+def _live_engine_state() -> str | None:
+    """'paper'/'hft' when that book's engine_state file says desired='running',
+    else None. The market switch is journal-blind without this: a live engine
+    mid-cycle would keep trading the OLD universe after the watchlist is
+    rewritten. Never raises (missing/unreadable file = not running)."""
+    from config import CONFIG
+    base = os.path.dirname(os.path.abspath(CONFIG.db_path))
+    for book, fname in (("paper", "engine_state.json"), ("hft", "hft_engine_state.json")):
+        try:
+            with open(os.path.join(base, fname)) as fh:
+                if json.load(fh).get("desired") == "running":
+                    return book
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def _port_owner(port: int) -> str | None:

@@ -297,9 +297,21 @@ class Backtester:
                         print(f"[backtest] allocation hook failed ({type(exc).__name__}: "
                               f"{exc}) — risk budget runs unscaled for this run")
                         self._alloc_warned = True
-            approval = risk.approve(decision, spec, broker.cash, len(broker.positions),
-                                    has_position_on_symbol=False,
-                                    bar_epoch=bar_epoch)
+            approval = risk.approve(
+                decision, spec, broker.cash, len(broker.positions),
+                # cross-TF one-symbol rule (engine parity: broker.has_position
+                # spans timeframes — a 4h book never opens under a live 1h
+                # book on the same symbol, and vice versa)
+                has_position_on_symbol=broker.has_position(spec.symbol),
+                # real marked gross notional (engine parity): the open book
+                # marked at the decision bar's close for this spec's symbol,
+                # at entry for anything else (the only mark a single-frame
+                # backtest can price) — the 0.0 default understated exposure
+                open_gross_notional=sum(
+                    p.qty * (float(cur_bar["close"]) if p.symbol == spec.symbol
+                             else p.entry_price)
+                    for p in broker.positions_snapshot()),
+                bar_epoch=bar_epoch)
             if not approval.approved:
                 continue
 

@@ -38,6 +38,11 @@ NSE_SESSION = (time(9, 15), time(15, 30))
 # Holi/Diwali (lunar calendars move them year to year) and special half-day
 # sessions. The gate sits AFTER position management, so a missed holiday can
 # only cost one cycle's worth of skipped entries — never a stuck exit.
+#
+# FAIL-CLOSED: only 2026 is verified. Any other calendar year returns CLOSED
+# (is_nse_session_open -> False) until its holiday list is verified and added
+# here — trading an unknown calendar's holidays as "open" risks entering on
+# a day the exchange never fills. See _VERIFIED_HOLIDAY_YEARS.
 NSE_HOLIDAYS_2026: frozenset[str] = frozenset({
     "2026-01-26",   # Republic Day
     "2026-05-01",   # Maharashtra Day
@@ -46,20 +51,37 @@ NSE_HOLIDAYS_2026: frozenset[str] = frozenset({
     "2026-12-25",   # Christmas
 })
 
+# Years with a verified static holiday list. Any year outside this set is
+# treated as CLOSED (fail-closed) until verified.
+_VERIFIED_HOLIDAY_YEARS: frozenset[int] = frozenset({2026})
+
+_HOLIDAYS_BY_YEAR: dict[int, frozenset[str]] = {2026: NSE_HOLIDAYS_2026}
+
 
 def is_nse_session_open(now: datetime | None = None) -> bool:
     """True iff `now` (wall clock; default datetime.now(UTC) converted to
-    IST) is inside the NSE cash session: Mon-Fri, 09:15-15:30 IST, not a
-    listed holiday. A pure function of its input — unit-testable with
-    explicit datetimes, no clock mocking needed. Naive datetimes are read
-    as IST (the session is defined in IST)."""
+    IST) is inside the NSE cash session: Mon-Fri, 09:15 <= t < 15:30 IST
+    (end-EXCLUSIVE: 15:30:00 is the closing print, not an open minute), not
+    a listed holiday. A pure function of its input — unit-testable with
+    explicit datetimes, no clock mocking needed. Naive datetimes are
+    REJECTED (ValueError): silently reading wall-clock UTC as IST shifted
+    the session by 5.5h. Years without a verified holiday list are
+    fail-closed (False) until verified."""
     if now is None:
         now = datetime.now(timezone.utc)
-    ist = now if now.tzinfo is None else now.astimezone(IST)
+    if now.tzinfo is None:
+        raise ValueError(
+            "is_nse_session_open requires a timezone-aware datetime "
+            "(pass UTC-aware; naive wall-clock reads as IST shifted the "
+            "session by 5.5h)")
+    ist = now.astimezone(IST)
+    if ist.year not in _VERIFIED_HOLIDAY_YEARS:
+        return False
     if ist.weekday() >= 5:          # Sat/Sun
         return False
-    if ist.date().isoformat() in NSE_HOLIDAYS_2026:
+    holidays = _HOLIDAYS_BY_YEAR.get(ist.year, frozenset())
+    if ist.date().isoformat() in holidays:
         return False
     start, end = NSE_SESSION
     t = ist.time()
-    return start <= t <= end
+    return start <= t < end

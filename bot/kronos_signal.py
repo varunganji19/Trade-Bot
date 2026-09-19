@@ -27,6 +27,7 @@ Weights download once into the HF cache (~100MB).
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 
 import pandas as pd
@@ -191,10 +192,31 @@ class KronosPredictorLazy:
         self.cfg = cfg or KronosConfig()
         self._predictor = None
         self._failed = False
+        self._failed_at: float | None = None  # monotonic ts of last load failure
+        self._fail_count = 0                  # consecutive failures (backoff base)
+
+    # P0: the old boolean latch never retried — one transient failure
+    # (cold HF cache, venue WiFi) disabled Kronos for the whole process.
+    # Retry with exponential backoff: 60s, 120s, 240s ... capped at 1h.
+    RETRY_BASE_SEC = 60.0
+    RETRY_MAX_SEC = 3600.0
+
+    def _retry_due(self) -> bool:
+        """True when a (re)load attempt is currently allowed: always on a
+        clean slate, otherwise only once the backoff window since the last
+        failure has elapsed (a newly vendored weights dir / restored network
+        is picked up on the next due attempt, not never)."""
+        if not self._failed:
+            return True
+        backoff = min(self.RETRY_MAX_SEC,
+                      self.RETRY_BASE_SEC * (2 ** max(0, self._fail_count - 1)))
+        return (time.monotonic() - (self._failed_at or 0.0)) >= backoff
 
     def _ensure(self):
-        if self._predictor is not None or self._failed:
+        if self._predictor is not None:
             return self._predictor
+        if self._failed and not self._retry_due():
+            return None
         try:
             import sys
             model_root = os.path.join(os.path.dirname(__file__), "..", "models", "kronos")
@@ -214,8 +236,13 @@ class KronosPredictorLazy:
             tok = KronosTokenizer.from_pretrained(self.cfg.tokenizer_name)
             model = Kronos.from_pretrained(self.cfg.model_name)
             self._predictor = KronosPredictor(model, tok, max_context=self.cfg.max_context)
+            self._failed = False
+            self._failed_at = None
+            self._fail_count = 0
         except Exception:
             self._failed = True
+            self._failed_at = time.monotonic()
+            self._fail_count += 1
             return None
         return self._predictor
 
@@ -227,7 +254,7 @@ class KronosPredictorLazy:
         whole download on cold venue WiFi with a dead-looking Start button.
         The load itself happens on the FIRST evaluate() call, which runs in
         the engine thread."""
-        if self._failed:
+        if self._failed and not self._retry_due():
             return False
         if self._predictor is not None:
             return True

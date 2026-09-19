@@ -43,7 +43,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
+import sqlite3
 import threading
 import time
 import traceback
@@ -58,7 +58,7 @@ from starlette.responses import JSONResponse
 
 from bot.chatbot import ChatBot
 from bot.engine import TradingEngine
-from bot.journal import Journal
+from bot.journal import NO_OWNER, BookOwnedError, Journal
 from bot.pause import is_paused, set_paused
 from bot.strategies import STRATEGY_CLASSES
 import config as config_mod
@@ -72,8 +72,15 @@ async def _lifespan(_app):
     # replaces the deprecated @app.on_event("startup") hook (which emitted
     # deprecation warnings on every boot and test run); the body lives below
     # the handlers it calls and resolves at startup time
-    _auto_resume_engine()
-    _auto_resume_hft_engine()
+    # a failed auto-resume must never abort uvicorn's startup: without the UI
+    # there is nothing left to explain the failure with
+    for resume in (_auto_resume_engine, _auto_resume_hft_engine):
+        try:
+            resume()
+        except Exception:
+            print(f"[dashboard] {resume.__name__} failed — the dashboard is up, "
+                  f"start the engine from the top bar")
+            traceback.print_exc()
     yield
 
 
@@ -109,7 +116,7 @@ class _TokenGuard:   # pure ASGI middleware — no BaseHTTPMiddleware overhead
     and the SPA attaches the bearer token from localStorage on its fetches
     (prompting for it once when the API answers 401)."""
     # shell only — every data route stays behind the token
-    _EXEMPT_GET = frozenset({"/", "/chart.umd.min.js"})
+    _EXEMPT_GET = frozenset({"/", "/chart.umd.min.js", "/dashboard.css"})
 
     def __init__(self, asgi_app, token: str):
         self.app = asgi_app
@@ -230,10 +237,11 @@ def _engine_state_path() -> str:
                         "engine_state.json")
 
 
-def _write_engine_state(running: bool, interval: int):
+def _write_engine_state(running: bool, interval: int) -> bool:
     """Persist the operator's desired engine state so a dashboard restart can
-    auto-resume it (a stop must win over a stale 'running' file). A failed
-    write degrades to no-auto-resume; it must never break the endpoint."""
+    auto-resume it (a stop must win over a stale 'running' file). Returns
+    False (and logs loudly) when the write fails so endpoints can surface it
+    instead of silently losing auto-resume."""
     try:
         # atomic: a torn state file would silently disable auto-resume
         tmp = _engine_state_path() + ".tmp"
@@ -241,29 +249,81 @@ def _write_engine_state(running: bool, interval: int):
             json.dump({"desired": "running" if running else "stopped",
                        "interval": interval}, f)
         os.replace(tmp, _engine_state_path())
-    except OSError:
-        pass
+        return True
+    except OSError as exc:
+        print(f"[dashboard] FAILED to persist engine_state (desired="
+              f"{'running' if running else 'stopped'}): {exc}")
+        traceback.print_exc()
+        return False
+
+
+_engine_starting = False  # placeholder claimed under lock before the build
+
+
+def _release_book(eng, mode: str) -> None:
+    """Drop an engine's cross-process lease; a lost lease is already released."""
+    token, eng.book_token = eng.book_token, None
+    if token is None:
+        return
+    try:
+        journal.release_book(mode, token)
+    except Exception:
+        pass   # the lease expires on its own (see Journal._lease_is_live)
 
 
 def _spawn_engine(interval: int) -> dict:
     """Build + start the engine thread (shared by the API endpoint and the
     startup auto-resume). Returns the API response dict."""
-    global _engine, _engine_thread, _engine_interval
+    global _engine, _engine_thread, _engine_interval, _engine_starting
+    # check-and-set under lock FIRST: a double-POST used to build two engines
+    # (torch/Kronos probe each) before discovering the race under the lock.
+    with _engine_lock:
+        if _engine is not None:
+            return {"status": "already_running", "cycles": _engine.cycles}
+        if _engine_starting:
+            return {"status": "starting", "cycles": 0}
+        if _engine_thread is not None and _engine_thread.is_alive():
+            return {"status": "stopping", "cycles": 0}
+        _engine_starting = True
     # build OUTSIDE _engine_lock: TradingEngine.__init__ probes the Kronos stack
     # (imports, no weight load — that happens lazily in the first engine cycle)
     # and holding the lock froze every stats/status poll
-    eng = TradingEngine(mode="paper", quiet=False, journal=journal)
+    try:
+        eng = TradingEngine(mode="paper", quiet=False, journal=journal)
+        # Take the book's cross-process lease BEFORE publishing the engine: a
+        # standalone `main.py run` in another process owns the same account,
+        # and two engines on one book fork it (see Journal.claim_book).
+        eng.book_token = journal.claim_book("paper")
+    except BookOwnedError as exc:
+        with _engine_lock:
+            _engine_starting = False
+        return {"status": "owned", "cycles": 0, "detail": str(exc)}
+    except Exception:
+        with _engine_lock:
+            _engine_starting = False
+        raise
     with _engine_lock:
         if _engine is not None:
+            _engine_starting = False
+            _release_book(eng, "paper")
             return {"status": "already_running", "cycles": _engine.cycles}
         # a previous thread may still be finishing its last cycle (stop only
         # clears the global); two engines writing one journal fork the account
         if _engine_thread is not None and _engine_thread.is_alive():
+            _engine_starting = False
+            _release_book(eng, "paper")
             return {"status": "stopping", "cycles": 0}
         _engine = eng
         _engine_interval = interval
 
     def _loop(eng_ref, interval):
+        global _engine, _last_engine_error
+        try:
+            _engine_cycles(eng_ref, interval)
+        finally:
+            _release_book(eng_ref, "paper")
+
+    def _engine_cycles(eng_ref, interval):
         global _engine, _last_engine_error
         while _get_engine() is eng_ref:
             cycle_t0 = time.monotonic()
@@ -294,8 +354,16 @@ def _spawn_engine(interval: int) -> dict:
             if _get_engine() is not eng_ref:
                 break
 
-    _engine_thread = threading.Thread(target=_loop, args=(eng, interval), daemon=True)
-    _engine_thread.start()
+    with _engine_lock:
+        try:
+            _engine_thread = threading.Thread(target=_loop, args=(eng, interval), daemon=True)
+            _engine_thread.start()
+        except Exception:
+            _engine = None
+            _release_book(eng, "paper")
+            raise
+        finally:
+            _engine_starting = False
     return {"status": "started", "interval": interval}
 
 
@@ -322,31 +390,64 @@ def _hft_state_path() -> str:
                         "hft_engine_state.json")
 
 
-def _write_hft_state(running: bool, interval: int):
+def _write_hft_state(running: bool, interval: int) -> bool:
     try:
         tmp = _hft_state_path() + ".tmp"
         with open(tmp, "w") as f:
             json.dump({"desired": "running" if running else "stopped",
                        "interval": interval}, f)
         os.replace(tmp, _hft_state_path())
-    except OSError:
-        pass
+        return True
+    except OSError as exc:
+        print(f"[dashboard] FAILED to persist hft_engine_state: {exc}")
+        traceback.print_exc()
+        return False
+
+
+_hft_starting = False
 
 
 def _spawn_hft_engine(interval: int) -> dict:
     """Build + start the HFT engine thread (mirrors _spawn_engine)."""
-    global _hft_engine, _hft_thread, _hft_interval
+    global _hft_engine, _hft_thread, _hft_interval, _hft_starting
     from bot.hft import build_hft_engine
-    eng = build_hft_engine(journal=journal, quiet=False)
     with _hft_lock:
         if _hft_engine is not None:
             return {"status": "already_running", "cycles": _hft_engine.cycles}
+        if _hft_starting:
+            return {"status": "starting", "cycles": 0}
         if _hft_thread is not None and _hft_thread.is_alive():
+            return {"status": "stopping", "cycles": 0}
+        _hft_starting = True
+    try:
+        eng = build_hft_engine(journal=journal, quiet=False)
+        eng.book_token = journal.claim_book("hft")   # see _spawn_engine
+    except BookOwnedError as exc:
+        with _hft_lock:
+            _hft_starting = False
+        return {"status": "owned", "cycles": 0, "detail": str(exc)}
+    except Exception:
+        with _hft_lock:
+            _hft_starting = False
+        raise
+    with _hft_lock:
+        _hft_starting = False
+        if _hft_engine is not None:
+            _release_book(eng, "hft")
+            return {"status": "already_running", "cycles": _hft_engine.cycles}
+        if _hft_thread is not None and _hft_thread.is_alive():
+            _release_book(eng, "hft")
             return {"status": "stopping", "cycles": 0}
         _hft_engine = eng
         _hft_interval = interval
 
     def _hft_loop(eng_ref, interval):
+        try:
+            _hft_cycles(eng_ref, interval)
+        finally:
+            _release_book(eng_ref, "hft")
+
+    def _hft_cycles(eng_ref, interval):
         global _hft_engine, _last_hft_error
         while _get_hft_engine() is eng_ref:
             cycle_t0 = time.monotonic()
@@ -370,8 +471,17 @@ def _spawn_hft_engine(interval: int) -> dict:
             if _get_hft_engine() is not eng_ref:
                 break
 
-    _hft_thread = threading.Thread(target=_hft_loop, args=(eng, interval), daemon=True)
-    _hft_thread.start()
+    with _hft_lock:
+        try:
+            _hft_thread = threading.Thread(target=_hft_loop, args=(eng, interval), daemon=True)
+            _hft_thread.start()
+        except Exception:
+            # the loop's finally never runs if the thread never starts, so the
+            # lease would be held by this live pid for the process's lifetime,
+            # making the book unstartable and unresettable
+            _hft_engine = None
+            _release_book(eng, "hft")
+            raise
     return {"status": "started", "interval": interval}
 
 
@@ -383,6 +493,9 @@ def _get_hft_engine() -> TradingEngine | None:
 
 # ---------------------------------------------------------------------------
 # helpers — shared by several endpoints
+INDIA_RE = re.compile(r"^([A-Z0-9]{2,15}\.NS|\^NSEI|\^NSEBANK|\^[A-Z0-9]+)$")
+
+
 def _validate_spec(kind: str, symbol: str, timeframe: str) -> tuple[str, str, str]:
     """Normalize + validate a watchlist spec. Raises HTTPException(422) on bad input."""
     if kind not in VALID_KINDS:
@@ -393,6 +506,9 @@ def _validate_spec(kind: str, symbol: str, timeframe: str) -> tuple[str, str, st
     if kind == "crypto":
         if not CRYPTO_RE.match(symbol):
             raise HTTPException(422, "crypto symbol must be BASE/QUOTE, e.g. BTC/USDT")
+    elif kind == "india":
+        if not (symbol.endswith(".NS") or symbol == "^NSEI" or INDIA_RE.match(symbol)):
+            raise HTTPException(422, "india symbol must be NSE equity e.g. RELIANCE.NS or ^NSEI")
     elif not FOREX_RE.match(symbol):
         raise HTTPException(422, "forex symbol must be XXXXXX=X, e.g. EURUSD=X")
     return kind, symbol, timeframe
@@ -476,7 +592,10 @@ def _journal_position_dict(t: dict) -> dict:
 # pages
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return DASHBOARD_HTML
+    # no-store: the shell carries no secrets but must never be served stale
+    # from a cache after an auth-gated deploy (token in localStorage flow).
+    return HTMLResponse(content=DASHBOARD_HTML,
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/chart.umd.min.js",
@@ -488,6 +607,12 @@ def chart_js():
     the dashboard works fully offline."""
     return FileResponse(os.path.join(os.path.dirname(__file__), "chart.umd.min.js"),
                         media_type="application/javascript")
+
+
+@app.get("/dashboard.css", include_in_schema=False)
+def dashboard_css():
+    return FileResponse(os.path.join(os.path.dirname(__file__), "dashboard.css"),
+                        media_type="text/css", headers={"Cache-Control": "no-cache"})
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +640,10 @@ def api_stats():
     stats["auto_resumed"] = _AUTO_RESUMED_AT_BOOT
     eng = _get_engine()
     stats["engine_running"] = eng is not None
+    stats["engine_state"] = ("running" if eng is not None else "starting" if _engine_starting
+                             else "stopping" if _engine_thread is not None
+                             and _engine_thread.is_alive() else "stopped")
+    stats["entries_halted"] = bool(eng is not None and eng.risk.halted)
     stats["cycles"] = eng.cycles if eng is not None else 0
     stats["watchlist_count"] = len(CONFIG.watchlist)
     # manual pause rides the same poll as health_note (the banner + button
@@ -549,29 +678,67 @@ def api_stats():
     return stats
 
 
+def _is_busy_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "locked" in msg or "busy" in msg
+
+
+def _downsample(rows: list, cap: int = 500) -> list:
+    if len(rows) <= cap:
+        return rows
+    step = len(rows) / cap
+    return [rows[int(i * step)] for i in range(cap)]
+
+
 @app.get("/api/equity")
-def api_equity():
-    # the account curve is the paper record; a demo-only journal (fresh
-    # seed-demo) falls back to all rows so the chart still renders, labeled
-    # by the overview demo note
-    rows = journal.equity_curve(limit=3000, mode="paper")
+def api_equity(limit: int = Query(default=500, ge=1, le=3000),
+               since_id: int | None = Query(default=None, ge=0)):
+    # the account curve is the paper record; NEVER fall back to all modes
+    # (a paper-empty book must read empty, labeled demo_only — mixing demo
+    # rows into the paper curve overstated the account). Empty returns an
+    # envelope so the UI can badge demo_only; non-empty stays a bare list
+    # (the chart's eq.map contract).
+    try:
+        rows = journal.equity_curve(limit=min(limit, 3000), mode="paper",
+                                    since_id=since_id)
+    except Exception as exc:
+        if _is_busy_error(exc):
+            raise HTTPException(503, "journal is busy — retry shortly")
+        raise
     if not rows:
-        rows = journal.equity_curve(limit=3000)
+        return {"rows": [], "demo_only": True}
+    # downsample to <=500 points for the chart (a year of sub-minute points
+    # used to ship 3000 rows on every 4s poll); paged reads skip downsampling
+    if since_id is None:
+        rows = _downsample(rows, 500)
     return rows
 
 
 @app.get("/api/trades")
-def api_trades(limit: int = Query(default=100, ge=1, le=1000)):
-    return journal.recent_trades(limit=limit)
+def api_trades(limit: int = Query(default=100, ge=1, le=1000),
+               since_id: int | None = Query(default=None, ge=0)):
+    try:
+        return journal.recent_trades(limit=limit, since_id=since_id)
+    except Exception as exc:
+        if _is_busy_error(exc):
+            raise HTTPException(503, "journal is busy — retry shortly")
+        raise
 
 
 @app.get("/api/decisions")
-def api_decisions(limit: int = Query(default=40, ge=1, le=500)):
+def api_decisions(limit: int = Query(default=40, ge=1, le=500),
+                  since_id: int | None = Query(default=None, ge=0)):
     # paper feed first; a demo-only journal (fresh seed-demo) still renders —
     # demo rows are then badged in the terminal (they are backtest replays)
-    rows = journal.recent_decisions(limit=limit, mode="paper")
-    if not rows:
-        rows = journal.recent_decisions(limit=limit)
+    try:
+        rows = journal.recent_decisions(limit=limit, mode="paper",
+                                        since_id=since_id)
+        if not rows and since_id is None:
+            rows = journal.recent_decisions(limit=limit)
+    except Exception as exc:
+        if _is_busy_error(exc):
+            raise HTTPException(503, "journal is busy — retry shortly")
+        raise
     return rows
 
 
@@ -608,16 +775,18 @@ def _evidence_kronos() -> dict:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
-def _evidence_validations() -> list:
+def _evidence_validations(limit: int = 20) -> list:
     """Newest first (by file mtime): the dropdown's default '0' used to be the
-    OLDEST file by name sort, so a stale report answered as if current."""
+    OLDEST file by name sort, so a stale report answered as if current.
+    Capped to the newest `limit` (artifact blowup: each report is parsed on
+    every uncached poll)."""
     out = []
     rdir = _results_dir()
     if os.path.isdir(rdir):
         files = [f for f in os.listdir(rdir)
                  if f.startswith("validation_") and f.endswith(".json")]
         files.sort(key=lambda f: os.path.getmtime(os.path.join(rdir, f)), reverse=True)
-        for f in files:
+        for f in files[:max(1, limit)]:
             try:
                 with open(os.path.join(rdir, f)) as fh:
                     r = json.load(fh)
@@ -705,6 +874,16 @@ def api_watchlist_get():
 @app.post("/api/watchlist", status_code=201)
 def api_watchlist_add(body: WatchlistIn):
     kind, symbol, timeframe = _validate_spec(body.kind, body.symbol, body.timeframe)
+    # single-currency guard: one market universe at a time (USD vs INR books
+    # never mix). Cross-mode adds are refused with the mode hint — switch
+    # universes via POST /api/market/mode instead.
+    mode = config_mod.get_market_mode()
+    allowed = {"crypto", "forex"} if mode == "forex" else {"india"}
+    if kind not in allowed:
+        raise HTTPException(
+            409, f"kind {kind!r} does not belong to the active market mode "
+                 f"{mode!r} (allowed: {sorted(allowed)}) — switch modes via "
+                 f"POST /api/market/mode")
     display = (body.display or "").strip()
     with _wl_lock:
         current = list(CONFIG.watchlist)
@@ -809,49 +988,51 @@ def _reject_overdraft(direction: str, new_cash: float, base_cash: float,
 
 
 def _adjust_account(amount: float, direction: str) -> dict:
-    """Shared deposit/withdraw path: journal row + live broker patch.
-
-    The broker patch runs under the ENGINE's cycle lock — patching cash while
-    a cycle is mid-close used to overwrite the close proceeds with a stale
-    read (lost update: journal and broker cash diverged permanently)."""
-    delta = amount if direction == "deposit" else -amount
+    """Atomically adjust the account ledger and broker under lifecycle/cycle locks."""
     kind = "deposit" if direction == "deposit" else "withdrawal"
-    note = f"manual {kind}"
     eng = _get_engine()
-    if eng is not None:
-        # the whole read-compute-journal-patch sequence is serialized against
-        # engine cycles; verify identity too — a fast stop/start must not
-        # patch a NEW engine with numbers read from the old one
-        with eng.cycle_lock:
-            base_cash = eng.broker.cash
-            new_cash = base_cash + delta
-            _reject_overdraft(direction, new_cash, base_cash, amount)
-            marks = _mark_map(eng)
-            base_equity = eng.broker.equity(marks)
-            new_equity = base_equity + delta
-            journal.add_equity(round(new_equity, 2), round(new_cash, 2),
-                                mode="paper", note=note)
-            eng.broker.cash = new_cash
-            # re-baseline the kill switch so a deposit doesn't read as a loss
-            eng.risk.daily_start_equity = new_equity
-    else:
-        last = journal.last_equity_point(mode="paper")
-        base_cash = last["cash"] if last else CONFIG.paper_capital
-        base_equity = last["equity"] if last else CONFIG.paper_capital
-        new_cash = base_cash + delta
-        _reject_overdraft(direction, new_cash, base_cash, amount)
-        new_equity = base_equity + delta
-        journal.add_equity(round(new_equity, 2), round(new_cash, 2),
-                           mode="paper", note=note)
-    # typed ledger row for the Account tab's history (one call covers both
-    # branches: same delta, same post-adjust cash/equity either way). kind is
-    # the journal's own deposit/withdrawal vocab — pinned by
-    # test_dashboard_api_smoke, don't "simplify" it
-    journal.add_transaction(kind, amount, cash_after=round(new_cash, 2),
-                            equity_after=round(new_equity, 2),
-                            mode="paper", note=note)
+    try:
+        if eng is not None:
+            try:
+                marks = _mark_map(eng)
+            except Exception:
+                marks = {}
+            with eng.cycle_lock, _engine_lock:
+                if _engine is not eng:
+                    raise HTTPException(409, "engine restarted mid-adjust — retry")
+                risk = eng.risk
+                fields = ("daily_start_equity", "peak_equity", "_saved_state", "persistence_error")
+                snapshot = {name: getattr(risk, name) for name in fields if hasattr(risk, name)}
+                try:
+                    result = journal.adjust_account(
+                        amount, kind, mode="paper", base_cash=eng.broker.cash,
+                        base_equity=eng.broker.equity(marks),
+                        owner_token=eng.book_token,
+                        on_adjust=lambda delta, conn: risk.adjust_cash_flow(delta, conn=conn))
+                except Exception:
+                    for name, value in snapshot.items():
+                        setattr(risk, name, value)
+                    raise
+                eng.broker.cash = result["cash"]
+        else:
+            # Reserve the lifecycle lock as well as SQLite's writer. An engine
+            # starting or still finishing a cycle owns the account until done.
+            with _engine_lock:
+                if (_engine is not None or _engine_starting
+                        or (_engine_thread is not None and _engine_thread.is_alive())):
+                    raise HTTPException(409, "engine is starting or stopping — retry once settled")
+                result = journal.adjust_account(amount, kind, mode="paper")
+    except BookOwnedError as exc:
+        # another process (a standalone CLI engine) owns this account
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except sqlite3.OperationalError as exc:
+        if _is_busy_error(exc):
+            raise HTTPException(503, "journal is busy — retry shortly") from exc
+        raise
     return {"status": kind, "amount": round(amount, 2),
-            "cash": round(new_cash, 2), "equity": round(new_equity, 2)}
+            "cash": round(result["cash"], 2), "equity": round(result["equity"], 2)}
 
 
 @app.post("/api/account/deposit")
@@ -883,42 +1064,28 @@ def _prune_reset_backups(keep: str, keep_n: int = 5):
 def api_account_reset(body: ResetIn):
     # a reset while the engine trades would fork broker state from the journal
     stop_status = api_engine_stop(EmptyIn())["status"]
-    if stop_status == "stopping":
+    if stop_status in ("stopping", "starting"):
         # the engine thread outlived the bounded join: a wipe now could race
         # its in-flight close_trade/add_equity writes into the fresh DB
         raise HTTPException(409, "engine is still stopping — retry the reset once "
                                  "its status shows stopped")
-    # WAL checkpoint BEFORE the copy: copy2 of the main db file alone can miss
-    # everything still living in the -wal (proven in testing: the copy was
-    # missing even the schema). TRUNCATE checkpoints and resets the WAL, so the
-    # backup is a complete, self-contained database.
-    try:
-        with journal._conn() as conn:
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    except Exception:
-        pass   # best-effort; the copy below still runs either way
-    # name with microseconds: two resets in the same second used to overwrite
-    # the first backup (int(time.time()) collides on scripted double-clicks)
-    backup = f"{CONFIG.db_path.rsplit('.db', 1)[0]}.backup.{time.time():.6f}.db"
-    try:
-        shutil.copy2(CONFIG.db_path, backup)
-    except OSError as exc:
-        # the wipe must NEVER proceed without the verified backup it promises
-        raise HTTPException(500, f"reset aborted — backup failed: {exc}")
-    if not os.path.exists(backup) or os.path.getsize(backup) == 0:
-        os.path.exists(backup) and os.remove(backup)
-        raise HTTPException(500, "reset aborted — backup file is empty")
+    # Hold the lifecycle lock through reset: no new paper engine may restore
+    # the old account while we replace it. Recheck the thread independently of
+    # _engine, which stop clears BEFORE its last in-flight cycle finishes.
+    with _engine_lock:
+        if (_engine is not None or _engine_starting
+                or (_engine_thread is not None and _engine_thread.is_alive())):
+            raise HTTPException(409, "engine is starting or stopping — retry once stopped")
+        backup = f"{journal.db_path.rsplit('.db', 1)[0]}.backup.{time.time_ns()}.db"
+        try:
+            journal.reset_account(round(body.capital, 2), backup, mode="paper")
+        except BookOwnedError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (OSError, sqlite3.Error) as exc:
+            if _is_busy_error(exc):
+                raise HTTPException(503, "journal is busy — retry shortly") from exc
+            raise HTTPException(500, f"reset aborted — backup/reset failed: {exc}") from exc
     _prune_reset_backups(backup)
-    with journal._conn() as conn:
-        for table in ("trades", "equity", "chat_log", "decisions", "transactions"):
-            conn.execute(f"DELETE FROM {table}")
-    journal.add_equity(round(body.capital, 2), round(body.capital, 2),
-                       mode="paper", note="account reset")
-    # the ledger restarts with the account: exactly one row, the fresh capital
-    journal.add_transaction("reset", round(body.capital, 2),
-                            cash_after=round(body.capital, 2),
-                            equity_after=round(body.capital, 2),
-                            mode="paper", note="account reset")
     return {"status": "reset", "capital": round(body.capital, 2), "backup": backup}
 
 
@@ -932,15 +1099,55 @@ def api_account_transactions(limit: int = Query(default=100, ge=1, le=1000)):
 # chatbot
 @app.get("/api/chat")
 def api_chat_history():
-    with journal._conn() as conn:
-        rows = [dict(r) for r in conn.execute(
-            "SELECT ts, role, content FROM chat_log ORDER BY id DESC LIMIT 50")]
+    try:
+        with journal._conn() as conn:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT ts, role, content FROM chat_log ORDER BY id DESC LIMIT 50")]
+    except Exception as exc:
+        if _is_busy_error(exc):
+            raise HTTPException(503, "journal is busy — retry shortly")
+        raise
     return list(reversed(rows))
 
 
+# minimal per-IP token-bucket for /api/chat (synchronous answer kept; the
+# bucket only throttles abuse — full async/background chat is out of scope).
+_CHAT_BUCKET: dict[str, list[float]] = {}
+_CHAT_BUCKET_LOCK = threading.Lock()
+_CHAT_RATE = 10  # msgs
+_CHAT_WINDOW = 60.0  # per 60s per IP
+
+
+def _chat_rate_ok(ip: str) -> bool:
+    now = time.monotonic()
+    with _CHAT_BUCKET_LOCK:
+        hits = [t for t in _CHAT_BUCKET.get(ip, []) if now - t < _CHAT_WINDOW]
+        if len(hits) >= _CHAT_RATE:
+            _CHAT_BUCKET[ip] = hits
+            return False
+        hits.append(now)
+        _CHAT_BUCKET[ip] = hits
+        return True
+
+
 @app.post("/api/chat")
-def api_chat(msg: ChatIn):
-    reply = chatbot.answer(msg.message)
+def api_chat(msg: ChatIn, request: object = None):
+    # per-IP throttle (request optional so in-process calls keep working)
+    ip = "local"
+    try:
+        client = getattr(request, "client", None)
+        if client is not None:
+            ip = getattr(client, "host", "local") or "local"
+    except Exception:
+        ip = "local"
+    if not _chat_rate_ok(ip):
+        raise HTTPException(429, "chat rate limit — wait a minute and retry")
+    try:
+        reply = chatbot.answer(msg.message)
+    except Exception as exc:
+        if _is_busy_error(exc):
+            raise HTTPException(503, "journal is busy — retry shortly")
+        raise
     return {"reply": reply}
 
 
@@ -955,29 +1162,65 @@ def api_engine_start(body: EngineIn):
     if existing is not None:
         return {"status": "already_running", "cycles": existing.cycles}
     result = _spawn_engine(body.interval)
+    if result["status"] == "owned":
+        raise HTTPException(409, result["detail"])
     if result["status"] == "started":
-        _write_engine_state(True, body.interval)
+        ok = _write_engine_state(True, body.interval)
+        if not ok:
+            result["state_warning"] = ("engine started but desired-state "
+                                       "persist failed — auto-resume disabled")
     return result
+
+
+def _join_in_background(th: threading.Thread, done, interval: int, hft: bool = False):
+    """Bounded join off the request path; persists stopped state on completion."""
+
+    def _wait():
+        th.join(timeout=300)
+        if not th.is_alive():
+            done(interval)
+
+    t = threading.Thread(target=_wait, daemon=True)
+    t.start()
 
 
 @app.post("/api/engine/stop")
 def api_engine_stop(body: EmptyIn):
-    """Quiesce: clear the global, then WAIT (bounded) for the in-flight cycle.
-    Returning while a cycle still runs let a quick restart run two engines
-    against one journal, and let a reset race stray writes into the wiped DB."""
+    """Quiesce: clear the global and return immediately; the bounded join runs
+    in a background thread (the endpoint used to block up to 300s, hanging
+    the UI and the reset flow). The desired=stopped state is persisted
+    SYNCHRONOUSLY before returning so an immediate state-file read (and a
+    dashboard restart) sees the stop even while the join is still in flight."""
     global _engine, _engine_thread, _engine_interval
     with _engine_lock:
         if _engine is None:
-            _write_engine_state(False, CONFIG.live_interval_seconds)
-            return {"status": "not_running"}
+            ok = _write_engine_state(False, CONFIG.live_interval_seconds)
+            status = "starting" if _engine_starting else (
+                "stopping" if _engine_thread is not None and _engine_thread.is_alive()
+                else "not_running")
+            result: dict = {"status": status}
+            if not ok:
+                result["state_warning"] = ("engine stopped but desired-state "
+                                           "persist failed — auto-resume may be stale")
+            return result
         _engine = None
+        stop_interval = _engine_interval
     th = _engine_thread
-    if th is not None and th is not threading.current_thread():
-        th.join(timeout=300)
-        if th.is_alive():
-            return {"status": "stopping"}
-    _write_engine_state(False, _engine_interval)
-    return {"status": "stopped"}
+    if th is not None and th is not threading.current_thread() and th.is_alive():
+        ok = _write_engine_state(False, stop_interval)
+        _join_in_background(th, lambda iv: _write_engine_state(False, iv),
+                            stop_interval)
+        result = {"status": "stopping"}
+        if not ok:
+            result["state_warning"] = ("engine stopped but desired-state "
+                                       "persist failed — auto-resume may be stale")
+        return result
+    ok = _write_engine_state(False, stop_interval)
+    result = {"status": "stopped"}
+    if not ok:
+        result["state_warning"] = ("engine stopped but desired-state "
+                                   "persist failed — auto-resume may be stale")
+    return result
 
 
 def _auto_resume_engine():
@@ -1007,6 +1250,11 @@ def _auto_resume_engine():
         return
     interval = max(5, min(3600, interval))
     result = _spawn_engine(interval)
+    if result["status"] == "owned":
+        # a standalone CLI engine already trades this book — resuming here
+        # would give one account two owners
+        print(f"[dashboard] engine NOT auto-resumed — {result['detail']}")
+        return
     if result["status"] == "started":
         _AUTO_RESUMED_AT_BOOT = True
         print(f"[dashboard] engine auto-resumed (interval {interval}s) — stop it "
@@ -1031,6 +1279,9 @@ def _auto_resume_hft_engine():
         return
     interval = max(1, min(3600, interval))
     result = _spawn_hft_engine(interval)
+    if result["status"] == "owned":
+        print(f"[dashboard] HFT book NOT auto-resumed — {result['detail']}")
+        return
     if result["status"] == "started":
         _HFT_AUTO_RESUMED_AT_BOOT = True
         print(f"[dashboard] HFT book auto-resumed (interval {interval}s)")
@@ -1124,8 +1375,13 @@ def api_hft_engine_start(body: HftEngineIn):
     if existing is not None:
         return {"status": "already_running", "cycles": existing.cycles}
     result = _spawn_hft_engine(body.interval)
+    if result["status"] == "owned":
+        raise HTTPException(409, result["detail"])
     if result["status"] == "started":
-        _write_hft_state(True, body.interval)
+        ok = _write_hft_state(True, body.interval)
+        if not ok:
+            result["state_warning"] = ("HFT engine started but desired-state "
+                                       "persist failed — auto-resume disabled")
     return result
 
 
@@ -1134,16 +1390,30 @@ def api_hft_engine_stop(body: EmptyIn):
     global _hft_engine, _hft_thread, _hft_interval
     with _hft_lock:
         if _hft_engine is None:
-            _write_hft_state(False, CONFIG.hft.live_interval_seconds)
-            return {"status": "not_running"}
+            ok = _write_hft_state(False, CONFIG.hft.live_interval_seconds)
+            result: dict = {"status": "not_running"}
+            if not ok:
+                result["state_warning"] = ("HFT engine stopped but desired-state "
+                                           "persist failed — auto-resume may be stale")
+            return result
         _hft_engine = None
+        stop_interval = _hft_interval
     th = _hft_thread
-    if th is not None and th is not threading.current_thread():
-        th.join(timeout=300)
-        if th.is_alive():
-            return {"status": "stopping"}
-    _write_hft_state(False, _hft_interval)
-    return {"status": "stopped"}
+    if th is not None and th is not threading.current_thread() and th.is_alive():
+        ok = _write_hft_state(False, stop_interval)
+        _join_in_background(th, lambda iv: _write_hft_state(False, iv),
+                            stop_interval, hft=True)
+        result = {"status": "stopping"}
+        if not ok:
+            result["state_warning"] = ("HFT engine stopped but desired-state "
+                                       "persist failed — auto-resume may be stale")
+        return result
+    ok = _write_hft_state(False, stop_interval)
+    result = {"status": "stopped"}
+    if not ok:
+        result["state_warning"] = ("HFT engine stopped but desired-state "
+                                   "persist failed — auto-resume may be stale")
+    return result
 
 
 @app.get("/api/hft/engine/status")
@@ -1319,7 +1589,20 @@ def _close_all_open_positions(eng: TradingEngine | None) -> list[dict]:
                          f"market is NOT switched; retry, or close it from "
                          f"the Portfolio tab first")
         return closed
-    for t in journal.open_trades():
+    rows = journal.open_trades()
+    # "no engine" means no engine in THIS process. A standalone CLI engine in
+    # another process still holds these positions in its broker, and closing
+    # its rows underneath it would fork the two. Checked up front for a clean
+    # message, and again inside each close's own transaction (NO_OWNER below)
+    # so an engine claiming the book in between cannot slip through.
+    for owned in {t.get("mode") or "paper" for t in rows}:
+        owner = journal.book_owner(owned)
+        if owner is not None:
+            raise HTTPException(
+                409, f"the {owned} book is owned by pid {owner['pid']} on "
+                     f"{owner['host']} — the market is NOT switched; stop that "
+                     f"engine first")
+    for t in rows:
         tf = t.get("timeframe") or _LEGACY_TF
         entry = float(t["entry_price"])
         qty = float(t["qty"])
@@ -1339,7 +1622,8 @@ def _close_all_open_positions(eng: TradingEngine | None) -> list[dict]:
                                             "engine was running to fetch a "
                                             "live mark",
                             mode=t.get("mode") or "paper",
-                            entry_fee=round(notional * rate, 6))
+                            entry_fee=round(notional * rate, 6),
+                            owner_token=NO_OWNER)
         closed.append({"symbol": t["symbol"], "timeframe": tf,
                        "exit_price": entry, "path": "journal close at entry mark"})
     return closed
@@ -1984,8 +2268,10 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   .skeleton::after { animation:none; }
 }
 </style>
+<link rel="stylesheet" href="/dashboard.css">
 </head>
 <body>
+<a class="skip-link" href="#mainContent">Skip to workspace</a>
 
 <!-- SVG sprite: the tab/card icons below repeat 2-5× each — each <use> inherits
      fill/stroke from its own <svg>, the symbol carries only viewBox -->
@@ -2004,20 +2290,21 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
     </span>
     <div>
-      <h1>ALGO TRADING BOT</h1>
+      <div class="brand-name">ALGO<span class="brand-divider"> / </span>Trading workspace</div>
       <div class="sub" id="brandSub">paper trading · IST</div>
     </div>
   </div>
   <div class="topbar-right">
+    <span class="paper-badge">Paper account</span>
     <!-- engine start/stop live IN THE NAV (moved out of the Overview card):
          the ids are the same ones the JS has always wired, so the enable/
          disable logic in refreshStats keeps working unchanged -->
     <button class="btn" id="btnStart" style="padding:7px 12px" title="Start the standard paper engine">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
-      Start</button>
+      Start engine</button>
     <button class="btn btn-secondary" id="btnStop" disabled style="padding:7px 12px" title="Stop the standard paper engine">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
-      Stop</button>
+      Stop engine</button>
     <div class="engine-pill" role="status" title="">
       <span class="dot" id="engineDot"></span>
       <span id="enginePillText">engine: checking…</span>
@@ -2065,7 +2352,24 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
      later display:grid always won) — the sticky, horizontally-scrollable
      .tabs bar is the nav at all sizes now -->
 
-<main>
+<main id="mainContent" tabindex="-1">
+<div class="workspace-heading">
+  <div>
+    <div class="workspace-kicker" id="workspaceKicker">STANDARD PAPER ACCOUNT · IST</div>
+    <h1 id="pageTitle">Portfolio overview</h1>
+    <p id="pageDescription">Your performance, positions and trading activity at a glance.</p>
+  </div>
+  <div class="workspace-meta">
+    <span id="connectionState" role="status">Connecting…</span>
+    <button type="button" class="btn btn-ghost" id="refreshNow" aria-label="Refresh dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><use href="#i-rotate"/></svg>Refresh
+    </button>
+  </div>
+</div>
+<div class="pause-banner" id="connectionBanner" role="alert" hidden>
+  <div><b>Connection lost.</b> Displayed values may be out of date. The engine may still be running.
+  Retrying automatically; use Refresh to try now.</div>
+</div>
 <div class="pause-banner" id="pauseBanner" role="status">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
   <div class="p-body"><b>Trading paused (manual).</b> Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.<span id="pauseNoteBox"></span> <span style="opacity:.85">Resume from the Overview tab when you want new entries again.</span></div>
@@ -2082,9 +2386,22 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 <!-- ============================================================ OVERVIEW -->
 <section class="view active" id="view-overview">
   <div class="stats-grid" id="ovStats"></div>
+  <div class="overview-secondary" id="overviewSecondary"></div>
+  <div class="first-run" id="firstRun" hidden>
+    <div><strong>Your paper workspace is ready</strong><p>Review your markets or try a strategy in the Lab. Start the engine when you are ready to collect paper results.</p></div>
+    <div class="first-run-actions"><button class="btn btn-secondary" data-goto="watchlist">Review watchlist</button><button class="btn btn-ghost" data-goto="lab">Explore the Lab</button></div>
+  </div>
   <div class="hint" id="ovDemoNote" style="margin:-6px 0 10px"></div>
-  <div class="grid" style="grid-template-columns:2fr 1fr;margin-bottom:12px">
-    <div class="card chart-card"><div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-trend"/></svg>Equity curve · mark-to-market</h2><span class="hint" id="eqRange"></span></div><div class="chart-body"><canvas id="equityChart"></canvas></div></div>
+  <div class="grid overview-grid">
+    <div class="card chart-card">
+      <div class="card-head"><h2>Account performance</h2><span class="hint">Marked equity</span></div>
+      <div class="chart-toolbar"><span class="hint" id="eqRange">Waiting for equity history</span>
+        <div class="range-switch" role="group" aria-label="Equity history range"><button type="button" data-days="7" aria-pressed="false">7D</button><button type="button" data-days="30" aria-pressed="false">30D</button><button type="button" data-days="0" aria-pressed="true">All</button></div>
+      </div>
+      <div class="chart-body"><canvas id="equityChart" role="img" aria-label="Paper account equity over time"></canvas>
+        <div class="chart-empty" id="equityEmpty" hidden><strong>No equity history yet</strong><span>Paper results appear here after the engine completes a cycle.</span></div>
+      </div>
+    </div>
     <div class="card engine-card">
       <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Engine control</h2></div>
       <div class="row">
@@ -2101,29 +2418,29 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
         <button class="btn btn-warn" id="btnPause" title="Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
           <span id="pauseLabel">Pause trading</span></button>
-        <span class="hint">start/stop live in the top bar — reachable from every tab</span>
+        <span class="hint">Pause blocks new entries. Existing positions stay managed.</span>
       </div>
       <div class="engine-state" style="margin-top:12px">
         <span class="st" id="engineStateText">stopped</span>
         <span class="sub" id="engineStateSub">0 cycles · watchlist 0 specs</span>
       </div>
-      <div class="risk-controls">
-        <b>Risk controls</b> — what they do and don't do
+      <details class="risk-controls risk-details">
+        <summary>How risk controls work</summary>
         <div class="rc-row"><b>Daily kill switch (automatic):</b> after a −3% day it blocks new entries for the rest of the UTC day. It resets by itself at the next UTC day. It never force-closes positions — their stops, targets and strategy exits keep running.</div>
         <div class="rc-row"><b>Pause trading (manual):</b> stays until you press Resume. Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.</div>
-      </div>
+      </details>
       <div class="mkt-row">
         <span class="lbl" id="mktLabel">Market</span>
         <div class="mkt-switch" role="group" aria-label="Active market: on = Forex, off = India">
-          <button type="button" id="mktForex" aria-pressed="false">Forex (crypto + forex)</button>
+          <button type="button" id="mktForex" aria-pressed="false">Crypto + Forex</button>
           <span class="sep" aria-hidden="true"></span>
           <button type="button" id="mktIndia" aria-pressed="false">India (NSE)</button>
         </div>
-        <span class="hint" id="mktHint">One market at a time. Your market choice is remembered — restarting the dashboard keeps the same market.</span>
+        <span class="hint" id="mktHint">One active market universe. Your choice is saved.</span>
       </div>
     </div>
   </div>
-  <div class="grid" style="grid-template-columns:1fr 1fr">
+  <div class="grid overview-bottom-grid">
     <div class="card">
       <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14"/><polyline points="2 20 22 20"/><path d="M14 12v8"/><path d="M10 12v8"/></svg>Strategy P&amp;L</h2><span class="hint">closed trades</span></div>
       <div class="strat-bars" id="stratBars"><div class="sk-row"><div class="skeleton" style="width:60%"></div></div><div class="sk-row"><div class="skeleton" style="width:45%"></div></div></div>
@@ -2154,21 +2471,36 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   <div class="card">
     <div class="card-head">
       <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>Trade history</h2>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <label class="fld" for="stratFilter" style="margin:0">Filter</label>
-        <select id="stratFilter" style="min-height:36px;width:auto" aria-label="Filter trades by strategy">
-          <option value="">all strategies</option>
-        </select>
-      </div>
     </div>
-    <div class="tbl-wrap">
+    <div class="trade-toolbar">
+      <input class="input trade-search" id="tradeSearch" type="search" placeholder="Search symbol, strategy or exit reason" aria-label="Search trades by symbol, strategy or exit reason" autocomplete="off">
+      <select class="trade-status" id="stratFilter" aria-label="Filter trades by strategy">
+        <option value="">All strategies</option>
+      </select>
+      <select class="trade-status" id="tradeStatus" aria-label="Filter trades by status">
+        <option value="">All statuses</option>
+        <option value="OPEN">Open</option>
+        <option value="CLOSED">Closed</option>
+        <option value="ABORTED">Aborted</option>
+      </select>
+      <button class="btn btn-ghost" type="button" id="tradeClear" hidden>Clear filters</button>
+    </div>
+    <p class="hint table-scroll-hint">Scroll horizontally to see all trade details.</p>
+    <div class="tbl-wrap" tabindex="0" role="region" aria-label="Trade history">
       <table id="tradeTable"><thead><tr>
         <th>Opened</th><th>Market</th><th>Side</th><th class="num">Qty</th>
         <th class="num">Entry</th><th class="num">Exit</th><th class="num">P&amp;L</th>
         <th>Strategy</th><th>Status</th><th>Exit reason</th>
       </tr></thead><tbody></tbody></table>
     </div>
-    <div class="empty" id="tradeEmpty" hidden>No trades yet — start the engine.</div>
+    <div class="empty" id="tradeEmpty" hidden>No trades recorded yet. Review your watchlist, then start the paper engine.</div>
+    <div class="table-footer">
+      <span class="hint" id="tradeCount" aria-live="polite">Loading trade history…</span>
+      <div class="pagination">
+        <button class="btn btn-ghost" type="button" id="tradePrev" aria-label="Previous page of trades" disabled>Previous</button>
+        <button class="btn btn-ghost" type="button" id="tradeNext" aria-label="Next page of trades" disabled>Next</button>
+      </div>
+    </div>
     <p class="hint" style="margin-top:10px">Trades from previous market modes remain in the journal history; the bot only opens new positions in the active market.</p>
   </div>
 </section>
@@ -2455,7 +2787,8 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
     <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>Danger zone</h2></div>
     <p style="color:var(--color-muted-foreground);font-size:12.5px;margin-bottom:14px">
       Reset stops the engine, backs up the journal to <span class="mono">data/trading.backup.&lt;ts&gt;.db</span>,
-      then wipes all trades, decisions, equity points and chat. The account restarts at a new
+      then clears the standard paper book's trades, decisions, equity and transactions.
+      HFT, demo records and chat history are retained. The account restarts at a new
       start capital you choose. This cannot be undone (the backup file is the only copy).
     </p>
     <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
@@ -2499,13 +2832,13 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 <div class="modal-overlay" id="resetModal" role="dialog" aria-modal="true" aria-labelledby="resetTitle">
   <div class="modal">
     <h3 id="resetTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>Reset the paper account?</h3>
-    <p>This stops the engine, backs up the journal, deletes every trade, decision,
-    equity point and chat message, then restarts the account.</p>
+    <p>This stops the standard engine, backs up the journal and clears this paper
+    account's trades, decisions, equity and transactions. HFT, demo records and chat history stay intact.</p>
     <label class="fld" for="resetConfirm">Type RESET to confirm</label>
     <input class="input" id="resetConfirm" placeholder="RESET" autocomplete="off">
     <div class="modal-actions">
       <button class="btn btn-ghost" id="resetCancel">Cancel</button>
-      <button class="btn btn-danger" id="resetGo" disabled>Reset everything</button>
+      <button class="btn btn-danger" id="resetGo" disabled>Reset paper account</button>
     </div>
   </div>
 </div>
@@ -2524,6 +2857,12 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   </div>
 </div>
 
+<div class="modal-overlay" id="closeModal" role="dialog" aria-modal="true" aria-labelledby="closeTitle">
+  <div class="modal"><h3 id="closeTitle">Close this paper position?</h3>
+    <p id="closeMessage"></p><p>This realizes the position's gain or loss. The final fill includes the configured fees and slippage.</p>
+    <div class="modal-actions"><button type="button" class="btn btn-ghost" id="closeCancel">Keep position</button><button type="button" class="btn btn-danger" id="closeGo">Close position</button></div>
+  </div>
+</div>
 <div id="toasts" aria-live="polite"></div>
 
 <!-- token gate: shown by askForToken() when the API answers 401 with no
@@ -2573,6 +2912,46 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 /* read a CSS custom property off :root — lets the Chart.js canvas follow
    the active theme (light/dark) without rebuilding it */
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+/* Sticky navigation follows the real header height, including wrapped mobile controls. */
+function measureHeader() {
+  document.documentElement.style.setProperty('--topbar-height', $('.topbar').offsetHeight + 'px');
+}
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(measureHeader).observe($('.topbar'));
+window.addEventListener('resize', measureHeader);
+measureHeader();
+
+/* Dialog focus stays inside the active dialog and returns to its trigger. */
+let dialogTrigger = null;
+function openDialog(id, focusId) {
+  dialogTrigger = document.activeElement;
+  const modal = $(id);
+  modal.classList.add('open');
+  (focusId ? $(focusId) : modal.querySelector('button, input')).focus();
+}
+function closeDialog(id) {
+  const modal = $(id);
+  if (!modal.classList.contains('open') || modal.dataset.busy === 'true') return;
+  modal.classList.remove('open');
+  if (dialogTrigger && dialogTrigger.isConnected) dialogTrigger.focus();
+  else if (dialogTrigger && dialogTrigger.dataset.close) {
+    const replacement = $$('[data-close]').find(b => b.dataset.close === dialogTrigger.dataset.close);
+    (replacement || $('#tabs .active')).focus();
+  } else $('#tabs .active').focus();
+}
+document.addEventListener('keydown', e => {
+  const modal = $('.modal-overlay.open');
+  if (!modal) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeDialog('#' + modal.id); }
+  if (e.key !== 'Tab') return;
+  const items = Array.from(modal.querySelectorAll('button:not(:disabled), input:not(:disabled), [tabindex="0"]'));
+  if (!items.length) { e.preventDefault(); return; }
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault(); first.focus();
+  }
+});
 /* journal timestamps are ISO-UTC; the UI reads IST (+05:30 fixed, no DST) —
    shift by 330min and read via getUTC* so the browser's own zone never leaks in.
    Keep in sync with _fmt_ts in bot/chatbot.py (same IST display contract). */
@@ -2595,23 +2974,27 @@ function askForToken() {
   const gate = $('#tokenGate');
   if (gate.classList.contains('open')) return;
   $('#tokenInput').value = _tok();
-  gate.classList.add('open');
-  $('#tokenInput').focus();
+  openDialog('#tokenGate', '#tokenInput');
 }
 $('#tokenSave').addEventListener('click', () => {
   const v = $('#tokenInput').value.trim();
   try { v ? localStorage.setItem('algo-token', v) : localStorage.removeItem('algo-token'); }
   catch (e) { /* private mode: token just won't persist */ }
-  $('#tokenGate').classList.remove('open');
+  closeDialog('#tokenGate');
   location.reload();   // re-boot the pollers with the header attached
 });
 $('#tokenGate').addEventListener('click', e => {
-  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+  if (e.target === e.currentTarget) closeDialog('#tokenGate');
 });
 
 async function jget(u) {
   const t = _tok();
-  const r = await fetch(u, t ? {headers: {Authorization: 'Bearer ' + t}} : undefined);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  let r;
+  try { r = await fetch(u, {signal: controller.signal,
+    headers: t ? {Authorization: 'Bearer ' + t} : {}}); }
+  finally { clearTimeout(timer); }
   if (r.status === 401) { askForToken(); throw new Error('token required (401)'); }
   if (!r.ok) throw new Error('GET ' + u);
   return r.json();
@@ -2662,14 +3045,34 @@ $('#healthDismiss').addEventListener('click', () => {
   $('.engine-pill').classList.remove('warn');
 });
 
-$('#tokenCancel').addEventListener('click', () => $('#tokenGate').classList.remove('open'));
+$('#tokenCancel').addEventListener('click', () => closeDialog('#tokenGate'));
 
 /* ===================================================== routing */
 const VIEWS = ['overview', 'portfolio', 'hft', 'watchlist', 'lab', 'evidence', 'account', 'chat'];
+const VIEW_COPY = {
+  overview: ['Portfolio overview', 'Your performance, positions and trading activity at a glance.'],
+  portfolio: ['Positions & trade history', 'Follow open exposure and inspect the decisions behind each trade.'],
+  hft: ['High-frequency book', 'A separate paper account for short-horizon strategies.'],
+  watchlist: ['Your market watchlist', 'Choose the markets and timeframes your paper engine follows.'],
+  lab: ['Strategy Lab', 'Test a strategy on historical data before putting it to work.'],
+  evidence: ['Research & evidence', 'Check validation results, model quality and rule adherence.'],
+  account: ['Paper account', 'Manage your simulated balance and review account transactions.'],
+  chat: ['Ask your trading journal', 'Explore your results, strategy decisions and risk rules.']
+};
 function setView(name) {
   if (!VIEWS.includes(name)) name = 'overview';
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
-  $$('#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
+  $$('#tabs .tab').forEach(t => {
+    const active = t.dataset.view === name;
+    t.classList.toggle('active', active);
+    if (active) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
+  });
+  $('#pageTitle').textContent = VIEW_COPY[name][0];
+  $('#pageDescription').textContent = VIEW_COPY[name][1];
+  $('#workspaceKicker').textContent = name === 'hft' ? 'HIGH-FREQUENCY PAPER ACCOUNT · IST' : 'STANDARD PAPER ACCOUNT · IST';
+  const selected = $('#tab-' + name);
+  $('#tabs').scrollLeft = Math.max(0, selected.offsetLeft - $('#tabs').clientWidth / 2 + selected.offsetWidth / 2);
   if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
   document.title = 'Algo Bot — ' + name[0].toUpperCase() + name.slice(1);
   refreshVisible(name);
@@ -2679,6 +3082,8 @@ function setView(name) {
 }
 window.addEventListener('hashchange', () => setView(location.hash.slice(1) || 'overview'));
 $('#tabs').addEventListener('click', e => { const t = e.target.closest('.tab'); if (t) setView(t.dataset.view); });
+$$('[data-goto]').forEach(b => b.addEventListener('click', () => setView(b.dataset.goto)));
+$('.skip-link').addEventListener('click', e => { e.preventDefault(); $('#mainContent').focus(); });
 /* only #tabs is wired — the duplicated mobile nav is gone from the DOM, and a
    listener on a null element would throw at boot and kill this whole script */
 
@@ -2686,8 +3091,9 @@ $('#tabs').addEventListener('click', e => { const t = e.target.closest('.tab'); 
 /* one-shot view flags — declared before setView() can run them at boot */
 const chatLoaded = {v: false}, evLoaded = {v: false};
 function refreshVisible(name) {
-  if (name === 'overview') { refreshStats(); refreshEquity(); refreshDecisions(); }
-  else if (name === 'portfolio') { refreshStats(); refreshTrades(); }
+  refreshStats(); // shared operating state stays current on EVERY section
+  if (name === 'overview') { refreshEquity(); refreshDecisions(); }
+  else if (name === 'portfolio') { refreshTrades(); }
   else if (name === 'hft') { refreshHft(); }
   else if (name === 'watchlist') refreshWatchlist();
   else if (name === 'lab') { refreshLab(); }
@@ -2827,27 +3233,53 @@ function buildEquityChart() {
 }
 
 const STAT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>';
+let statsBusy = false, lastStatsAt = 0, statsFailed = false, engineActionBusy = false;
+function updateFreshness() {
+  const age = lastStatsAt ? Math.floor((Date.now() - lastStatsAt) / 1000) : 0;
+  const stale = statsFailed || (lastStatsAt && age > 15);
+  $('#connectionState').dataset.state = stale ? 'error' : lastStatsAt ? 'ok' : 'loading';
+  $('#connectionState').textContent = stale ? 'Connection lost · data may be stale'
+    : lastStatsAt ? (age < 5 ? 'Updated just now' : 'Updated ' + age + 's ago') : 'Connecting…';
+  $('#connectionBanner').hidden = !stale;
+  $('#connectionBanner').classList.toggle('show', !!stale);
+  if (stale) {
+    $('#enginePillText').textContent = 'Engine: status unavailable';
+    $('#engineDot').className = 'dot';
+    $('#btnStart').disabled = true;
+    $('#btnStop').disabled = true;
+  }
+}
 async function refreshStats() {
+  if (statsBusy) return;
+  statsBusy = true;
   let s;
-  try { s = await jget('/api/stats'); } catch (e) { return; }
+  try { s = await jget('/api/stats'); }
+  catch (e) { statsFailed = true; updateFreshness(); return; }
+  finally { statsBusy = false; }
+  lastStatsAt = Date.now(); statsFailed = false; updateFreshness();
   const cards = [
     ['Equity', fmt$(s.current_equity), s.return_pct > 0 ? 'pos' : s.return_pct < 0 ? 'neg' : '',
       'from ' + fmt$(s.start_equity)],
     ['Total P&L', fmtPnl(s.total_pnl), s.total_pnl > 0 ? 'pos' : s.total_pnl < 0 ? 'neg' : '',
       fmtPct(s.return_pct) + ' return'],
-    ['Win rate', (s.win_rate ?? 0) + '%', '', s.closed_trades + ' closed trades'],
-    ['Profit factor', s.profit_factor == null ? '∞' : s.profit_factor, '',
-      s.profit_factor == null ? 'no losses yet' : 'gross win ÷ loss'],
-    ['Max drawdown', fmtPct(s.max_drawdown_pct), 'neg', 'peak-to-trough'],
     ['Open positions', String((s.open_positions || []).length), '',
-      s.engine_running ? 'live marks' : 'from journal'],
-    ['Cycles', String(s.cycles ?? 0), '', s.engine_running ? ('llm: ' + (s.llm_mode || 'quant')) : 'engine stopped'],
-    ['Watchlist', String(s.watchlist_count ?? 0), '', 'markets traded'],
+      s.engine_running ? 'marked by the engine' : 'saved in your journal'],
+    ['Max drawdown', s.max_drawdown_pct ? fmtPct(-Math.abs(s.max_drawdown_pct)) : '0.00%',
+      s.max_drawdown_pct ? 'neg' : '', 'largest peak-to-trough decline'],
   ];
   renderStatCards($('#ovStats'), cards);
+  const secondary = [
+    ['Win rate', s.closed_trades ? (s.win_rate ?? 0) + '%' : '—'],
+    ['Profit factor', !s.closed_trades ? '—' : s.profit_factor == null ? '∞' : s.profit_factor],
+    ['Closed trades', s.closed_trades ?? 0],
+    ['Markets watched', s.watchlist_count ?? 0]
+  ];
+  $('#overviewSecondary').innerHTML = secondary.map(([label, value]) =>
+    '<div class="secondary-metric"><span>' + esc(label) + '</span><strong>' + esc(value) + '</strong></div>').join('');
 
   const demoN = (s.trade_modes || {}).demo || 0;
   const paperN = (s.trade_modes || {}).paper || 0;
+  $('#firstRun').hidden = !!(s.engine_running || paperN || demoN || (s.open_positions || []).length);
   $('#ovDemoNote').innerHTML = demoN
     ? '<span class="tag demo">demo</span> ' + demoN + ' seeded backtest-replay trades (mode=demo): ' +
       (paperN
@@ -2856,12 +3288,17 @@ async function refreshStats() {
       '. python3 main.py shadow --include-demo audits the replay rows.'
     : '';
 
-  $('#engineDot').className = 'dot ' + (s.engine_running ? 'on' : 'off');
-  $('#enginePillText').textContent = 'engine: ' + (s.engine_running ? (s.health_note ? 'degraded' : 'running') : 'stopped');
+  const lifecycle = s.engine_state || (s.engine_running ? 'running' : 'stopped');
+  const state = s.engine_running ? (s.health_note ? 'Needs attention' : s.entries_halted ? 'Daily loss halt'
+    : s.paused ? 'Entries paused' : 'Running') : lifecycle === 'starting' ? 'Starting…'
+    : lifecycle === 'stopping' ? 'Stopping…' : 'Stopped';
+  $('#engineDot').className = 'dot ' + (s.engine_running && !s.paused && !s.entries_halted && !s.health_note ? 'on' : '');
+  $('#enginePillText').textContent = 'Standard engine: ' + state;
   /* health_note: degraded-but-alive (e.g. an open position behind a dead feed).
      It rode only in /api/engine/status before — nothing rendered it, so the
      pill stayed green on stage while a position sat unguarded. */
   const hb = $('#healthBanner');
+  if (s.health_note && s.health_note !== healthDismissedMsg) healthDismissed = false;
   if (s.health_note && !healthDismissed) {
     hb.classList.add('show');
     $('#healthMsg').textContent = s.health_note;
@@ -2872,17 +3309,18 @@ async function refreshStats() {
     $('.engine-pill').classList.remove('warn');
     $('.engine-pill').title = '';
   }
-  if (s.health_note && s.health_note !== healthDismissedMsg) healthDismissed = false;
   if (s.auto_resumed && !autoResumeToasted) {
     autoResumeToasted = true;
     toast('Engine auto-resumed', 'the last session left it running — it is paper-trading now (stop it from the top bar)');
   }
-  $('#engineStateText').textContent = s.engine_running ? 'running' : 'stopped';
-  $('#engineStateText').className = 'st ' + (s.engine_running ? 'pos' : 'neg');
+  $('#engineStateText').textContent = state;
+  $('#engineStateText').className = 'st ' + (s.engine_running && !s.paused && !s.entries_halted ? 'pos' : '');
   $('#engineStateSub').textContent = (s.cycles ?? 0) + ' cycles · watchlist ' +
     (s.watchlist_count ?? 0) + ' specs';
-  $('#btnStart').disabled = !!s.engine_running;
-  $('#btnStop').disabled = !s.engine_running;
+  const transitioning = lifecycle === 'starting' || lifecycle === 'stopping';
+  $('#btnStart').disabled = engineActionBusy || !!s.engine_running || transitioning;
+  $('#btnStop').disabled = engineActionBusy || !s.engine_running || transitioning;
+  $('#intervalSel').disabled = !!s.engine_running || transitioning;
 
   /* manual pause: banner + button flip. Reported for a stopped engine too —
      the flag is a file that outlives any engine run, and a pause must never
@@ -2911,16 +3349,30 @@ function renderStratBars(by) {
     .map(([name, v]) => ({name, pnl: v.pnl, trades: v.trades, wins: v.wins})));
 }
 
+let equityHistory = [], equityDays = 0;
+function renderEquityHistory() {
+  if (!equityChart) return;
+  const lastTime = equityHistory.length ? Date.parse(equityHistory[equityHistory.length - 1].ts) : 0;
+  const eq = equityDays ? equityHistory.filter(p => Date.parse(p.ts) >= lastTime - equityDays * 86400000) : equityHistory;
+  $('#equityEmpty').hidden = eq.length > 0;
+  $('#equityChart').hidden = !eq.length;
+  equityChart.data.labels = eq.map(p => fmtTs(p.ts));
+  equityChart.data.datasets[0].data = eq.map(p => p.equity);
+  equityChart.update(reduceMotion ? 'none' : undefined);
+  $('#eqRange').textContent = eq.length ? fmtTs(eq[0].ts).slice(0, 5) + ' → ' +
+    fmtTs(eq[eq.length - 1].ts).slice(0, 5) + ' · ' + eq.length + ' observations' : 'No recorded equity';
+}
+$$('.range-switch button').forEach(b => b.addEventListener('click', () => {
+  equityDays = Number(b.dataset.days);
+  $$('.range-switch button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  renderEquityHistory();
+}));
 async function refreshEquity() {
   if (!equityChart) return;   // offline: the boot banner already says so
   let eq;
   try { eq = await jget('/api/equity'); } catch (e) { return; }
-  if (!eq.length) return;
-  equityChart.data.labels = eq.map(p => fmtTs(p.ts));
-  equityChart.data.datasets[0].data = eq.map(p => p.equity);
-  equityChart.update(reduceMotion ? 'none' : undefined);
-  $('#eqRange').textContent = fmtTs(eq[0].ts).slice(0, 5) + ' → ' +
-    fmtTs(eq[eq.length - 1].ts).slice(0, 5) + ' · ' + eq.length + ' pts';
+  equityHistory = eq;
+  renderEquityHistory();
 }
 
 async function refreshDecisions() {
@@ -2931,21 +3383,31 @@ async function refreshDecisions() {
 
 /* engine controls */
 async function startEngine() {
+  if (engineActionBusy || statsFailed || !lastStatsAt) return;
+  engineActionBusy = true;
+  $('#btnStart').disabled = $('#btnStop').disabled = true;
   const interval = parseInt($('#intervalSel').value, 10);
   try {
     const r = await jpost('/api/engine/start', {interval});
     toast('Engine ' + (r.status === 'started' ? 'started' : r.status),
           'cycle interval ' + interval + 's', true);
-    addMsg('[engine] started — interval ' + interval + 's', 'bot');
+    addMsg('[engine] ' + r.status + ' — interval ' + interval + 's', 'bot');
   } catch (e) { toastErr('Could not start engine', e); }
+  finally { engineActionBusy = false; }
   refreshStats();
 }
 async function stopEngine() {
+  if (engineActionBusy || statsFailed || !lastStatsAt) return;
+  engineActionBusy = true;
+  $('#btnStart').disabled = $('#btnStop').disabled = true;
   try {
     const r = await jpost('/api/engine/stop', {});
-    toast('Engine stopped', '', true);
-    addMsg('[engine] stopped', 'bot');
+    const stopping = r.status === 'stopping' || r.status === 'starting';
+    toast(stopping ? 'Engine is finishing its work' : 'Engine stopped',
+      stopping ? 'The current cycle must finish before another start or reset.' : 'Position management is stopped.');
+    addMsg('[engine] ' + r.status, 'bot');
   } catch (e) { toastErr('Could not stop engine', e); }
+  finally { engineActionBusy = false; }
   refreshStats();
 }
 $('#btnStart').addEventListener('click', startEngine);
@@ -3339,7 +3801,7 @@ async function doMarketSwitch(mode, confirmClose) {
         'Switching markets will close them at their last prices so none are left orphaned. ' +
         'Blocks nothing else — this only changes which markets the bot watches.';
       marketPending = mode;
-      $('#marketModal').classList.add('open');
+      openDialog('#marketModal', '#marketCancel');
       return false;
     }
     toastErr('Could not switch market', e);
@@ -3356,21 +3818,15 @@ $('#mktIndia').addEventListener('click', () => {
   if (marketMode !== 'india') doMarketSwitch('india', false);
 });
 $('#marketCancel').addEventListener('click', () => {
-  $('#marketModal').classList.remove('open');
+  closeDialog('#marketModal');
   marketPending = null;
 });
 $('#marketModal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
-});
-document.addEventListener('keydown', e => {   // one handler closes any open modal
-  if (e.key === 'Escape') {
-    $('#marketModal').classList.remove('open');
-    $('#resetModal').classList.remove('open');
-  }
+  if (e.target === e.currentTarget) closeDialog('#marketModal');
 });
 $('#marketGo').addEventListener('click', async () => {
   const mode = marketPending;
-  $('#marketModal').classList.remove('open');
+  closeDialog('#marketModal');
   marketPending = null;
   if (mode) await doMarketSwitch(mode, true);   // explicit confirm: close + switch
 });
@@ -3399,36 +3855,71 @@ function renderPositions(s) {
       '<td class="num">' + (p.bars_held ?? 0) + '</td>' +
       '<td class="num ' + posCls(p.unrealized) + '">' +
         (p.unrealized != null ? fmtPnl(p.unrealized) : (live ? '…' : '—')) + '</td>' +
-      '<td>' + (live ? '<button class="icon-btn" title="Close position" aria-label="Close ' + esc(p.symbol) + ' ' + esc(p.timeframe) +
+      '<td>' + (live ? '<button class="btn btn-ghost position-close" title="Review and close position" aria-label="Close ' + esc(p.symbol) + ' ' + esc(p.timeframe) +
         '" data-close="' + esc(p.symbol) + '|' + esc(p.timeframe) + '">' +
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' : '') + '</td></tr>';
+        'Close</button>' : '') + '</td></tr>';
   }).join('');
 }
-$('#posTable').addEventListener('click', async e => {
+let pendingClose = null;
+$('#posTable').addEventListener('click', e => {
   const btn = e.target.closest('[data-close]');
   if (!btn) return;
   const [symbol, timeframe] = btn.dataset.close.split('|');
-  btn.disabled = true;
+  pendingClose = {symbol, timeframe};
+  $('#closeMessage').textContent = 'Close ' + symbol + ' (' + timeframe + ') at the latest available price?';
+  openDialog('#closeModal', '#closeCancel');
+});
+$('#closeCancel').addEventListener('click', () => closeDialog('#closeModal'));
+$('#closeModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeDialog('#closeModal');
+});
+$('#closeGo').addEventListener('click', async () => {
+  if (!pendingClose || $('#closeGo').disabled) return;
+  const {symbol, timeframe} = pendingClose;
+  $('#closeGo').disabled = true;
+  $('#closeGo').textContent = 'Closing…';
+  $('#closeModal').dataset.busy = 'true';
   try {
     const r = await jpost('/api/positions/close', {symbol, timeframe});
     toast('Position closed', symbol + ' ' + timeframe + ' @ ' + fmtPx(r.exit_price, symbol));
+    pendingClose = null;
+    $('#closeModal').dataset.busy = 'false';
+    closeDialog('#closeModal');
   } catch (err) {
     toastErr('Close failed', err);
-    btn.disabled = false;
+  } finally {
+    $('#closeModal').dataset.busy = 'false';
+    $('#closeGo').disabled = false;
+    $('#closeGo').textContent = 'Close position';
   }
   refreshStats();
 });
 
-async function refreshTrades() {
-  let trades;
-  try { trades = await jget('/api/trades?limit=1000'); } catch (e) { return; }
-  const sel = $('#stratFilter');
-  syncStrategyFilter(sel, [...new Set(trades.map(t => t.strategy))].sort());
-  const filter = sel.value;
-  const rows = filter ? trades.filter(t => t.strategy === filter) : trades;
+let tradeHistory = [], tradePage = 0, tradeHistoryLoaded = false;
+const TRADE_PAGE_SIZE = 25;
+function renderTradeHistory() {
+  const strategy = $('#stratFilter').value;
+  const status = $('#tradeStatus').value;
+  const query = $('#tradeSearch').value.trim().toLowerCase();
+  const rows = tradeHistory.filter(t => (!strategy || t.strategy === strategy) &&
+    (!status || t.status === status) && (!query ||
+      [t.symbol, t.strategy, t.exit_reason].some(value => String(value || '').toLowerCase().includes(query))));
+  tradePage = Math.max(0, Math.min(tradePage, Math.ceil(rows.length / TRADE_PAGE_SIZE) - 1));
+  const start = tradePage * TRADE_PAGE_SIZE;
+  const pageRows = rows.slice(start, start + TRADE_PAGE_SIZE);
   const tbody = $('#tradeTable tbody');
-  $('#tradeEmpty').hidden = rows.length > 0;
-  tbody.innerHTML = rows.map(t => '<tr>' +
+  $('#tradeEmpty').hidden = !tradeHistoryLoaded || rows.length > 0;
+  $('#tradeEmpty').textContent = tradeHistory.length
+    ? 'No trades match your filters. Try another search or clear the filters.'
+    : 'No trades recorded yet. Review your watchlist, then start the paper engine.';
+  $('#tradeClear').hidden = !(strategy || status || query);
+  $('#tradePrev').disabled = tradePage === 0;
+  $('#tradeNext').disabled = start + TRADE_PAGE_SIZE >= rows.length;
+  if (tradeHistoryLoaded) $('#tradeCount').textContent =
+    (rows.length ? (start + 1) + '–' + (start + pageRows.length) : '0') +
+    ' of ' + rows.length + ' matching · ' + tradeHistory.length + ' loaded' +
+    (tradeHistory.length >= 1000 ? ' (latest 1,000)' : '');
+  tbody.innerHTML = pageRows.map(t => '<tr>' +
     '<td class="mono" style="color:var(--color-muted-foreground)">' + esc(fmtTs(t.opened_ts)) + '</td>' +
     '<td class="mono"><b>' + esc(t.symbol) + '</b> <span class="tag tf">' + esc(t.timeframe || '') + '</span>' +
       (t.mode === 'demo' ? ' <span class="tag demo">demo</span>' : '') + '</td>' +
@@ -3441,7 +3932,35 @@ async function refreshTrades() {
     '<td><span class="tag ' + (t.status === 'OPEN' ? 'open' : 'hold') + '">' + esc(t.status) + '</span></td>' +
     '<td style="color:var(--color-muted-foreground)">' + esc(t.exit_reason || '—') + '</td></tr>').join('');
 }
-$('#stratFilter').addEventListener('change', refreshTrades);
+async function refreshTrades() {
+  let trades;
+  try { trades = await jget('/api/trades?limit=1000'); }
+  catch (e) {
+    if (!tradeHistoryLoaded) $('#tradeCount').textContent = 'Unable to load trade history. Retrying automatically…';
+    return;
+  }
+  tradeHistory = trades;
+  tradeHistoryLoaded = true;
+  const sel = $('#stratFilter');
+  // Preserve a selected strategy even if it falls outside the latest 1,000 rows.
+  const strategies = [...new Set(trades.map(t => t.strategy).filter(Boolean))];
+  if (sel.value && !strategies.includes(sel.value)) strategies.push(sel.value);
+  syncStrategyFilter(sel, strategies.sort());
+  renderTradeHistory();
+}
+function filterTradeHistory() { tradePage = 0; renderTradeHistory(); }
+$('#tradeSearch').addEventListener('input', filterTradeHistory);
+$('#stratFilter').addEventListener('change', filterTradeHistory);
+$('#tradeStatus').addEventListener('change', filterTradeHistory);
+$('#tradeClear').addEventListener('click', () => {
+  $('#tradeSearch').value = '';
+  $('#stratFilter').value = '';
+  $('#tradeStatus').value = '';
+  filterTradeHistory();
+  $('#tradeSearch').focus();
+});
+$('#tradePrev').addEventListener('click', () => { tradePage--; renderTradeHistory(); });
+$('#tradeNext').addEventListener('click', () => { tradePage++; renderTradeHistory(); });
 
 /* ===================================================== evidence */
 /* read-only render of the GENERATED artifacts: data/results/*.json
@@ -3747,27 +4266,32 @@ $('#btnResetOpen').addEventListener('click', () => {
   $('#resetConfirm').value = '';
   $('#resetGo').disabled = true;
   $('#resetCapital').value = $('#resetCapital').value || '10000';
-  resetModal.classList.add('open');
-  $('#resetConfirm').focus();
+  openDialog('#resetModal', '#resetConfirm');
 });
-$('#resetCancel').addEventListener('click', () => resetModal.classList.remove('open'));
-resetModal.addEventListener('click', e => { if (e.target === resetModal) resetModal.classList.remove('open'); });
+$('#resetCancel').addEventListener('click', () => closeDialog('#resetModal'));
+resetModal.addEventListener('click', e => { if (e.target === resetModal) closeDialog('#resetModal'); });
 $('#resetConfirm').addEventListener('input', e => {
   $('#resetGo').disabled = e.target.value.trim() !== 'RESET';
 });
 $('#resetGo').addEventListener('click', async () => {
+  if (resetModal.dataset.busy === 'true') return;
   const capital = parseAmount($('#resetCapital').value);
   if (capital == null) { toast('Invalid capital', 'enter a positive number', false); return; }
+  resetModal.dataset.busy = 'true';
+  $('#resetGo').disabled = true;
   try {
     const r = await jpost('/api/account/reset', {capital});
     toast('Account reset', 'new capital ' + fmt$(r.capital) +
       (r.backup ? ' · backup ' + r.backup.split('/').pop() : ''));
-    resetModal.classList.remove('open');
+    resetModal.dataset.busy = 'false';
+    closeDialog('#resetModal');
     $('#resetConfirm').value = '';
-    chatLoaded.v = false;
-    $('#chatlog').innerHTML = '';
     refreshAccount(); refreshStats(); refreshEquity();
   } catch (e) { toastErr('Reset failed', e); }
+  finally {
+    resetModal.dataset.busy = 'false';
+    $('#resetGo').disabled = $('#resetConfirm').value.trim() !== 'RESET';
+  }
 });
 
 /* ===================================================== chat */
@@ -3824,10 +4348,20 @@ let pollTimer = null;
 function poll() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(() => {
+    if (document.hidden) return;
     const name = document.querySelector('.view.active').id.replace('view-', '');
     refreshVisible(name);
   }, 4000);
 }
+$('#refreshNow').addEventListener('click', () => {
+  evLoaded.v = false;
+  chatLoaded.v = false;
+  refreshVisible($('.view.active').id.replace('view-', ''));
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshVisible($('.view.active').id.replace('view-', ''));
+});
+setInterval(updateFreshness, 1000);
 
 /* ===================================================== boot
    Chart.js is VENDORED (served from this app at /chart.umd.min.js, no CDN

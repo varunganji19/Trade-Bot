@@ -15,9 +15,12 @@ Positions survive restarts: open journal trades are restored into the broker.
 """
 from __future__ import annotations
 
+import sqlite3
 import time
 import threading
 import traceback
+from contextlib import contextmanager
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -25,7 +28,7 @@ from bot.broker import PaperBroker, limit_fill_price
 from bot.calendar import is_nse_session_open
 from bot.data import MarketData
 from bot.indicators import add_all_indicators
-from bot.journal import Journal
+from bot.journal import BookOwnedError, Journal
 from bot.llm import LLMClient
 from bot.orchestrator import Orchestrator
 from bot.pause import is_paused
@@ -70,7 +73,7 @@ class TradingEngine:
         # deposit/withdraw and stats endpoints take it via lock_for_cycle
         self.cycle_lock = threading.RLock()
         self.last_error: str | None = None
-        self.risk = RiskManager(self.cfg)
+        self.risk = RiskManager(self.cfg, state_db_path=self.journal.db_path, mode=self.mode)
         self.llm = LLMClient(self.cfg.llm)
         self.sentiment = SentimentOverlay(self.llm if self.llm.enabled else None)
         self.orchestrator = Orchestrator(llm_client=self.llm, sentiment_overlay=self.sentiment,
@@ -94,12 +97,25 @@ class TradingEngine:
         # HFT book's low-latency gate (see _build_market_data / _run_cycle)
         self._last_bar_ts: dict[tuple[str, str], str] = {}
         self._last_tri_ts: tuple | None = None   # tri monitor: same gate
+        # deferred triangular-arb fill (HFT book): a firing signal is STORED
+        # here and settled at the next synchronized open (backtest shift(1)) —
+        # in-memory like _pending: a dead process drops it, never a ghost row
+        self._pending_tri: dict | None = None
+        # start-of-cycle marked equity for entry sizing (pass 1 of
+        # _run_cycle_locked); None until the first cycle runs or when no mark
+        # exists — _approval_equity() falls back to the cash basis then
+        self._cycle_equity: float | None = None
+        # cross-process lease on this book, taken by own_book() when the
+        # engine actually starts trading (construction alone claims nothing,
+        # so backtests, the Lab and tests never contend for it)
+        self.book_token: str | None = None
         self.kronos = None
         self._kronos_last_bar: dict[tuple[str, str], int] = {}
         self._kronos_promoted = False
         self._kronos_last_error: str | None = None
         self._init_kronos()
         self._restore_positions()
+        self._refresh_health_note()
 
     def _init_kronos(self):
         """Attach the Kronos engine when deps + weights are available; the bot
@@ -126,23 +142,9 @@ class TradingEngine:
     def _restore_positions(self):
         """Restore broker cash and open positions from the journal so a restart
         continues the account instead of resetting it to paper_capital."""
-        last = self.journal.last_equity_point(mode=self.mode)
-        if last is not None:
-            # the journal's cash column IS broker cash at the last cycle's close
-            # (engine writes add_equity(equity, broker.cash)); open positions
-            # restore separately and are re-marked at current prices each cycle
-            self.broker.cash = float(last["cash"])
-            # reconcile trades closed after the anchor: a crash between a
-            # close and the next equity write would otherwise drop the proceeds
-            gap = self.journal.closed_cash_delta_since(last["ts"], mode=self.mode)
-            if abs(gap) > 0.005:
-                self.broker.cash += gap
-                if not self.quiet:
-                    print(f"[engine] reconciled {gap:+.2f} from trades closed after "
-                          f"the last equity point (crash-window recovery)")
-            if not self.quiet:
-                print(f"[engine] restored account: cash ${self.broker.cash:,.2f} "
-                      f"(as of {last['ts']})")
+        self.broker.cash = self.journal.recover_cash(self.cfg.paper_capital, mode=self.mode)
+        if not self.quiet:
+            print(f"[engine] restored account: cash ${self.broker.cash:,.2f}")
         for row in self.journal.open_trades(mode=self.mode):
             spec = self._spec_for(row["symbol"])
             kind = spec.kind if spec else "crypto"
@@ -159,6 +161,22 @@ class TradingEngine:
                 # even if price has since recovered above the level
                 self._replay_pending.add(key)
             self.broker.restore_position(row, kind, timeframe=timeframe)
+            pos = self.broker.positions[self.broker.position_key(row["symbol"], timeframe)]
+            if row.get("decision_bar_ts"):
+                # newer journal rows anchor replay to the DECISION bar's own
+                # clock (bar time, directly comparable with bar_ts in
+                # _replay_missed_bars) instead of the wall clock below
+                try:
+                    pos.entry_bar_ts = float(row["decision_bar_ts"])
+                except (TypeError, ValueError):
+                    pass
+            # else: the trades table carries no decision-bar clock (schema:
+            # opened_ts only), so entry_bar_ts stays wall-clock derived from
+            # opened_ts by restore_position. opened_ts is written at decision
+            # time, so it trails the decision bar by at most one cycle
+            # interval; _replay_missed_bars scans bar_ts > entry_bar_ts, so the
+            # error direction is conservative (replay may scan one extra bar,
+            # never skip a breach bar).
             if not self.quiet:
                 print(f"[engine] restored open {row['side']} {row['symbol']} "
                       f"{timeframe} (strategy: {row['strategy']})")
@@ -169,12 +187,105 @@ class TradingEngine:
                 return spec
         return None
 
+    def _mark_held_positions(self, histories: dict) -> dict[str, float]:
+        """Mark-to-market price map for EVERY open position, keyed by the
+        HELD position's own book — not the watchlist. Marks used to iterate
+        cfg.watchlist, so a position whose (symbol, timeframe) was off the
+        active book (watchlist edited mid-hold, a mode switch's orphan, or a
+        spec pinned by a test) could never be marked: the equity walk
+        stalled forever with 'no marks available'. Positions own the mark;
+        the watchlist only owns entries.
+
+        A symbol held by several books is marked at its OWN book's close
+        (histories is keyed by (symbol, timeframe) for exactly that); a
+        position behind a dead feed is skipped (None) — pricing it at 0.0
+        would journal a phantom -100% drawdown and could trip the kill
+        switch.
+
+        NOTE on the key type: PaperBroker.equity() keys its price_map by
+        SYMBOL only (engine must not assume per-(symbol, timeframe) marks —
+        see broker.equity), so two books holding the same symbol share one
+        slot. The one-position-per-symbol risk gate normally prevents that
+        collision entirely (a restored legacy row is the exception); when it
+        still happens the first book in sorted (symbol, timeframe) order wins
+        deterministically (setdefault below) instead of last-write-wins on
+        dict order."""
+        marks: dict[str, float] = {}
+        for pos in sorted(self.broker.positions_snapshot(),
+                          key=lambda p: (p.symbol, p.timeframe)):
+            px = self._last_price_from_history(pos.symbol, pos.timeframe, histories)
+            if px is not None:
+                marks.setdefault(pos.symbol, px)
+        return marks
+
+    def _last_price_from_history(self, symbol: str, timeframe: str,
+                                 histories: dict) -> float | None:
+        """Last closed bar's close for a held position's own book — from the
+        cycle's fetched histories first (no extra fetch), else the symbol's
+        spec on the watchlist, else one direct fetch. None when no mark is
+        available (outage, or the symbol is off the active book AND the
+        direct fetch failed)."""
+        df = histories.get((symbol, timeframe))
+        if df is not None and len(df):
+            return float(df["close"].iloc[-1])
+        spec = self._spec_for(symbol)
+        if spec is not None:
+            # limit=2: a mark needs only the last close (and its cache key
+            # must differ from the engine's lookback fetch — see bot/data.py)
+            return self._last_price(spec, None)
+        # off-watchlist held position: fetch directly so its equity keeps
+        # flowing (the watchlist gates ENTRIES, never marks)
+        try:
+            df = self.market_data.latest(MarketSpec(infer_kind(symbol), symbol, timeframe),
+                                         limit=2)
+        except Exception:
+            return None
+        if df is None or not len(df):
+            return None
+        return float(df["close"].iloc[-1])
+
     # ------------------------------------------------------------- main loop
+    @contextmanager
+    def own_book(self):
+        """Hold this book's cross-process lease for the duration.
+
+        Every process that trades a book takes it: the standalone CLI engine
+        and the dashboard's engine thread alike. A second engine on the same
+        book then fails loudly at startup instead of silently overwriting the
+        first one's account, and the dashboard refuses deposits, withdrawals
+        and resets while any process owns the book.
+        """
+        self.book_token = self.journal.claim_book(self.mode)
+        try:
+            yield self.book_token
+        finally:
+            token, self.book_token = self.book_token, None
+            try:
+                self.journal.release_book(self.mode, token)
+            except sqlite3.Error:
+                pass   # the lease expires on its own; never mask a real error
+
+    def _heartbeat_book(self):
+        """Refresh the lease before a cycle writes anything."""
+        if self.book_token is None:
+            return
+        if not self.journal.heartbeat_book(self.mode, self.book_token):
+            raise BookOwnedError(f"the {self.mode} book's lease was taken over — "
+                                 f"this engine must stop before it writes again")
+
     def run_cycle(self) -> dict:
         """One full cycle. Holds `cycle_lock` for the duration: the dashboard's
         account deposit/withdraw and manual close take the same lock, so an
-        API thread can never interleave with fills and overwrite cash deltas."""
+        API thread can never interleave with fills and overwrite cash deltas.
+        TODO(cycle_lock): this intentionally holds the lock across per-spec
+        network IO (fetches) so the whole cycle is atomic — shrinking it to a
+        snapshot/commit shape is the future direction, but splitting fills
+        from marks risks interleaved cash deltas today. close_manual already
+        fetches OUTSIDE the lock (short-lock pattern); the dashboard's
+        deposit/withdraw paths (bot/dashboard.py, out of this file's scope)
+        still take the full lock and are the next candidates."""
         with self.cycle_lock:
+            self._heartbeat_book()
             return self._run_cycle_locked()
 
     def _run_cycle_locked(self) -> dict:
@@ -186,12 +297,14 @@ class TradingEngine:
         histories: dict[tuple[str, str], pd.DataFrame] = {}
 
         try:
-            # manual pause flag: read ONCE per cycle (the only flag IO in the
-            # engine — backtests construct their own RiskManager and never
-            # touch the file) and mirror it into the risk manager, where the
-            # entry veto lives. Position management below is untouched by it:
-            # stops, targets, strategy exits and marks keep running while
-            # paused; only new entries are blocked.
+            # manual pause flag: read at cycle start and mirror it into the
+            # risk manager, where the entry veto lives. Position management
+            # below is untouched by it: stops, targets, strategy exits and
+            # marks keep running while paused; only new entries are blocked.
+            # The start-of-cycle read can go stale while a long watchlist is
+            # evaluated, so _process_market re-checks the flag before every
+            # approve/fill (see _paused_now) — backtests construct their own
+            # RiskManager and never touch the file, so they stay hermetic.
             paused, pause_note = is_paused()
             self.risk.paused = paused
             summary["paused"] = paused
@@ -202,6 +315,13 @@ class TradingEngine:
                       "(open positions still managed)"
                       + (f" · {pause_note}" if pause_note else ""))
 
+            # PASS 1 — fetch every book first, decide second. Entry sizing
+            # needs START-of-cycle marked equity (approve must see unrealized,
+            # not bare cash), and marks need every book's history — so all
+            # fetches land before any _process_market call. `due` preserves
+            # watchlist order, so management/entries still run spec by spec
+            # exactly as before.
+            due: list[tuple] = []
             for spec in self.cfg.watchlist:
                 key = (spec.symbol, spec.timeframe)
                 try:
@@ -229,6 +349,26 @@ class TradingEngine:
                     if self._last_bar_ts.get(key) == bar_ts:
                         continue
                     self._last_bar_ts[key] = bar_ts
+                due.append((spec, df))
+
+            # marks come from HELD positions (any book — including a spec no
+            # longer on the watchlist), never from the watchlist itself. This
+            # ONE result feeds both entry sizing (via _cycle_equity) and the
+            # cycle-end equity point (topped up below for cycle-opened
+            # positions) — a single marks pipeline, no ad-hoc re-marking.
+            price_map = self._mark_held_positions(histories)
+            if price_map or not self.broker.positions:
+                self._cycle_equity = self.broker.equity(price_map)
+                # Restore happened in __init__; roll the UTC day and enforce
+                # marked losses BEFORE approving this cycle's new entries.
+                self.risk.note_equity(self._cycle_equity)
+            else:
+                # no mark for any open position: no marked basis exists, so
+                # approvals fall back to the cash basis (see _approval_equity)
+                self._cycle_equity = None
+
+            # PASS 2 — manage + decide in watchlist order.
+            for spec, df in due:
                 self._process_market(spec, summary, df)
 
             # triangular-arb monitor (HFT book only): runs before the equity
@@ -236,14 +376,24 @@ class TradingEngine:
             if self.mode == "hft" and getattr(self.cfg.hft, "tri_min_edge_bps", None) is not None:
                 try:
                     self._triangular_scan(histories, summary)
+                except BookOwnedError:
+                    raise            # never a degraded-cycle error (see below)
                 except Exception as exc:
                     summary["errors"].append(f"triangular: {type(exc).__name__}: {exc}")
+
+            # progressed = this cycle actually saw a new bar. The HFT book
+            # polls every 2s against 1m bars, so most cycles are idle re-polls:
+            # re-running the allocator and re-writing an identical equity point
+            # every 2s is spam (duplicate curve points, wasted IC/quant cycles).
+            # The standard book always progresses (evaluate-every-cycle).
+            progressed = (self.mode != "hft") or bool(due)
 
             # portfolio allocation: divide the book's risk budget across symbols
             # (skfolio inverse-vol/HRP over the watchlist's realized returns).
             # One return series per symbol — the first spec's timeframe in
             # watchlist order, so every symbol's vol is measured on one scale.
-            if self.cfg.portfolio.enabled:
+            # Skipped on HFT idle cycles (no new bars -> weights unchanged).
+            if self.cfg.portfolio.enabled and progressed:
                 try:
                     from bot.allocator import allocation_weights
                     per_symbol: dict[str, pd.DataFrame] = {}
@@ -260,26 +410,52 @@ class TradingEngine:
                         print(f"[engine] allocator unavailable, equal risk split: "
                               f"{type(exc).__name__}: {exc}")
 
-            for spec in self.cfg.watchlist:
-                pos = self.broker.positions.get(self.broker.position_key(spec.symbol, spec.timeframe))
-                if pos:
-                    px = self._last_price(spec, histories.get((spec.symbol, spec.timeframe)))
-                    if px is not None:
-                        # a failed fetch must SKIP the mark, never price the
-                        # position at 0.0 — a phantom -100% drawdown would be
-                        # journaled permanently and could trip the kill switch
-                        price_map[spec.symbol] = px
+            # top-up: positions OPENED this cycle are not in the pass-1 map
+            # (they did not exist when it was built). Their spec was fetched in
+            # pass 1, so _last_good_price is fresh — no refetch, entry price as
+            # the last resort (never 0.0). Gated on the spec being fetched THIS
+            # cycle: a pre-existing position behind a dead feed must stay
+            # unmarked so the no-marks skip below still fires (an entry-price
+            # top-up here would silently re-mark dead books and journal a
+            # flat-but-false equity point).
+            for pos in self.broker.positions_snapshot():
+                if pos.symbol not in price_map and (pos.symbol, pos.timeframe) in histories:
+                    price_map[pos.symbol] = self._last_good_price.get(
+                        (pos.symbol, pos.timeframe), pos.entry_price)
             if price_map or not self.broker.positions:
                 equity = self.broker.equity(price_map)
+                # the kill-switch/day rollover runs on the WALL clock: the
+                # journal write may be skipped on HFT idle cycles below, but
+                # the risk clock must never stall (a stall would pin yesterday's
+                # halted state across UTC midnight).
                 self.risk.note_equity(equity)
-                self.journal.add_equity(equity, self.broker.cash, mode=self.mode)
+                if progressed:
+                    self.journal.add_equity(equity, self.broker.cash, mode=self.mode,
+                                            owner_token=self.book_token)
+                # else: HFT idle cycle — the curve point would be a near-exact
+                # duplicate of the last one; the live number is still reported
+                # in the summary for the status poll.
                 summary["equity"] = round(equity, 2)
                 summary["cash"] = round(self.broker.cash, 2)
             else:
                 # every held symbol failed to fetch: carrying the last equity
-                # point forward is a lie too — skip the write entirely and say so
+                # point forward is a lie too — skip the write entirely and say
+                # so. The risk clock still must roll across a UTC-day boundary
+                # (otherwise a halted kill switch pins forever mid-outage) —
+                # but ONLY then: feeding the cash basis mid-day would fake a
+                # loss (deployed capital reads as missing) and could spuriously
+                # trip the switch. A rollover anchors the new day at cash, the
+                # only number known; the next marked cycle corrects course.
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if self.risk.daily_day != today:
+                    self.risk.note_equity(self.broker.equity({}))
                 summary["errors"].append("equity point skipped: no marks available "
                                           "for any open position")
+        except BookOwnedError:
+            # losing the book mid-cycle is not a degraded cycle: swallowing it
+            # here would keep trading a book another process owns until the
+            # next heartbeat noticed, a whole interval later
+            raise
         except Exception as exc:
             # the cycle tail must never kill the standalone loop (run_forever)
             # or be swallowed silently by the dashboard's loop
@@ -334,6 +510,8 @@ class TradingEngine:
         last_error (the dashboard tears the engine down on last_error, so
         degraded-but-alive conditions must NOT land there)."""
         notes = []
+        if self.risk.persistence_error:
+            notes.append(self.risk.persistence_error + " — new entries blocked; exits remain enabled")
         for key, n in self._fetch_fails.items():
             if n < self.FETCH_FAIL_WARN:
                 continue
@@ -343,16 +521,48 @@ class TradingEngine:
         self.health_note = "; ".join(notes) or None
 
     def run_forever(self, interval: int | None = None):
+        with self.own_book():
+            self._run_forever_owned(interval)
+
+    def _run_forever_owned(self, interval: int | None = None):
         interval = interval or self.cfg.live_interval_seconds
         print(f"[engine] starting paper trading loop (every {interval}s, "
               f"LLM: {self.llm.provider if self.llm.enabled else 'quant mode'}). Ctrl-C to stop.")
+        fails = 0   # consecutive error cycles (exponential backoff below)
         while True:
-            self.run_cycle()
+            cycle_t0 = time.monotonic()
+            try:
+                summary = self.run_cycle()
+                # run_cycle guards its own body, so a returned summary with
+                # errors means a degraded cycle, not a dead engine: back off
+                # instead of hot-spinning the failure every `interval` seconds
+                # (a persistently failing fetch at 2s HFT cadence used to spin
+                # errors + logs at full rate indefinitely)
+                if isinstance(summary, dict) and summary.get("errors"):
+                    fails += 1
+                else:
+                    fails = 0
+            except BookOwnedError as exc:
+                # Another process owns this book now. Backing off and retrying
+                # would keep writing from a broker this engine no longer owns.
+                self.last_error = str(exc)
+                print(f"[engine] STOPPING — {exc}")
+                return
+            except Exception as exc:
+                fails += 1
+                self.last_error = f"{type(exc).__name__}: {exc}"
+                if not self.quiet:
+                    traceback.print_exc()
+            # sleep the REMAINDER of the (possibly backed-off) interval from
+            # cycle START — like the dashboard loop — so a slow cycle does not
+            # drift the cadence, and consecutive failures sleep
+            # min(interval * 2**fails, 300)s instead of crash-spinning
+            wait = min(interval * (2 ** fails), 300) if fails else interval
             # sliced sleep: wake quickly for Ctrl-C, and on the HFT book's 2s
             # cadence a full-interval sleep would add up to `interval` seconds
             # of extra latency after the loop wakes (the dashboard threads
             # already slice the same way)
-            deadline = time.monotonic() + interval
+            deadline = time.monotonic() + max(0.0, wait - (time.monotonic() - cycle_t0))
             while time.monotonic() < deadline:
                 time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
 
@@ -377,15 +587,31 @@ class TradingEngine:
             last = self._kronos_last_bar.get((spec.symbol, spec.timeframe))
             every = max(1, self.kronos.cfg.evaluate_every_bars)
             if last is not None and bar_key - last < every:
+                # throttled (no new forecast this bar), but maturing forecasts
+                # from earlier bars still resolve against this close — the IC
+                # ledger must advance every cycle, not just on forecast bars
+                try:
+                    self.kronos.tracker.resolve(
+                        df["close"].iloc[: i + 1],
+                        market=f"{spec.symbol}|{spec.timeframe}")
+                except Exception:
+                    pass
                 return None, self.kronos.promoted()
             sig = self.kronos.evaluate(df.iloc[: i + 1],
                                        horizon=self._kronos_horizon(spec.timeframe),
                                        timeframe=spec.timeframe)
-            # ledger key committed only AFTER a successful evaluation: a
-            # transient failure used to book the bar and then silently skip
-            # Kronos for `every` more bars with no retry
-            self._kronos_last_bar[(spec.symbol, spec.timeframe)] = bar_key
+            market = f"{spec.symbol}|{spec.timeframe}"
             if sig is None:
+                # no new forecast, but forecasts logged on EARLIER bars may
+                # have matured on this close: resolve regardless so the IC
+                # ledger keeps scoring through a forecast outage instead of
+                # stalling (a stalled ledger freezes the promotion gate on
+                # stale evidence either way).
+                try:
+                    self.kronos.tracker.resolve(df["close"].iloc[: i + 1],
+                                                market=market)
+                except Exception:
+                    pass
                 err = getattr(self.kronos, "last_error", None)
                 if err and err != self._kronos_last_error and not self.quiet:
                     # evaluate() swallows exceptions internally; surface a NEW
@@ -394,10 +620,14 @@ class TradingEngine:
                           f"{spec.timeframe}: {err}")
                 self._kronos_last_error = err
             else:
+                # ledger key committed only AFTER a successful evaluation: a
+                # transient failure used to book the bar and then silently skip
+                # Kronos for `every` more bars with no retry
+                self._kronos_last_bar[(spec.symbol, spec.timeframe)] = bar_key
                 # IC ledger is keyed by market: a BTC forecast must never be
                 # scored against whichever sibling symbol's frame resolved first
                 self.kronos.log_and_maybe_resolve(
-                    df.iloc[: i + 1], sig, market=f"{spec.symbol}|{spec.timeframe}")
+                    df.iloc[: i + 1], sig, market=market)
                 self._kronos_promoted = self.kronos.promoted()
             return sig, self._kronos_promoted
         except Exception as exc:
@@ -415,6 +645,59 @@ class TradingEngine:
         if df is None or len(df) == 0:
             return None
         return float(df["close"].iloc[-1])
+
+    def _paused_now(self) -> bool:
+        """Mid-cycle re-read of the operator pause flag. The cycle-start read
+        in _run_cycle_locked can go stale while a long watchlist is evaluated;
+        a pause engaged mid-cycle must block every LATER approve/fill in the
+        same cycle (is_paused() returns a (paused, note) tuple — a bare truth
+        test on it is always truthy, so the [0] index matters). Mirrors into
+        RiskManager.paused exactly like the cycle-start read so approve()
+        vetoes on fresh truth. Never raises (fails toward paused)."""
+        try:
+            paused, _note = is_paused()
+        except Exception:
+            paused = True
+        self.risk.paused = bool(paused)
+        return self.risk.paused
+
+    def _approval_equity(self) -> float:
+        """Marked equity basis for entry sizing: the pass-1 mark-to-market
+        equity (unrealized included), NOT bare broker cash. broker.equity({})
+        prices every position at its entry (unrealized 0), i.e. cash — sizing
+        off it ignores open P&L and mis-feeds the gross gate. Falls back to
+        the cash basis only when no mark exists (or before the first cycle)."""
+        if self._cycle_equity is not None and self._cycle_equity > 0:
+            return self._cycle_equity
+        return self.broker.equity({})
+
+    def _cross_book_gross_notional(self, summary: dict | None = None) -> float:
+        """The OTHER book's open notional, for the cross-mode gross gate. The
+        two books (standard 'paper' and 'hft') share wider market risk while
+        each broker only sees its own positions — capping per-book lets 4
+        standard positions + the HFT book stack past the intended portfolio
+        leverage. Estimated at entry price (the other book's live marks are
+        not visible here — a stale-but-sane bound beats 0.0). Fail-safe: when
+        the journal is unreadable the gate degrades to the local book only
+        and says so loudly instead of blocking entries on a torn read."""
+        other = "hft" if self.mode == "paper" else "paper"
+        try:
+            rows = self.journal.open_trades(mode=other)
+        except Exception as exc:
+            msg = (f"cross-book gross unreadable ({type(exc).__name__}: {exc}) — "
+                   f"gross gate uses the local {self.mode} book only")
+            if summary is not None:
+                summary["errors"].append(msg)
+            if not self.quiet:
+                print(f"[engine] {msg}")
+            return 0.0
+        total = 0.0
+        for row in rows:
+            try:
+                total += abs(float(row.get("qty") or 0.0)) * abs(float(row.get("entry_price") or 0.0))
+            except (TypeError, ValueError):
+                continue
+        return total
 
     def _open_gross_notional(self) -> float:
         """Mark-priced gross notional of every open position — the risk
@@ -442,6 +725,12 @@ class TradingEngine:
         expected finding is a measured absence — the monitor is the point."""
         from bot.hft.triangular import tri_cost_rate, triangular_edge
         from config import TRIANGULAR_LEGS
+        if self.risk.halted or self.risk.persistence_error or self._paused_now():
+            # Pending arb signals are unfilled orders, not open positions.
+            # Drop them while entries are blocked; held positions elsewhere
+            # in the book continue through their normal exit management.
+            self._pending_tri = None
+            return
         legs = {}
         for sym in TRIANGULAR_LEGS:
             for (symbol, _tf), frame in histories.items():
@@ -477,41 +766,129 @@ class TradingEngine:
             action=action, confidence=round(conf, 3), regime="microstructure",
             rationale=rationale, price=float(legs["ETH/USDT"]["close"].iloc[-1]),
             strategy_name="hft_triangular_arb"), mode=self.mode)
+        # a signal stored on an EARLIER triple fills NOW, at this triple's
+        # synchronized OPEN (the backtest's shift(1): decide on bar i's close,
+        # fill at i+1's open) — never on the decision bar's own close
+        if self._pending_tri is not None:
+            self._settle_tri_pending(legs, ts_last, summary)
+
         if action == "HOLD":
             summary["holds"] += 1
             return
 
-        # atomic 3-leg paper round trip, cash-settled (no broker position:
-        # the arb starts and ends flat by construction)
+        # signal fires: STORE for the next synchronized open. Same-bar
+        # settlement priced the round trip at the close that MEASURED the edge
+        # (fantasy: published mispricings last seconds at 1-5bp — the edge is
+        # gone before the next print). The realized edge is measured at fill
+        # time in _settle_tri_pending; this cycle journals only the signal.
         equity = self.broker.equity({})
         notional = equity * self.cfg.hft.tri_fraction
-        pnl = notional * (abs(d_last) - cost) * (1.0 if d_last > 0 else -1.0)
-        px = float(legs["ETH/USDT"]["close"].iloc[-1])
-        trade_id = self.journal.open_trade(
-            symbol="TRI-ETH", side="long" if d_last > 0 else "short",
-            qty=round(notional / px, 6) if px > 0 else 0.0,
-            entry_price=px, stop=None, target=None,
-            strategy="hft_triangular_arb", rationale=rationale,
-            mode=self.mode, opened_ts=utc_now(), timeframe="1m")
-        self.journal.close_trade(
-            trade_id, exit_price=px, pnl=round(pnl, 4),
-            pnl_pct=round((abs(d_last) - cost) * 100.0, 4),
-            fees=round(notional * cost, 4), exit_reason="triangular round trip",
-            rationale_close=f"realized edge {d_last * 1e4:+.2f}bp vs cost {cost * 1e4:.2f}bp",
-            closed_ts=utc_now(), mode=self.mode)
-        self.broker.cash += pnl
-        self.broker.realized_pnl += pnl
-        self.journal.add_transaction(
-            "arb", round(pnl, 4), cash_after=round(self.broker.cash, 2),
-            equity_after=round(self.broker.equity({}), 2), mode=self.mode,
-            note=f"TRI-ETH 3-leg round trip, d {d_last * 1e4:+.2f}bp @ {ts_last}")
+        self._pending_tri = {
+            "side": "long" if d_last > 0 else "short",
+            "notional": notional,
+            "d": d_last,
+            "gate": gate,
+            "rationale": rationale,
+            "ts": ts_last,
+        }
+        if not self.quiet:
+            print(f"[hft] TRI-ETH signal {'LONG' if d_last > 0 else 'SHORT'}: "
+                  f"d {d_last * 1e4:+.2f}bp vs cost {cost * 1e4:.2f}bp — "
+                  f"stored, fills next synchronized open")
+
+    def _settle_tri_pending(self, legs: dict, ts_last: str, summary: dict):
+        """Settle the stored arb signal at this triple's synchronized OPEN.
+
+        Atomic 3-leg paper round trip, cash-settled (no broker position: the
+        arb starts and ends flat by construction). PnL books the SIGNED
+        realized edge minus cost — positive on BOTH sides when the edge
+        survives to the fill (the old code multiplied the short leg by -1 and
+        booked a loss on every SHORT fill even with edge > cost). A fill whose
+        edge decayed past cost books the honest (possibly negative) realized
+        number, exactly like tri_backtest. Fail-safe: a torn frame drops the
+        pending with an error, never wedges it across cycles."""
+        from bot.hft.triangular import tri_cost_rate
+        pend, self._pending_tri = self._pending_tri, None
+        if self.risk.halted or self.risk.persistence_error or self._paused_now():
+            return
+        try:
+            o_usdt = float(legs["ETH/USDT"]["open"].iloc[-1])
+            o_ethbtc = float(legs["ETH/BTC"]["open"].iloc[-1])
+            o_btcusdt = float(legs["BTC/USDT"]["open"].iloc[-1])
+        except (KeyError, TypeError, ValueError, IndexError) as exc:
+            summary["errors"].append(f"triangular pending fill dropped "
+                                      f"(unreadable synchronized open: {type(exc).__name__})")
+            return
+        if o_usdt <= 0 or o_ethbtc <= 0 or o_btcusdt <= 0:
+            summary["errors"].append("triangular pending fill dropped (non-positive synchronized open)")
+            return
+        cost = tri_cost_rate(self.cfg.costs)
+        notional = float(pend["notional"])
+        realized = o_usdt / (o_ethbtc * o_btcusdt) - 1.0
+        signed = realized if pend["side"] == "long" else -realized
+        pnl = notional * (signed - cost)
+        px = o_usdt
+        # ONE journal transaction for a round trip that is flat by
+        # construction. Written as open-then-close it had two defects: a
+        # process death in between stranded an OPEN TRI-ETH row that no
+        # watchlist could ever mark or close (a ghost position every later
+        # restart restored), and close_trade's `pnl + fees/2` fallback booked
+        # half the round-trip cost a second time, because the arb's pnl is
+        # already net of cost. The broker moves only after the commit, so a
+        # failure anywhere leaves ledger and broker on the pre-arb number.
+        settled = round(pnl, 6)
+        cash_after = round(self.broker.cash + settled, 6)
+        # equity({}) marks every open position at its ENTRY price, so using it
+        # here stamped an anchor with zero unrealized P&L — a phantom drawdown
+        # in the curve long after the cycle tail corrected the live number.
+        # The cycle's own marked equity is set earlier in this same cycle.
+        marked = self._cycle_equity if self._cycle_equity is not None else self.broker.equity({})
+        equity_after = round(marked + settled, 6)
+        self.journal.record_round_trip(
+            symbol="TRI-ETH", side=pend["side"],
+            qty=round(notional / px, 6) if px > 0 else 0.0, price=px,
+            pnl=round(pnl, 4), pnl_pct=round(signed * 100.0 - cost * 100.0, 4),
+            fees=round(notional * cost, 4), cash_delta=settled,
+            strategy="hft_triangular_arb",
+            rationale=pend.get("rationale", ""),
+            rationale_close=(f"signal d {float(pend.get('d', 0.0)) * 1e4:+.2f}bp @ {pend.get('ts', '?')} "
+                             f"-> realized {realized * 1e4:+.2f}bp at next synchronized open "
+                             f"vs cost {cost * 1e4:.2f}bp"),
+            exit_reason="triangular round trip",
+            cash_after=cash_after, equity_after=equity_after,
+            transaction=("arb", round(pnl, 4),
+                         f"TRI-ETH 3-leg round trip, realized {realized * 1e4:+.2f}bp @ {ts_last}"),
+            mode=self.mode, timeframe="1m", ts=utc_now(),
+            owner_token=self.book_token)
+        self.broker.cash += settled
+        self.broker.realized_pnl += settled
         summary["closed"].append({
             "symbol": "TRI-ETH", "pnl": round(pnl, 4),
             "reason": "triangular round trip",
         })
         if not self.quiet:
-            print(f"[hft] TRI-ETH round trip: d {d_last * 1e4:+.2f}bp vs cost "
+            print(f"[hft] TRI-ETH round trip: realized {realized * 1e4:+.2f}bp vs cost "
                   f"{cost * 1e4:.2f}bp -> pnl {pnl:+.2f}")
+
+    def _age_pending(self, spec: MarketSpec, summary: dict) -> bool:
+        """Waited/expiry bookkeeping for this book's resting maker limit.
+        Returns True when an order EXPIRED (and was removed — the caller falls
+        through to a fresh decision); False when none exists or it is still
+        resting (the caller stands down). Fill attempts live with the caller:
+        the sibling-hold path ages WITHOUT filling (a fill would open a second
+        position on the same symbol against the risk gate)."""
+        pkey = self.broker.position_key(spec.symbol, spec.timeframe)
+        pend = self._pending.get(pkey)
+        if pend is None:
+            return False
+        pend["waited"] += 1
+        if pend["waited"] > self.cfg.hft.limit_wait_bars:
+            del self._pending[pkey]
+            if not self.quiet:
+                print(f"[engine] {spec.symbol} {spec.timeframe}: resting limit "
+                      f"expired unfilled after {self.cfg.hft.limit_wait_bars} bars")
+            return True
+        return False
 
     def _process_market(self, spec: MarketSpec, summary: dict, df: pd.DataFrame | None = None):
         if df is None:
@@ -552,7 +929,11 @@ class TradingEngine:
             return
         if self.broker.has_position(spec.symbol):
             # one position per symbol across timeframes (risk rule): the 15m
-            # and 4h specs stand down while e.g. the 1h book holds the symbol
+            # and 4h specs stand down while e.g. the 1h book holds the symbol.
+            # A resting limit on THIS book still ages here (no fill attempt —
+            # that would breach the gate): without this the early return
+            # leaked _pending entries that never expired.
+            self._age_pending(spec, summary)
             return
 
         # resting maker limit (HFT book): try to fill on THIS closed bar
@@ -564,8 +945,12 @@ class TradingEngine:
                                           self.cfg.hft.maker_penetration_bps)
             if fill_price is not None:
                 del self._pending[pkey]
-                if self.risk.halted or is_paused():
-                    # kill switch / operator pause engaged while resting:
+                if self.risk.halted or self.risk.persistence_error or self._paused_now():
+                    # kill switch / operator pause engaged while resting (the
+                    # pause flag is re-read here — the cycle-start read may be
+                    # stale; is_paused() returns a tuple, so index [0] via the
+                    # helper: a bare `or is_paused()` is always truthy and used
+                    # to cancel EVERY resting fill):
                     # the order dies unfilled — it never crosses the spread
                     if not self.quiet:
                         print(f"[engine] {spec.symbol} {spec.timeframe}: resting "
@@ -576,14 +961,9 @@ class TradingEngine:
                                  maker_entry=True,
                                  bar_epoch=float(pend["decision_bar_ts"]), summary=summary)
                 return
-            pend["waited"] += 1
-            if pend["waited"] > self.cfg.hft.limit_wait_bars:
-                del self._pending[pkey]
-                if not self.quiet:
-                    print(f"[engine] {spec.symbol} {spec.timeframe}: resting limit "
-                          f"expired unfilled after {self.cfg.hft.limit_wait_bars} bars")
-            else:
+            if not self._age_pending(spec, summary):
                 return   # still resting — no new decisions while it waits
+            # expired — fall through to a fresh decision below
 
         decision = self.orchestrator.decide(df, i, spec, kronos_signal=kronos_sig,
                                             kronos_promoted=kronos_promoted)
@@ -593,10 +973,18 @@ class TradingEngine:
             return
 
         open_positions = len(self.broker.positions)
-        approval = self.risk.approve(decision, spec, self.broker.equity({}), open_positions,
+        # fresh pause truth before sizing: a flag engaged mid-cycle blocks
+        # this and every later entry (mirrored into risk, so approve vetoes)
+        if self._paused_now():
+            if not self.quiet:
+                print(f"[engine] {spec.symbol} {spec.timeframe}: {decision.action} "
+                      f"blocked by risk: manual pause engaged mid-cycle")
+            return
+        approval = self.risk.approve(decision, spec, self._approval_equity(), open_positions,
                                      has_position_on_symbol=self.broker.has_position(spec.symbol),
                                      bar_epoch=bar_epoch,
-                                     open_gross_notional=self._open_gross_notional())
+                                     open_gross_notional=(self._open_gross_notional()
+                                                          + self._cross_book_gross_notional(summary)))
         if not approval.approved:
             if not self.quiet:
                 print(f"[engine] {spec.symbol} {spec.timeframe}: {decision.action} blocked by risk: {approval.reason}")
@@ -630,12 +1018,23 @@ class TradingEngine:
         (which derives stop/target from the actual fill price) fails after
         the INSERT, the trade row is aborted — no stop-less ghost OPEN row
         survives to the next cycle/restart."""
+        if self.risk.halted or self.risk.persistence_error or self._paused_now():
+            # halt/pause flipped between approve and fill: the journaled
+            # DECISION already records the intent, but no order crosses
+            if not self.quiet:
+                print(f"[engine] {spec.symbol} {spec.timeframe}: entry cancelled "
+                      f"(halted/paused between approve and fill)")
+            return
+        key = self.broker.position_key(spec.symbol, spec.timeframe)
+        if key in self.broker.positions:
+            raise RuntimeError(f"position already exists for {key}")
+        before = (self.broker.cash, self.broker.fees_paid, self.broker.realized_pnl)
         trade_id = self.journal.open_trade(
             symbol=spec.symbol, side="long" if decision.action == "LONG" else "short",
             qty=qty, entry_price=fill_price, stop=None, target=None,
             strategy=decision.strategy_name or "orchestrator",
             rationale=decision.rationale, mode=self.mode, opened_ts=utc_now(),
-            timeframe=spec.timeframe,
+            timeframe=spec.timeframe, pending_fill=True,
         )
         try:
             self.broker.open_position(spec, decision, qty, fill_price, trade_id, ts=utc_now(),
@@ -649,8 +1048,13 @@ class TradingEngine:
             self.journal.record_fill(trade_id, entry_price=pos.entry_price,
                                      stop=pos.stop, target=pos.target,
                                      entry_fee=pos.entry_fee,
-                                     initial_stop=pos.initial_stop)
+                                     initial_stop=pos.initial_stop,
+                                     decision_bar_ts=bar_epoch)
         except Exception:
+            # The broker fill may have succeeded before record_fill failed.
+            # Undo the simulated fill as well as aborting its journal row.
+            self.broker.positions.pop(key, None)
+            self.broker.cash, self.broker.fees_paid, self.broker.realized_pnl = before
             self.journal.abort_trade(trade_id)
             raise
         summary["opened"].append({
@@ -667,7 +1071,14 @@ class TradingEngine:
         downtime must still exit even if the latest bar's range is back inside
         the levels. Hard stop/target only: strategy check_exit needs the
         current bar's state and cannot be replayed honestly. Returns True when
-        the replay closed the position."""
+        the replay closed the position.
+
+        Clock note: pos.entry_bar_ts is the DECISION bar's epoch when the
+        journal row carries decision_bar_ts (set at fill time from bar_epoch),
+        else the wall-clock opened_ts stamped at decision time (see
+        _restore_positions) — at most one cycle interval after the decision
+        bar, so the `bar_ts <= entry_bar_ts` skip errs toward replaying one
+        extra bar, never toward skipping a breach bar."""
         if not pos.entry_bar_ts:
             return False
         for j in range(len(df)):
@@ -738,7 +1149,8 @@ class TradingEngine:
         keep write_equity=True — they have no cycle tail behind them."""
         # one position per (symbol, timeframe) book: any resting limit for it
         # is superseded the moment the position closes
-        self._pending.pop(self.broker.position_key(spec.symbol, spec.timeframe), None)
+        key = self.broker.position_key(spec.symbol, spec.timeframe)
+        before = (self.broker.cash, self.broker.fees_paid, self.broker.realized_pnl)
         closed_pos, pnl, pnl_pct, fees, exit_fill = self.broker.close_position(
             spec, exit_price, reason)
         # exact cash effect of THIS close event: the broker added
@@ -750,15 +1162,24 @@ class TradingEngine:
         # close + the cycle's equity point in ONE transaction: a crash between
         # two separate writes used to leave the trade CLOSED while the restart
         # anchor still held pre-exit cash — the proceeds vanished from the account
-        self.journal.close_trade(
-            trade_id=closed_pos.trade_id, exit_price=exit_fill, pnl=round(pnl, 2),
-            pnl_pct=round(pnl_pct, 3), fees=round(fees, 4),
-            exit_reason=reason, rationale_close=closed_pos.rationale,
-            equity=self.broker.equity({}) if write_equity else None,
-            cash=self.broker.cash if write_equity else None, mode=self.mode,
-            entry_fee=round(entry_fee, 6) if closed_pos.entry_fee is not None else None,
-            realized_cash_delta=round(cash_delta, 6),
-        )
+        try:
+            self.journal.close_trade(
+                trade_id=closed_pos.trade_id, exit_price=exit_fill, pnl=round(pnl, 2),
+                pnl_pct=round(pnl_pct, 3), fees=round(fees, 4),
+                exit_reason=reason, rationale_close=closed_pos.rationale,
+                equity=self.broker.equity({}) if write_equity else None,
+                cash=self.broker.cash if write_equity else None, mode=self.mode,
+                entry_fee=round(entry_fee, 6) if closed_pos.entry_fee is not None else None,
+                realized_cash_delta=round(cash_delta, 6),
+                owner_token=self.book_token,
+            )
+        except Exception:
+            # A failed SQLite transaction leaves the trade OPEN. Keep the
+            # broker aligned so the next cycle can manage/retry its exit.
+            self.broker.positions[key] = closed_pos
+            self.broker.cash, self.broker.fees_paid, self.broker.realized_pnl = before
+            raise
+        self._pending.pop(key, None)
         # cooldown after any exit so the next cycle can't instantly re-enter;
         # stored in epoch seconds so every timeframe of the symbol reads the
         # same clock (bar-index scales are not comparable across timeframes)
@@ -775,23 +1196,30 @@ class TradingEngine:
         """Dashboard close button: close (symbol, timeframe) at the last CLOSED
         bar's close. Reuses the engine's own close path (broker fills + journal
         + risk cooldown) so a manual exit is identical to an engine exit.
-        Takes the cycle lock so it can never interleave with an in-flight
-        engine cycle on the same book."""
+
+        Short-lock pattern: the market-data fetch (network IO) happens BEFORE
+        the cycle lock is taken; only the broker/journal mutation holds the
+        lock, so a stalled feed can never wedge the engine cycle behind a
+        dashboard click. The position is re-checked under the lock (it may
+        have closed between fetch and lock); the exit price carries bounded
+        staleness of one fetch, identical to the cycle path's closed-bar
+        pricing."""
+        spec = next((s for s in self.cfg.watchlist
+                     if s.symbol == symbol and s.timeframe == timeframe), None)
+        if spec is None:
+            spec = MarketSpec(infer_kind(symbol), symbol, timeframe)
+        df = self.market_data.latest(spec)
+        if df is None or len(df) == 0:
+            raise RuntimeError(f"no market data for {symbol} {timeframe}")
+        exit_price = float(df["close"].iloc[-1])
+        exit_bar_ts = float(df.index[-1].timestamp())
         with self.cycle_lock:
-            spec = next((s for s in self.cfg.watchlist
-                         if s.symbol == symbol and s.timeframe == timeframe), None)
-            if spec is None:
-                spec = MarketSpec(infer_kind(symbol), symbol, timeframe)
             pos = self.broker.positions.get(self.broker.position_key(symbol, timeframe))
             if pos is None:
                 raise KeyError(f"no open position on {symbol} {timeframe}")
-            df = self.market_data.latest(spec)
-            if df is None or len(df) == 0:
-                raise RuntimeError(f"no market data for {symbol} {timeframe}")
-            exit_price = float(df["close"].iloc[-1])
             summary: dict = {"cycle": self.cycles, "opened": [], "closed": [], "holds": 0, "errors": []}
             self._close(spec, exit_price, "manual close", summary,
-                        bar_epoch=float(df.index[-1].timestamp()))
+                        bar_epoch=exit_bar_ts)
         return {"symbol": symbol, "timeframe": timeframe, "exit_price": exit_price}
 
     def _print_summary(self, summary: dict):

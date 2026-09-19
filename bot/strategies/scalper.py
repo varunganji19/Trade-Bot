@@ -36,6 +36,15 @@ class VWAPScalper(BaseStrategy):
     # decision — revert this tuple to ("15m",) to pull it back.
     preferred_timeframes = ("15m", "5m")
 
+    # P0: shorts EXPLICITLY disabled (documented, not accidental). Every short
+    # bucket lost money in testing (BACKTESTS.md), so the config floor
+    # scalper_short_min_confidence=1.01 already clips them to silence — this
+    # flag makes the intent explicit and skips the short path entirely in
+    # evaluate(). _short_signal stays intact for research/A-B: set
+    # SHORT_ENABLED=True to re-enable (and lower the config floor back under
+    # 1.0), knowingly trading a measured negative edge.
+    SHORT_ENABLED = False
+
     # ------------------------------------------------------------- helpers
     def _context(self, df, i: int):
         p = self.p
@@ -201,6 +210,8 @@ class VWAPScalper(BaseStrategy):
         if i < max(self.p.scalper_ema_slow, self.p.scalper_range_period, self.p.turtle_atr_period) + 3:
             return Signal(self.name, "FLAT", 0.0, rationale="warming up")
         long_sig = self._long_signal(df, i)
+        if not self.SHORT_ENABLED:
+            return long_sig  # shorts documented-disabled (see SHORT_ENABLED)
         short_sig = self._short_signal(df, i)
         return max([long_sig, short_sig], key=lambda s: s.confidence)
 

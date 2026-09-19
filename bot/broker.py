@@ -23,9 +23,33 @@ range), and fills account for gaps through the level:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
-from config import CONFIG, MarketSpec, CostConfig, parse_utc
+from config import CONFIG, MarketSpec, CostConfig, parse_utc, infer_kind
+
+
+# Tick quantization: resting stop/target levels must sit on a tradable tick.
+# Per-kind decimals (crypto 2dp, forex 5dp, india 2dp/paise). Crypto spans
+# many magnitudes (BTC 80000 vs sub-penny alts), so the helper never collapses
+# a non-zero price to 0.0 — it falls back to 8dp rather than zeroing dust.
+TICK_DPS: dict[str, int] = {"crypto": 2, "forex": 5, "india": 2}
+
+
+def quantize_price(price: float, kind: str) -> float:
+    """Round `price` to the per-kind tick (see TICK_DPS)."""
+    dps = TICK_DPS.get(kind, 2)
+    q = round(float(price), dps)
+    if q == 0 and price:
+        return round(float(price), 8)
+    return q
+
+
+def quantize_qty(qty: float, kind: str) -> float:
+    """Round `qty` to a tradable granularity (mirrors RiskManager.size_position:
+    whole units for forex/india, 6dp for crypto). The broker re-applies this
+    defensively so callers that bypass risk sizing still book sane quantities."""
+    if kind in ("forex", "india"):
+        return round(float(qty), 0)
+    return round(float(qty), 6)
 
 
 def limit_fill_price(side: str, limit: float, bar, penetration_bps: float = 0.0) -> float | None:
@@ -161,6 +185,14 @@ class PaperBroker:
             risk = decision.stop_distance
             target = fill + decision.target_rr * risk if side == "long" else fill - decision.target_rr * risk
 
+        # resting levels sit on the venue tick; qty re-rounded defensively
+        # (risk already rounds — this covers direct callers). risk_per_unit
+        # keeps the raw decision distance so R math stays exact. Qty is
+        # rounded BEFORE the fee so the charged fee matches the booked qty.
+        qty = quantize_qty(qty, spec.kind)
+        stop = quantize_price(stop, spec.kind)
+        if target is not None:
+            target = quantize_price(target, spec.kind)
         fee = self._fee(fill * qty, spec.kind, maker=maker_entry)
         self.cash -= fee
         self.fees_paid += fee
@@ -183,14 +215,20 @@ class PaperBroker:
         cash; exit_fill is the actual post-slippage price the position closed at —
         journals record fills, not decision prices. Take-profit exits are priced
         as resting limits (maker fee, no slippage); all other exits are market
-        legs (taker fee + slippage)."""
-        pos = self.positions.pop(self.position_key(spec.symbol, spec.timeframe))
+        legs (taker fee + slippage). The position is removed only AFTER pricing
+        succeeds — a pricing exception leaves the position intact (no orphan)."""
+        key = self.position_key(spec.symbol, spec.timeframe)
+        pos = self.positions.get(key)
+        if pos is None:
+            raise KeyError(key)
         maker = self._maker_exit(reason)
         exit_fill = self._fill_price(price, pos.side, opening=False,
                                      kind=spec.kind, maker=maker)
         direction = 1.0 if pos.side == "long" else -1.0
         gross = (exit_fill - pos.entry_price) * direction * pos.qty
         fee = self._fee(exit_fill * pos.qty, spec.kind, maker=maker)
+        # pricing succeeded — now remove and settle cash
+        self.positions.pop(key)
         self.cash += gross - fee
         self.fees_paid += fee
         entry_fee = pos.entry_fee if pos.entry_fee is not None else 0.0
@@ -200,24 +238,32 @@ class PaperBroker:
         return pos, pnl, pnl_pct, fee + entry_fee, exit_fill
 
     # ------------------------------------------------------------------ exits
-    def restore_position(self, row: dict, kind: str, timeframe: str = "1h") -> Position:
+    def restore_position(self, row: dict, kind: str | None = None, timeframe: str = "1h") -> Position:
         """Rebuild an open Position from a journal row after a restart.
 
         Cash is NOT touched here: the caller restores broker cash from the
         journal's last equity point, so re-charging the entry fee would
         double-count it (the live engine's cash path already paid it). The
         fee is still recorded on the position so the close PnL reports the
-        full round trip."""
-        from config import TIMEFRAME_SECONDS
+        full round trip.
+
+        `kind` defaults to infer_kind(symbol): callers that cannot resolve a
+        spec (off-watchlist symbols) must not silently price everything as
+        crypto — the 3-way cost model differs 5x+ by kind. An explicit kind
+        still wins when given.
+
+        bars_held starts at 0: the wall-clock estimate (now - opened_ts) /
+        bar_seconds overstated holds across downtime (a weekend offline read
+        as dozens of 1h bars). The engine recomputes bars_held from BAR
+        timestamps on the next managed cycle (entry_bar_ts vs bar_epoch),
+        which is the only clock time stops understand."""
+        if not kind:
+            kind = infer_kind(row["symbol"])
         opened = row["opened_ts"]
-        bars = 0
         entry_bar_ts = 0.0
         dt = parse_utc(opened)
         if dt is not None:
             entry_bar_ts = dt.timestamp()
-            bar_seconds = TIMEFRAME_SECONDS.get(timeframe, 3600)
-            bars = max(0, int((datetime.now(timezone.utc).timestamp() - entry_bar_ts)
-                              / bar_seconds))
         stop = row["stop_price"]
         # initial-risk ground truth: prefer the latched initial stop; fall back
         # to the final (possibly BE-trailed) stop for legacy rows — their true
@@ -231,7 +277,7 @@ class PaperBroker:
             entry_price=row["entry_price"], stop=stop, target=row["target_price"],
             strategy=row["strategy"], timeframe=row.get("timeframe") or timeframe,
             rationale=row["rationale_open"] or "", opened_ts=opened or "",
-            risk_per_unit=risk, bars_held=bars,
+            risk_per_unit=risk, bars_held=0,
             entry_fee=(row["entry_fee"] if "entry_fee" in row.keys() and row["entry_fee"] is not None
                        else self._fee(row["entry_price"] * row["qty"], kind)),
             entry_bar_ts=entry_bar_ts,

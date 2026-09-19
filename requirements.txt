@@ -1,3 +1,8 @@
+# Reproducible installs: requirements.lock pins the complete transitive core
+# environment and is exercised in CI (regenerate with `make lock`). The >=
+# floors below remain the compatibility/upgrade input for the Python matrix.
+#   pip install -r requirements.txt       # flexible (floors)
+#   pip install -r requirements.lock      # byte-stable reruns / CI audit
 # Core (the bot runs fully with just these)
 numpy>=2.0
 pandas>=2.2

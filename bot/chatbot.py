@@ -139,13 +139,48 @@ class ChatBot:
     def _llm_answer(self, question: str) -> str:
         context = self._journal_context()
         reply = self.llm.chat_answer(question, context)
+        reply = self._cross_check_numbers(reply, context["stats"])
         self.journal.log_chat("assistant", reply)
+        return reply
+
+    def _cross_check_numbers(self, reply: str, stats: dict) -> str:
+        """Post-validate $/% numbers the LLM quoted against stats(): an LLM
+        that invents a P&L is worse than no LLM. Any $ amount not within $1
+        of a known ledger value (total_pnl, start/current equity, net
+        deposits) triggers a repair suffix with the true numbers."""
+        import re
+        try:
+            net_dep = float(self.journal.deposits_net(mode="paper"))
+        except Exception:
+            net_dep = 0.0
+        known = [float(stats.get("total_pnl") or 0.0),
+                 float(stats.get("current_equity") or 0.0),
+                 float(stats.get("start_equity") or 0.0), net_dep]
+        bad = []
+        for m in re.finditer(r"\$([0-9][0-9,]*(?:\.\d{1,2})?)", reply):
+            try:
+                v = float(m.group(1).replace(",", ""))
+            except ValueError:
+                continue
+            if not any(abs(v - k) <= 1.0 or abs(v - abs(k)) <= 1.0 for k in known):
+                bad.append(m.group(0))
+        if bad:
+            fix = (f" [number check: {', '.join(bad)} not in the journal — "
+                   f"verified total P&L {_fmt_money(stats.get('total_pnl') or 0.0)}, "
+                   f"equity {_fmt_money(stats.get('current_equity') or 0.0)}, "
+                   f"net deposits {_fmt_money(net_dep)}]")
+            # repair, don't reject outright: keep the prose, pin the numbers
+            reply = reply + fix
         return reply
 
     def _journal_context(self) -> dict:
         stats = self.journal.stats(mode="paper")
+        try:
+            stats["deposits_net"] = round(float(self.journal.deposits_net(mode="paper")), 2)
+        except Exception:
+            stats["deposits_net"] = 0.0
         trades = self.journal.recent_trades(limit=15, mode="paper")
-        decisions = self.journal.recent_decisions(limit=5)
+        decisions = self.journal.recent_decisions(limit=5, mode="paper")
         # IST-convert timestamps here too — the LLM quotes what it's given
         return {
             "stats": stats,

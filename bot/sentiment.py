@@ -34,7 +34,9 @@ def lexicon_score(text: str) -> float:
     score = 0.0
     hits = 0
     for pattern, value in LEXICON.items():
-        matches = re.findall(pattern, text)
+        # word-boundary anchored: "risk" must not fire inside "brisk",
+        # "sol" must not fire inside "console" (substring false positives).
+        matches = re.findall(r"(?<!\w)(?:" + pattern + r")(?!\w)", text)
         if matches:
             score += value * len(matches)
             hits += len(matches)
@@ -73,6 +75,12 @@ _MACRO_KEYS = ["fed", "fomc", "powell", "rate cut", "rate hike", "inflation", "c
                "liquidity", "global markets", "stocks", "equities"]
 
 
+def _wb_hit(text: str, key: str) -> bool:
+    """Word-boundary substring: 'sol' must not match 'console', 'uk' must not
+    match 'fluke', 'risk' must not match 'brisk'."""
+    return re.search(r"(?<!\w)" + re.escape(key.strip()) + r"(?!\w)", text) is not None
+
+
 def _headline_relevant(title: str, summary: str, asset_hint: str) -> bool:
     """Is this headline about the hinted asset (or macro-wide)? With no hint,
     or a hint we can't map, everything is relevant (the old behavior)."""
@@ -85,11 +93,11 @@ def _headline_relevant(title: str, summary: str, asset_hint: str) -> bool:
         if not words:
             return True
         text = (title + " " + (summary or "")).lower()
-        return any(w in text for w in words) or any(k in text for k in _MACRO_KEYS)
+        return any(_wb_hit(text, w) for w in words) or any(_wb_hit(text, k) for k in _MACRO_KEYS)
     text = (title + " " + (summary or "")).lower()
-    if any(k in text for k in _MACRO_KEYS):
+    if any(_wb_hit(text, k) for k in _MACRO_KEYS):
         return True
-    return any(k in text for k in _ASSET_KEYWORDS.get(key, []))
+    return any(_wb_hit(text, k) for k in _ASSET_KEYWORDS.get(key, []))
 
 
 class SentimentOverlay:
@@ -125,21 +133,27 @@ class SentimentOverlay:
         if method == "lexicon":
             # score only headlines relevant to THIS asset: a crypto-specific
             # crash headline must not veto an EUR/USD entry (and vice versa).
-            # No match at all -> score the whole batch (unchanged behavior).
+            # Zero relevant -> neutral 0.0 (scoring the whole batch let an
+            # unrelated crash veto the wrong book).
             relevant = [h for h in headlines
                         if _headline_relevant(h["title"], h.get("summary", ""), asset_hint)]
-            scored = relevant if relevant else headlines
-            scores = [lexicon_score(h["title"] + " " + h.get("summary", "")) for h in scored]
-            nonzero = [s for s in scores if s != 0.0]
-            score = sum(nonzero) / len(nonzero) if nonzero else 0.0
-            worst = min(zip(scores, scored), key=lambda t: t[0], default=None)
-            best = max(zip(scores, scored), key=lambda t: t[0], default=None)
-            summary = (f"lexicon scan of {len(scored)}/{len(headlines)} headlines relevant to "
-                       f"{asset_hint or 'the book'}; "
-                       f"most bullish: '{best[1]['title'][:80]}' ({best[0]:+.1f}); "
-                       f"most bearish: '{worst[1]['title'][:80]}' ({worst[0]:+.1f})" if nonzero else
-                       f"lexicon scan of {len(scored)} relevant headlines found no strong "
-                       f"sentiment words")
+            if not relevant:
+                score, summary, scored, scores, nonzero = 0.0, (
+                    f"lexicon scan: 0/{len(headlines)} headlines relevant to "
+                    f"{asset_hint or 'the book'} — neutral"), [], [], []
+            else:
+                scored = relevant
+                scores = [lexicon_score(h["title"] + " " + h.get("summary", "")) for h in scored]
+                nonzero = [s for s in scores if s != 0.0]
+                score = sum(nonzero) / len(nonzero) if nonzero else 0.0
+                worst = min(zip(scores, scored), key=lambda t: t[0], default=None)
+                best = max(zip(scores, scored), key=lambda t: t[0], default=None)
+                summary = (f"lexicon scan of {len(scored)}/{len(headlines)} headlines relevant to "
+                           f"{asset_hint or 'the book'}; "
+                           f"most bullish: '{best[1]['title'][:80]}' ({best[0]:+.1f}); "
+                           f"most bearish: '{worst[1]['title'][:80]}' ({worst[0]:+.1f})" if nonzero else
+                           f"lexicon scan of {len(scored)} relevant headlines found no strong "
+                           f"sentiment words")
 
         result = {
             "score": round(score, 3),
@@ -147,6 +161,8 @@ class SentimentOverlay:
             "method": method,
             "headlines": [{"title": h["title"], "source": h["source"]} for h in headlines[:8]],
             "summary": summary,
+            "n_scored": len(scored) if method == "lexicon" else len(headlines[:12]),
+            "n_relevant": len(scored) if method == "lexicon" else len(headlines[:12]),
         }
         self.last_result = result
         return result
@@ -154,9 +170,20 @@ class SentimentOverlay:
     def apply(self, action: str, confidence: float, sentiment: dict) -> tuple[str, float, str]:
         """Return possibly-modified (action, confidence, note)."""
         score = sentiment.get("score", 0.0)
+        # a veto needs corroboration: one extreme headline (n_scored<3) only
+        # shrinks conviction — a single wire will never block an entry alone.
+        n = int(sentiment.get("n_scored", sentiment.get("n_relevant", 0)) or 0)
         if action == "LONG" and score <= -0.6:
+            if n and n < 3:
+                return action, min(0.95, confidence * 0.85), (
+                    f"sentiment contrary ({score:+.2f}) on {n} headline(s) — "
+                    f"conviction trimmed, no veto (needs >=3)")
             return "HOLD", confidence, f"sentiment veto: strongly negative news ({score:+.2f})"
         if action == "SHORT" and score >= 0.6:
+            if n and n < 3:
+                return action, min(0.95, confidence * 0.85), (
+                    f"sentiment contrary ({score:+.2f}) on {n} headline(s) — "
+                    f"conviction trimmed, no veto (needs >=3)")
             return "HOLD", confidence, f"sentiment veto: strongly positive news ({score:+.2f})"
         # mild contrary news shrinks conviction, aligned news adds a little
         direction = 1 if action == "LONG" else -1 if action == "SHORT" else 0

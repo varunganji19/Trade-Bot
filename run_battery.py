@@ -28,6 +28,8 @@ BATTERY = [
     # forex 1h (turtle + ensemble)
     MarketSpec("forex", "EURUSD=X", "1h", "EUR/USD"),
     MarketSpec("forex", "GBPUSD=X", "1h", "GBP/USD"),
+    # USD/JPY runs the SAME 1h/365d window as EUR/GBP (aligned comparison —
+    # Yahoo forex 1h covers multi-year, so no depth carve-out is needed)
     MarketSpec("forex", "USDJPY=X", "1h", "USD/JPY"),
 ]
 

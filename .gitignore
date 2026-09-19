@@ -22,6 +22,12 @@ data/kronos_ic.json
 data/watchlist.json
 data/engine_state.json
 
+# pause flag + quarantined corrupt state (they follow BOT_DB_PATH, so match
+# them in ANY dir — a leaked trading_paused.json would resurrect a stale halt,
+# and a .corrupt.* file is triage evidence, never source)
+trading_paused.json
+*.corrupt.*
+
 # secrets — .env.example is the committed template; .env never leaves the machine
 .env
 

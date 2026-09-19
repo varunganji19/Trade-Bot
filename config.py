@@ -7,16 +7,69 @@ code can move from paper trading to a real broker later without edits.
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 
+def _load_dotenv(path: str | None = None) -> None:
+    """Import-time .env load so DIRECT entry points (e.g. `uvicorn
+    bot.dashboard:app`, which never goes through main.py's loader) still pick
+    up DASHBOARD_TOKEN/BOT_DB_PATH. Existing process env always wins; a
+    missing file is the normal case. Same parsing rules as main.py: leading
+    `export ` stripped, ` #` comments stripped outside quotes."""
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        with open(path) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):].lstrip()
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = _strip_inline_comment(value.strip())
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except OSError:
+        pass  # no .env is the normal case
+
+
+def _strip_inline_comment(s: str) -> str:
+    """Cut a ` #` comment outside quotes (a `#` inside '...'/"..." stays)."""
+    in_single = in_double = False
+    for i, ch in enumerate(s):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == "#" and not in_single and not in_double \
+                and i > 0 and s[i - 1] in (" ", "\t"):
+            return s[:i].rstrip()
+    return s
+
+
+_load_dotenv()
+
+
 def _env_float(name: str, default: float) -> float:
-    return float(os.environ.get(name, default))
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        warnings.warn(f"[config] {name} unreadable — using default {default}")
+        return default
 
 
 def _env_int(name: str, default: int) -> int:
-    return int(os.environ.get(name, default))
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        warnings.warn(f"[config] {name} unreadable — using default {default}")
+        return default
 
 
 def _env_str(name: str, default: str) -> str:
@@ -389,6 +442,16 @@ class LLMConfig:
 class PortfolioConfig:
     """Cross-symbol capital allocation (skfolio-backed, see RESEARCH.md §2.5).
 
+    ENV TIMING (deliberate, do not "fix" piecemeal): every _env_* default in
+    this file is read ONCE at import time — a process that changes
+    PAPER_CAPITAL/BOT_DB_PATH/... mid-run keeps the import-time values (the
+    documented way to change them is restart with new env). The two EXCEPTIONS
+    are call-time by design and live elsewhere:
+      - CACHE_FRESHNESS_HOURS (bot/data.py _cache_freshness_hours): one-off
+        `CACHE_FRESHNESS_HOURS=0 ...` force-refetch must work per-invocation;
+      - HFT_FEE_TIER (bot/hft/__init__.py hft_fee_tier): the harness builds
+        both tiers in ONE process, so the tier must resolve per call.
+
     Capital is divided across CONCURRENT OPEN positions by risk budget:
     inverse-vol uses only each symbol's realized volatility (no return
     forecasts to overfit), max_sym_weight prevents the optimizer from
@@ -437,7 +500,8 @@ class HFTConfig:
 class Config:
     paper_capital: float = _env_float("PAPER_CAPITAL", 10_000.0)
     db_path: str = _env_str("BOT_DB_PATH", os.path.join(os.path.dirname(__file__), "data", "trading.db"))
-    data_cache_dir: str = os.path.join(os.path.dirname(__file__), "data", "cache")
+    data_cache_dir: str = _env_str("BOT_CACHE_DIR", "") or _env_str("DATA_CACHE_DIR", "") or \
+        os.path.join(os.path.dirname(__file__), "data", "cache")
 
     live_interval_seconds: int = _env_int("LIVE_INTERVAL", 60)
     lookback_bars: int = 400          # candles fetched per market per cycle
@@ -459,6 +523,17 @@ class Config:
     news_max_items: int = 15
     news_ttl_seconds: int = 600
 
+    def __post_init__(self):
+        # Single-journal-dir rule: every derived state file (cache, watchlist,
+        # mode, kronos ledger) lives next to CONFIG.db_path's dir, so a
+        # BOT_DB_PATH override (or a test tmp dir) moves the WHOLE state, not
+        # just the journal. Explicit overrides win: BOT_CACHE_DIR/DATA_CACHE_DIR
+        # for the parquet cache (read above); WATCHLIST_PATH below keeps a
+        # test-installed custom path, else follows db_path too.
+        if not os.environ.get("BOT_CACHE_DIR") and not os.environ.get("DATA_CACHE_DIR"):
+            self.data_cache_dir = os.path.join(
+                os.path.dirname(os.path.abspath(self.db_path)), "cache")
+
 
 CONFIG = Config()
 
@@ -468,9 +543,41 @@ TIMEFRAME_SECONDS = {
 }
 
 WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "data", "watchlist.json")
+_DEFAULT_WATCHLIST_PATH = os.path.abspath(WATCHLIST_PATH)
 MAX_WATCHLIST_SPECS = 12
 VALID_TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
 VALID_KINDS = ("crypto", "forex", "india")
+
+
+def db_dir() -> str:
+    """Directory holding the ACTIVE journal — every derived state file
+    (watchlist, mode, kronos ledger) resolves under this at CALL time so a
+    BOT_DB_PATH override or test tmp dir moves the whole state together."""
+    return os.path.dirname(os.path.abspath(CONFIG.db_path))
+
+
+def cache_dir() -> str:
+    """Resolved parquet-cache dir: the explicit CONFIG.data_cache_dir
+    (import-time BOT_CACHE_DIR/DATA_CACHE_DIR override or a test-installed
+    path) wins, else the journal dir's `cache/` (the __post_init__ rule)."""
+    return CONFIG.data_cache_dir
+
+
+def watchlist_path() -> str:
+    """Resolved watchlist.json: an explicitly customized WATCHLIST_PATH (tests
+    install one) wins; otherwise the journal dir's `watchlist.json` — the
+    split-brain fix (the old module constant always pointed at the repo's
+    data/ even when BOT_DB_PATH moved the journal elsewhere)."""
+    if os.path.abspath(WATCHLIST_PATH) != _DEFAULT_WATCHLIST_PATH:
+        return WATCHLIST_PATH
+    return os.path.join(db_dir(), "watchlist.json")
+
+
+def kronos_track_path() -> str:
+    """Resolved kronos_ic.json under the journal dir (STRAT agent: point
+    KronosSignalEngine's default track_file here so BOT_DB_PATH overrides
+    stop leaking the IC ledger into the repo's data/)."""
+    return os.path.join(db_dir(), "kronos_ic.json")
 
 # MARKET MODE: "forex" (default — crypto + forex universe, the historical
 # behavior) | "india" (the SPECS_INDIA universe). ONE book is active at a
@@ -489,8 +596,8 @@ def save_watchlist(specs: list, path: str | None = None) -> bool:
     back from — returning the user's market list to a stale/default state.
     Returns False (never raises) when the write fails; callers surface it."""
     import json
-    path = path or WATCHLIST_PATH
-    tmp = f"{path}.tmp"
+    path = path or watchlist_path()
+    tmp = f"{path}.tmp.{os.getpid()}"
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(tmp, "w") as fh:
@@ -514,7 +621,7 @@ def apply_saved_watchlist(path: str | None = None) -> list:
     quietly trade a different market list than the user configured) and the
     default watchlist is used.
     """
-    path = path or WATCHLIST_PATH
+    path = path or watchlist_path()
     if os.path.exists(path):
         try:
             import json
@@ -527,10 +634,10 @@ def apply_saved_watchlist(path: str | None = None) -> list:
                 CONFIG.watchlist[:] = specs
         except Exception:
             try:    # keep the corrupt file for inspection, out of the load path
-                os.replace(path, f"{path}.corrupt")
+                os.replace(path, f"{path}.corrupt.{int(datetime.now(timezone.utc).timestamp())}")
             except OSError:
                 pass
-            print("[config] watchlist.json unreadable — moved to .corrupt, "
+            print("[config] watchlist.json unreadable — moved to .corrupt.<epoch>, "
                   "using the default watchlist")
     else:
         save_watchlist(CONFIG.watchlist, path)
@@ -539,10 +646,10 @@ def apply_saved_watchlist(path: str | None = None) -> list:
 
 # ---------------------------------------------------------------- market mode
 def _market_mode_path() -> str:
-    """data/market_mode.json, derived from CONFIG.db_path's dir at CALL time
+    """market_mode.json, derived from the ACTIVE journal dir at CALL time
     (same hermetic-test rule as the pause flag: a test that monkeypatches
     CONFIG.db_path to a tmp dir gets a tmp mode file)."""
-    return os.path.join(os.path.dirname(CONFIG.db_path), "market_mode.json")
+    return os.path.join(db_dir(), "market_mode.json")
 
 
 def get_market_mode() -> str:
@@ -574,36 +681,41 @@ def get_market_mode() -> str:
 
 
 def set_market_mode(mode: str) -> bool:
-    """Persist the market mode atomically (tmp + os.replace, the
-    save_watchlist pattern) AND rewrite data/watchlist.json with the new
-    mode's spec list — watchlist.json is DERIVED state of the mode, so v1
-    keeps them in lockstep (the mode is the single source of truth; a
-    watchlist file that disagrees with the persisted mode is stale by
-    definition). Returns False on OSError, never raises."""
+    """Persist the market mode AND rewrite watchlist.json with the new mode's
+    spec list — watchlist.json is DERIVED state of the mode, so v1 keeps them
+    in lockstep (the mode is the single source of truth; a watchlist file
+    that disagrees with the persisted mode is stale by definition).
+
+    JOINT-ATOMIC: both payloads are written to pid-unique tmps FIRST, then
+    both are os.replace()d — a crash between two separate atomic writes used
+    to leave mode=new/watchlist=old (or the reverse), which apply_market_mode
+    then had to repair on the next boot. Returns False on OSError, never
+    raises."""
     if mode not in ("forex", "india"):
         print(f"[config] refusing to set unknown market mode {mode!r} "
               "(expected 'forex' or 'india')")
         return False
+    import json
     path = _market_mode_path()
-    tmp = f"{path}.tmp"
+    wl_path = watchlist_path()
+    mode_tmp = f"{path}.tmp.{os.getpid()}"
+    wl_tmp = f"{wl_path}.tmp.{os.getpid()}"
     try:
-        import json
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(tmp, "w") as fh:
+        with open(mode_tmp, "w") as fh:
             json.dump({"mode": mode, "ts": utc_now()}, fh, indent=1)
-        os.replace(tmp, path)
+        os.makedirs(os.path.dirname(wl_path) or ".", exist_ok=True)
+        with open(wl_tmp, "w") as fh:
+            json.dump({"specs": _watchlist_to_dicts(active_specs(mode))}, fh, indent=1)
+        os.replace(mode_tmp, path)
+        os.replace(wl_tmp, wl_path)
     except OSError:
-        try:
-            os.path.exists(tmp) and os.remove(tmp)
-        except OSError:
-            pass
+        for tmp in (mode_tmp, wl_tmp):
+            try:
+                os.path.exists(tmp) and os.remove(tmp)
+            except OSError:
+                pass
         return False
-    # rewrite the derived watchlist with the new mode's universe (same
-    # lockstep rule; a failure here leaves the mode file written but the
-    # watchlist stale — apply_market_mode() repairs that on next boot)
-    if not save_watchlist(active_specs(mode)):
-        print(f"[config] mode set to {mode!r} but watchlist.json rewrite "
-              "failed — it will be normalized on the next apply_market_mode()")
     return True
 
 
@@ -626,11 +738,12 @@ def apply_market_mode() -> list:
     Callers: cmd_run and cmd_dashboard in main.py."""
     mode = get_market_mode()
     specs = active_specs(mode)
+    wl_path = watchlist_path()
     stale = True
-    if os.path.exists(WATCHLIST_PATH):
+    if os.path.exists(wl_path):
         try:
             import json
-            with open(WATCHLIST_PATH) as fh:
+            with open(wl_path) as fh:
                 payload = json.load(fh)
             file_specs = [MarketSpec(s["kind"], s["symbol"], s["timeframe"],
                                      s.get("display") or "")

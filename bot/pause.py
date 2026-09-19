@@ -54,7 +54,7 @@ def is_paused() -> tuple[bool, str | None]:
         return False, None
     except Exception:
         try:
-            os.replace(path, f"{path}.corrupt.{int(time.time())}")
+            os.replace(path, f"{path}.corrupt.{time.time():.6f}")
         except OSError:
             pass
         print("[pause] trading_paused.json unreadable — quarantined to "
@@ -69,7 +69,7 @@ def set_paused(paused: bool, note: str = "") -> bool:
     raises; callers surface the failure loudly (a pause that failed to write
     must NEVER read back as if it had succeeded)."""
     path = _pause_path()
-    tmp = f"{path}.tmp"
+    tmp = f"{path}.{os.getpid()}.tmp"
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(tmp, "w") as fh:

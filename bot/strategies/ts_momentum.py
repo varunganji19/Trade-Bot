@@ -76,10 +76,20 @@ class TimeSeriesMomentum(BaseStrategy):
         """close / rolling max of HIGH over the trailing tsmom_52w_bars bars,
         1.0 = at the 1-year high. Computed on the truncated slice iloc[:i+1]
         so the decision bar i is the LAST bar of the window — rolling ops are
-        causal anyway, but slicing makes that explicit and testable."""
+        causal anyway, but slicing makes that explicit and testable.
+
+        ADAPTIVE ANCHOR (P0 fix): the papers' 2450-bar 1-year window exceeded
+        every live frame (~400 bars), freezing the strategy in permanent
+        warmup. The anchor now uses whatever history exists —
+        min(tsmom_52w_bars, i+1) bars — once the evaluate() warmup below is
+        satisfied. On short history this is an N-bar-high proxy, weaker than
+        the papers' true 1-year anchor; on full history it IS the 1-year
+        high. NaN only when the slice is degenerate (never for short
+        history alone)."""
         p = self.p
-        lo = i - p.tsmom_52w_bars + 1
-        if lo < 0:
+        window = min(p.tsmom_52w_bars, i + 1)
+        lo = i - window + 1
+        if lo < 0 or window <= 0:
             return float("nan")
         hi = float(df["high"].iloc[lo:i + 1].max())
         if not self._ok(hi) or hi <= 0:
@@ -88,7 +98,13 @@ class TimeSeriesMomentum(BaseStrategy):
 
     def evaluate(self, df, i: int) -> Signal:
         p = self.p
-        warmup = max(p.tsmom_lookback, p.tsmom_52w_bars, 30) + 2
+        # ADAPTIVE WARMUP (P0 fix): the old gate max(lookback, 52w_bars, 30)+2
+        # = 2452 bars could never clear on live ~400-bar frames, so the
+        # strategy was permanently FLAT. The 52w anchor is now a partial
+        # window (see _high_prox), so the hard gate only covers what is
+        # TRULY insufficient: the trailing-return lookback plus indicator
+        # readiness. FLAT "warming up" fires only below that line.
+        warmup = max(p.tsmom_lookback, 30) + 2
         if i < warmup:
             return Signal(self.name, "FLAT", 0.0, rationale="warming up")
 
@@ -103,7 +119,7 @@ class TimeSeriesMomentum(BaseStrategy):
         if not self._ok(mom):
             return Signal(self.name, "FLAT", 0.0, rationale="lookback incomplete")
         if not self._ok(prox):
-            return Signal(self.name, "FLAT", 0.0, rationale="52w window incomplete")
+            return Signal(self.name, "FLAT", 0.0, rationale="52w anchor not computable (degenerate window)")
 
         # 1. momentum filter — the decile gate's single-symbol analogue
         if mom <= p.tsmom_min_ret:

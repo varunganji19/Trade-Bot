@@ -53,11 +53,21 @@ def _entry_exit_bars(trade: dict, df: pd.DataFrame) -> tuple[int | None, int | N
     if entry is None or not len(df):
         return None, None
 
+    # 1-bar tolerance (median frame step × 1.5): a 7-day snap silently
+    # pinned week-old bars as exact fills — anything farther is UNKNOWN.
+    try:
+        _step = float((df.index[1:] - df.index[:-1]).total_seconds().median())
+    except Exception:
+        _step = 86400.0
+    _tol = max(_step * 1.5, 1.0)
+
     def pos_of(ts):
         if ts is None:
             return None
         p = df.index.searchsorted(ts, side="right") - 1
-        if p < 0 or abs((df.index[p] - ts).total_seconds()) > 7 * 86400:
+        if p < 0 or p >= len(df):
+            return None
+        if abs((df.index[p] - ts).total_seconds()) > _tol:
             return None
         return p
 
@@ -258,10 +268,20 @@ def shadow_compare(spec, trades: list[dict], df: pd.DataFrame) -> dict:
     # used to be compared against whichever strategy happened to be seen first
     # (set iteration order) — every other owner was scored against the wrong
     # rules. Deterministic order, and each shadow only counts its own window.
-    supported = sorted({t.get("strategy") for t in trades if t.get("strategy")}
-                       & {"turtle_trend", "connors_meanrev", "vwap_scalper"})
+    # Unsupported names (hft_*, ensemble, typos) are REPORTED explicitly —
+    # never silently dropped (the old 3-name allowlist hid them).
+    from bot.strategies import STRATEGY_CLASSES
+    owned = sorted({t.get("strategy") for t in trades if t.get("strategy")})
     shadows = []
-    for strategy_name in supported:
+    for strategy_name in owned:
+        if strategy_name == "ensemble":
+            shadows.append({"strategy": strategy_name,
+                            "error": "unsupported: ensemble is a blend, no single-strategy shadow"})
+            continue
+        if strategy_name not in STRATEGY_CLASSES:
+            shadows.append({"strategy": strategy_name,
+                            "error": f"unsupported strategy {strategy_name!r} — no registered rules to shadow"})
+            continue
         try:
             bt = Backtester()
             res = bt.run(spec, window, strategy=strategy_name)

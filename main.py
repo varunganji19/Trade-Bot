@@ -737,7 +737,11 @@ def _parse_last_days(trades: list) -> int:
     return max(90, int((pd.Timestamp.now(tz="UTC") - first).total_seconds() // 86400) + 7)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """The CLI parser. Split out of main() so the subcommand list has ONE
+    source: CI's smoke job used to iterate a hand-maintained copy, which kept
+    naming `market` and `seed-demo` for a week after they were deleted (and
+    never smoked `config` at all). See scripts/list_subcommands.py."""
     p = argparse.ArgumentParser(prog="ai-trading-bot", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -868,7 +872,11 @@ def main():
                          "default audits the bot's own paper record only")
     sh.set_defaults(fn=cmd_shadow)
 
-    args = p.parse_args()
+    return p
+
+
+def main():
+    args = build_parser().parse_args()
     args.fn(args)
 
 

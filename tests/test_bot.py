@@ -3231,6 +3231,47 @@ def test_engine_counts_vetoes_and_says_when_it_never_enters():
     assert eng.health_note is None
 
 
+def test_every_cli_subcommand_parses_its_help():
+    """CI's smoke job iterated a HAND-MAINTAINED list of subcommands. When
+    `market` and `seed-demo` were deleted the list kept naming them, so the
+    job failed on commands that no longer exist while testing nothing about
+    the ones that do — and `config`, added the same day, was never smoked at
+    all. The list is derived from the parser now; this proves the derivation
+    works and that every registered command's --help actually parses (an
+    argparse wiring break the unit suite would otherwise never import)."""
+    import argparse
+    import subprocess
+    import sys
+
+    import main as cli
+
+    parser = cli.build_parser()
+    names = []
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            names.extend(sorted(action.choices))
+    assert len(names) >= 10, names
+    # the commands removed on 2026-09-19 must be gone, and the one added present
+    assert "market" not in names and "seed-demo" not in names
+    assert "config" in names
+
+    # the CI step's source of truth returns exactly the same set
+    out = subprocess.run([sys.executable, "scripts/list_subcommands.py"],
+                         capture_output=True, text=True, timeout=120,
+                         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert out.returncode == 0, out.stderr
+    assert sorted(out.stdout.split()) == sorted(names)
+
+    # ...and every one of them parses --help (SystemExit(0) from argparse)
+    for name in names:
+        try:
+            parser.parse_args([name, "--help"])
+        except SystemExit as exc:
+            assert exc.code == 0, f"{name} --help exited {exc.code}"
+        else:
+            raise AssertionError(f"{name} --help did not exit")
+
+
 def test_config_command_reports_every_setting_and_its_source(capsys, monkeypatch):
     """A wrong env var fails SILENTLY here: the documented .env workflow never
     loaded the file for months, so DASHBOARD_TOKEN never reached the process

@@ -40,10 +40,17 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: CLI smoke (every subcommand --help)
+        # The list is DERIVED from the parser (scripts/list_subcommands.py),
+        # never hand-maintained: a hardcoded copy kept naming `market` and
+        # `seed-demo` for a week after they were deleted — the job failed on
+        # commands that no longer exist while saying nothing about the ones
+        # that do, and never smoked `config` at all.
         run: |
-          for cmd in backtest run hft-backtest hft-run hft-status hft-battery pause resume market validate dashboard status chat seed-demo kronos shadow; do
-            python main.py "$cmd" --help || exit 1
-          done
+          python scripts/list_subcommands.py > /tmp/subcommands
+          echo "smoking: $(tr '\n' ' ' < /tmp/subcommands)"
+          while read -r cmd; do
+            python main.py "$cmd" --help > /dev/null || { echo "FAILED: $cmd --help"; exit 1; }
+          done < /tmp/subcommands
       - name: Battery scripts compile smoke
         run: python -m py_compile run_battery.py scripts/pinned_runs.py
 

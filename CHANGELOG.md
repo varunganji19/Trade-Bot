@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] — running both engines no longer kills the process
+
+**Starting the standard and HFT books together aborted the app.** Not a
+Python exception — a hard process abort:
+`failed assertion _status < MTLCommandBufferStatusCommitted` from
+IOGPUMetalCommandBuffer. The vendored KronosPredictor auto-selects the MPS
+(Metal) backend on Apple Silicon, each TradingEngine built its OWN Kronos
+stack, and Metal aborts the process when two threads submit work to it.
+
+Underneath that was a latency problem that made it inevitable. Measured
+(Kronos-small, CPU, 2026-09-19): one forecast path costs 0.5s at horizon 24
+and 1.4s at horizon 60, and the paths run SEQUENTIALLY — 41s for a single 1m
+symbol at 30 paths. The engine called `evaluate()` inline inside the cycle,
+under the cycle lock, so the HFT book needed ~205s for a cycle designed
+around a 1-3s bar-close-to-fill budget, the standard book ~180s for a 60s
+interval, and two books together pegged every core without either finishing
+a cycle. (The earlier 1m horizon bug had masked this: every 1m forecast
+raised instantly, so Kronos cost nothing on the HFT book.)
+
+- `KronosForecastService`: ONE worker thread per process, shared by both
+  books, with a bounded per-market cache and queue coalescing. The trading
+  cycle now only READS a cached forecast — it never blocks on inference.
+- One model per process (`_SHARED`), and load + inference under one lock, so
+  Metal only ever sees a single thread.
+- Sub-5m books sample 8 forecast paths instead of 30 (the paths are a linear
+  cost dial; the forecast is off-cycle either way).
+- A cached forecast is served for at most `evaluate_every_bars` bars past its
+  anchor bar — a forecast from an hour ago is not evidence about now.
+- Per-BOOK IC ledgers (`kronos_ic_<mode>.json`): both engines wrote one file,
+  so two trackers overwrote each other and the promotion IC mixed 1m
+  forecasts with 1h ones. The Evidence tab reads both, plus the legacy file.
+- Retiring a book drops its queued forecasts and stops nothing else.
+- Verified: both books running together, 13% CPU, 828MB, HFT at 14 cycles and
+  the standard book cycling, no errors. Before: 113% CPU, 1.0GB, cycle 0 on
+  both, dead after ~6 minutes.
+- 294 tests.
+
 ## [Unreleased] — the HFT book actually trades; live engine controls
 
 **The 1m book had produced 15 entry decisions and 0 trades.** Two correct

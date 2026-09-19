@@ -64,7 +64,7 @@ from bot.strategies import STRATEGY_CLASSES
 import config as config_mod
 from config import (CONFIG, MarketSpec, VALID_KINDS,
                     VALID_TIMEFRAMES, MAX_WATCHLIST_SPECS,
-                    apply_saved_watchlist, save_watchlist, infer_kind)
+                    apply_saved_watchlist, save_watchlist, db_dir, infer_kind)
 
 
 @asynccontextmanager
@@ -261,7 +261,14 @@ _engine_starting = False  # placeholder claimed under lock before the build
 
 
 def _release_book(eng, mode: str) -> None:
-    """Drop an engine's cross-process lease; a lost lease is already released."""
+    """Retire an engine: stop its background workers and drop its
+    cross-process lease. Every call site is discarding the engine, and a
+    stopped book must not leave a Kronos worker forecasting into its ledger
+    (a stop/start used to leave one running per start)."""
+    try:
+        eng.shutdown()
+    except Exception:
+        pass
     token, eng.book_token = eng.book_token, None
     if token is None:
         return
@@ -757,6 +764,14 @@ def _results_dir() -> str:
     return os.path.join(os.path.dirname(CONFIG.db_path), "results")
 
 
+def _ic_of(records: list, cfg) -> float | None:
+    """Rolling rank-IC over `records` — the same window promoted() uses."""
+    from bot.kronos_signal import KronosICTracker
+    tr = KronosICTracker.__new__(KronosICTracker)
+    tr.records, tr.half_life = list(records), cfg.ic_half_life
+    return tr.ic()
+
+
 def _evidence_kronos() -> dict:
     """The Kronos IC ledger as a series: rolling rank-IC (same math as
     promoted()'s gate) computed over the persisted records, so the UI can draw
@@ -765,8 +780,18 @@ def _evidence_kronos() -> dict:
         import pandas as pd
         from bot.kronos_signal import KronosConfig, KronosICTracker
         cfg = KronosConfig()
-        tr = KronosICTracker(cfg.track_file, half_life=cfg.ic_half_life)
-        recs = tr.records
+        # per-BOOK ledgers (the two engines used to share one file and
+        # overwrite each other): read whichever exist, plus the legacy
+        # single-file ledger, so the evidence curve keeps its history
+        paths = [os.path.join(db_dir(), f"kronos_ic_{m}.json")
+                 for m in ("paper", "hft")] + [cfg.track_file]
+        recs, pending = [], 0
+        for path in paths:
+            if not os.path.exists(path):
+                continue
+            tr = KronosICTracker(path, half_life=cfg.ic_half_life)
+            recs.extend(tr.records)
+            pending += len(tr._pending)
         win = max(10, int(2 * cfg.ic_half_life))
         series = []
         for i in range(10, len(recs) + 1):
@@ -776,7 +801,7 @@ def _evidence_kronos() -> dict:
             c = scores.corr(rets, method="spearman")
             if c == c:
                 series.append({"i": i, "ic": round(float(c), 4)})
-        return {"n": len(recs), "pending": len(tr._pending), "ic": tr.ic(),
+        return {"n": len(recs), "pending": pending, "ic": _ic_of(recs, cfg),
                 "hurdle": cfg.ic_hurdle, "demote_below": cfg.demote_below,
                 "min_observations": cfg.min_observations, "series": series,
                 "note": "records resolved before 2026-09 predate per-market keying"}

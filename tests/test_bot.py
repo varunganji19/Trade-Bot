@@ -3019,6 +3019,178 @@ def test_kronos_ledger_quarantines_torn_file_and_survives_restart():
         assert tr2.n() == 1 and tr2.records == tr.records
 
 
+def test_kronos_never_runs_inference_inside_a_trading_cycle():
+    """REGRESSION (starting BOTH engines froze the app): the engine called
+    KronosSignalEngine.evaluate() INLINE, under the cycle lock. Measured on
+    CPU: 0.5s per forecast path at horizon 24, 1.4s at horizon 60, and the
+    paths run sequentially — 41s for ONE 1m symbol at 30 paths. That made a
+    2s HFT cycle take ~205s (5 symbols), a 60s standard cycle ~180s (12
+    specs), and two books together pegged every core without either
+    completing a cycle. The forecast now runs on a worker thread and the
+    cycle only reads a cache."""
+    import bot.engine as engine_mod
+    from bot.kronos_signal import KronosForecastService, KronosSignal
+
+    calls = []
+
+    class _SlowEngine:
+        """Stands in for the model: records that it was NOT called inline."""
+        cfg = type("C", (), {"max_context": 512, "evaluate_every_bars": 4,
+                             "ic_half_life": 100})()
+        last_error = None
+        tracker = type("T", (), {"resolve": lambda self, c, market="": None})()
+
+        def evaluate(self, df, horizon=24, timeframe=None):
+            calls.append((horizon, timeframe))
+            return KronosSignal(direction="LONG", p_up=0.7, dispersion_pct=1.0,
+                                expected_return_pct=0.4, horizon_bars=horizon,
+                                bar_ts=str(df.index[-1]))
+
+        def log_and_maybe_resolve(self, df, sig, market=""):
+            pass
+
+        def promoted(self):
+            return False
+
+    eng = engine_mod.TradingEngine.__new__(engine_mod.TradingEngine)
+    eng.quiet = True
+    eng.kronos = _SlowEngine()
+    eng.kronos_service = KronosForecastService(max_stale_bars=4)
+    eng._kronos_last_bar = {}
+    eng._kronos_promoted = False
+    eng._kronos_last_error = None
+    idx = pd.date_range("2024-01-01", periods=200, freq="1min", tz="UTC")
+    df = pd.DataFrame({"close": np.linspace(100, 101, 200)}, index=idx)
+    spec = MarketSpec("crypto", "BTC/USDT", "1m")
+
+    t0 = time.monotonic()
+    sig, promoted = eng._kronos_eval(spec, df, len(df) - 1)
+    elapsed = time.monotonic() - t0
+    # the first read has nothing cached yet — and it returns IMMEDIATELY
+    assert sig is None and promoted is False
+    assert elapsed < 0.5, f"the cycle blocked for {elapsed:.2f}s"
+    # the worker does the work, with the 1m horizon policy
+    deadline = time.monotonic() + 5.0
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert calls == [(60, "1m")], calls
+    # ...and the NEXT cycle reads it from cache, still without inference
+    sig2, _ = eng._kronos_eval(spec, df, len(df) - 1)
+    assert sig2 is not None and sig2.direction == "LONG"
+    assert len(calls) == 1, "a cached forecast must not re-run the model"
+    svc = eng.kronos_service
+    eng.shutdown()
+    assert eng.kronos_service is None
+    svc.stop()
+
+
+def test_kronos_forecast_cache_expires_and_never_backlogs():
+    """A stale forecast is not evidence about now: the cache serves a
+    forecast for at most `max_stale_bars` bars after its anchor. And a slow
+    forecast must not build a queue of stale frames — only the latest request
+    per market survives."""
+    from bot.kronos_signal import KronosForecastService, KronosSignal
+
+    class _Engine:
+        cfg = type("C", (), {"max_context": 512, "evaluate_every_bars": 4})()
+        last_error = None
+
+        def evaluate(self, df, horizon=24, timeframe=None):
+            return KronosSignal(direction="SHORT", p_up=0.2, dispersion_pct=1.0,
+                                expected_return_pct=-0.3, horizon_bars=horizon)
+
+        def log_and_maybe_resolve(self, df, sig, market=""):
+            pass
+
+    engine = _Engine()
+    svc = KronosForecastService(max_stale_bars=4)
+    idx = pd.date_range("2024-01-01", periods=80, freq="1min", tz="UTC")
+    df = pd.DataFrame({"close": np.linspace(10, 11, 80)}, index=idx)
+    svc.request(engine, "BTC/USDT|1m", df, bar_key=1000, horizon=60,
+                timeframe="1m", refresh=True)
+    deadline = time.monotonic() + 5.0
+    while svc.forecasts == 0 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert svc.forecasts == 1
+    assert svc.request(engine, "BTC/USDT|1m", df, 1000, 60, "1m", False) is not None
+    assert svc.request(engine, "BTC/USDT|1m", df, 1004, 60, "1m", False) is not None
+    # 5 bars past the anchor, with max_stale_bars=4: dropped, not voted on
+    assert svc.request(engine, "BTC/USDT|1m", df, 1005, 60, "1m", False) is None
+    # queue coalescing: many requests for one market collapse to one job
+    svc.stop()
+    for k in range(1010, 1020):
+        svc._inflight.discard("BTC/USDT|1m")
+        svc._queue.append({"market": "BTC/USDT|1m", "bar_key": k, "horizon": 60,
+                           "timeframe": "1m", "df": df, "engine": engine})
+        svc.request(engine, "BTC/USDT|1m", df, k, 60, "1m", refresh=True)
+    assert len([j for j in svc._queue if j["market"] == "BTC/USDT|1m"]) == 1
+    # a retired book's work is dropped without stopping the shared worker
+    svc.drop(engine)
+    assert svc._queue == [] and not svc._inflight
+    svc.stop()
+
+
+def test_kronos_model_is_shared_between_books_and_inference_serialized():
+    """Two engines used to load the 25M-param model twice (~1GB RSS with both
+    books running) and forecast concurrently, which only makes torch fight
+    itself for cores. One model per process, one inference at a time."""
+    import bot.kronos_signal as ks
+
+    sentinel = object()
+    key = (ks.KronosConfig().model_name, ks.KronosConfig().tokenizer_name, 512)
+    with ks._SHARED_LOCK:
+        previous = ks._SHARED.get(key)
+        ks._SHARED[key] = sentinel
+    try:
+        a, b = ks.KronosPredictorLazy(), ks.KronosPredictorLazy()
+        assert a._ensure() is sentinel and b._ensure() is sentinel
+        assert a.available and b.available          # no load, no download
+    finally:
+        with ks._SHARED_LOCK:
+            if previous is None:
+                ks._SHARED.pop(key, None)
+            else:
+                ks._SHARED[key] = previous
+    # the LOAD takes the same lock as inference — two engines loading
+    # concurrently put two models on Metal and aborted the process
+    assert ks._INFERENCE_LOCK is ks._SHARED_LOCK
+    assert ks.forecast_service() is ks.forecast_service()   # one worker
+
+
+def test_kronos_sample_budget_is_smaller_on_fast_books():
+    """The path count is a linear cost dial (paths run sequentially): 30
+    paths x 60 bars measured 41s. Sub-5m books sample fewer."""
+    from bot.kronos_signal import KronosSignalEngine
+    eng = KronosSignalEngine.__new__(KronosSignalEngine)
+    from bot.kronos_signal import KronosConfig
+    eng.cfg = KronosConfig()
+    assert eng.sample_budget("1m") == eng.cfg.fast_sample_count < eng.cfg.sample_count
+    assert eng.sample_budget("1h") == eng.cfg.sample_count
+    assert eng.sample_budget(None) == eng.cfg.sample_count
+
+
+def test_each_book_keeps_its_own_kronos_ledger(tmp_path, monkeypatch):
+    """Both engines wrote data/kronos_ic.json: two in-memory trackers, one
+    file, last writer wins — and the IC that gates promotion mixed 1m
+    forecasts with 1h ones. One ledger per book."""
+    import config as config_mod
+    monkeypatch.setattr(config_mod.CONFIG, "db_path", str(tmp_path / "t.db"))
+    from dataclasses import replace
+
+    from bot.kronos_signal import KronosConfig, KronosSignalEngine
+    paths = []
+    for mode in ("paper", "hft"):
+        cfg = replace(KronosConfig(),
+                      track_file=os.path.join(config_mod.db_dir(),
+                                              f"kronos_ic_{mode}.json"))
+        eng = KronosSignalEngine(cfg)
+        eng.tracker.log_forecast(0.5, "2024-01-01T00:00:00Z", 60, market=f"X|{mode}")
+        eng.tracker._save()
+        paths.append(eng.tracker.path)
+    assert paths[0] != paths[1]
+    assert all(os.path.exists(p) for p in paths)
+
+
 def test_kronos_horizon_normalized_to_one_day_per_timeframe():
     """horizon=24 was hardcoded for every book: 24x4h forecast FOUR DAYS out,
     24x15m forecast four hours. The horizon must be ~one day of bars for

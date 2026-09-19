@@ -15,6 +15,7 @@ Positions survive restarts: open journal trades are restored into the broker.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 import time
 import threading
@@ -35,7 +36,8 @@ from bot.pause import is_paused
 from bot.risk import RiskManager
 from bot.sentiment import SentimentOverlay
 from bot.strategies import get_strategy
-from config import CONFIG, TIMEFRAME_SECONDS, MarketSpec, infer_kind, utc_now
+from config import (CONFIG, TIMEFRAME_SECONDS, MarketSpec, db_dir as config_db_dir,
+                    infer_kind, utc_now)
 
 
 class TradingEngine:
@@ -110,6 +112,7 @@ class TradingEngine:
         # so backtests, the Lab and tests never contend for it)
         self.book_token: str | None = None
         self.kronos = None
+        self.kronos_service = None
         self._kronos_last_bar: dict[tuple[str, str], int] = {}
         self._kronos_promoted = False
         self._kronos_last_error: str | None = None
@@ -121,8 +124,16 @@ class TradingEngine:
         """Attach the Kronos engine when deps + weights are available; the bot
         runs fully without it (no signal, no vote, no crash)."""
         try:
-            from bot.kronos_signal import KronosSignalEngine
-            self.kronos = KronosSignalEngine()
+            from dataclasses import replace as _replace
+
+            from bot.kronos_signal import KronosConfig, KronosSignalEngine
+            # per-BOOK ledger: both engines used to write data/kronos_ic.json,
+            # so two in-memory trackers overwrote each other's records and the
+            # IC that gates promotion mixed 1m forecasts with 1h ones
+            base = KronosConfig()
+            track = os.path.join(config_db_dir(),
+                                 f"kronos_ic_{self.mode}.json")
+            self.kronos = KronosSignalEngine(_replace(base, track_file=track))
         except Exception as exc:
             if not self.quiet:
                 print(f"[engine] Kronos init skipped: {type(exc).__name__}: {exc}")
@@ -132,7 +143,7 @@ class TradingEngine:
         # horizon the predictor cannot generate is a policy bug, and
         # evaluate() swallows it into last_error — which is exactly how the
         # 1m book ran with a permanently silent Kronos.
-        from bot.kronos_signal import validate_horizon_policy
+        from bot.kronos_signal import forecast_service, validate_horizon_policy
         validate_horizon_policy(self.kronos.cfg.max_context)
         try:
             if not self.kronos.predictor.available:
@@ -143,12 +154,32 @@ class TradingEngine:
             else:
                 if not self.quiet:
                     print("[engine] Kronos loaded — tracked non-voter until its "
-                          "IC earns voting rights")
+                          "IC earns voting rights (forecasts run off-cycle)")
+                # the forecast NEVER runs inside a trading cycle: one 1m
+                # forecast measured 41s against a 2s cadence, and two books
+                # forecasting inline pegged the CPU at cycle 0
+                self.kronos_service = forecast_service(quiet=self.quiet)
                 self.orchestrator.kronos = self.kronos
         except Exception as exc:
             if not self.quiet:
                 print(f"[engine] Kronos init skipped: {type(exc).__name__}: {exc}")
             self.kronos = None
+
+    def shutdown(self):
+        """Release background workers. Stopping an engine used to leave its
+        Kronos worker alive: a stop/start cycle then had two threads
+        forecasting into one ledger, and the model stayed resident for a book
+        the operator had switched off."""
+        svc, kr = self.kronos_service, self.kronos
+        self.kronos_service = None
+        if svc is not None and kr is not None:
+            try:
+                # drop THIS book's queued forecasts; the worker is shared with
+                # the other book and keeps running (one thread, one model —
+                # Metal aborts the process if two threads touch it)
+                svc.drop(kr)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------- recovery
     def _restore_positions(self):
@@ -593,59 +624,46 @@ class TradingEngine:
         return kronos_horizon(timeframe, max_context=max_context)
 
     def _kronos_eval(self, spec: MarketSpec, df, i: int):
-        """Forecast + IC bookkeeping for Kronos. Returns (signal, promoted).
+        """Kronos read for this bar. Returns (signal, promoted) — NEVER blocks.
 
-        Throttled to once per KRONOS_EVERY closed bars per symbol — the model
-        is a slow CPU inference (~seconds) and the IC ledger only needs one
-        observation per bar boundary, not one per 60s cycle."""
-        if self.kronos is None:
+        The forecast itself runs on KronosForecastService's worker thread:
+        measured at 41s for one 1m symbol (30 sequential paths x 60 bars) on
+        CPU, an inline call made a 2s HFT cycle take minutes and two books
+        running together never finished a cycle at all. What happens here is
+        cheap: read the cached forecast, ask for a refresh every
+        `evaluate_every_bars` bars, and resolve matured IC records (pure
+        pandas). The cached forecast is only served while it is fresh — see
+        KronosForecastService.request."""
+        if self.kronos is None or self.kronos_service is None:
             return None, False
+        market = f"{spec.symbol}|{spec.timeframe}"
         try:
             bar_key = int(df.index[i].timestamp() // TIMEFRAME_SECONDS[spec.timeframe])
             last = self._kronos_last_bar.get((spec.symbol, spec.timeframe))
             every = max(1, self.kronos.cfg.evaluate_every_bars)
-            if last is not None and bar_key - last < every:
-                # throttled (no new forecast this bar), but maturing forecasts
-                # from earlier bars still resolve against this close — the IC
-                # ledger must advance every cycle, not just on forecast bars
-                try:
-                    self.kronos.tracker.resolve(
-                        df["close"].iloc[: i + 1],
-                        market=f"{spec.symbol}|{spec.timeframe}")
-                except Exception:
-                    pass
-                return None, self.kronos.promoted()
-            sig = self.kronos.evaluate(df.iloc[: i + 1],
-                                       horizon=self._kronos_horizon(spec.timeframe),
-                                       timeframe=spec.timeframe)
-            market = f"{spec.symbol}|{spec.timeframe}"
-            if sig is None:
-                # no new forecast, but forecasts logged on EARLIER bars may
-                # have matured on this close: resolve regardless so the IC
-                # ledger keeps scoring through a forecast outage instead of
-                # stalling (a stalled ledger freezes the promotion gate on
-                # stale evidence either way).
-                try:
-                    self.kronos.tracker.resolve(df["close"].iloc[: i + 1],
-                                                market=market)
-                except Exception:
-                    pass
-                err = getattr(self.kronos, "last_error", None)
-                if err and err != self._kronos_last_error and not self.quiet:
-                    # evaluate() swallows exceptions internally; surface a NEW
-                    # failure once instead of silently forecasting nothing
-                    print(f"[engine] kronos forecast failed for {spec.symbol} "
-                          f"{spec.timeframe}: {err}")
-                self._kronos_last_error = err
-            else:
-                # ledger key committed only AFTER a successful evaluation: a
-                # transient failure used to book the bar and then silently skip
-                # Kronos for `every` more bars with no retry
+            due = last is None or bar_key - last >= every
+            sig = self.kronos_service.request(
+                self.kronos, market, df.iloc[: i + 1], bar_key,
+                horizon=self._kronos_horizon(spec.timeframe),
+                timeframe=spec.timeframe, refresh=due)
+            if due:
+                # book the bar on the REQUEST, not on the result: the worker
+                # answers later, and re-queueing the same market every bar
+                # would starve every other market behind it
                 self._kronos_last_bar[(spec.symbol, spec.timeframe)] = bar_key
-                # IC ledger is keyed by market: a BTC forecast must never be
-                # scored against whichever sibling symbol's frame resolved first
-                self.kronos.log_and_maybe_resolve(
-                    df.iloc[: i + 1], sig, market=market)
+            # forecasts logged on earlier bars mature against this close
+            # whether or not a new one arrived — the ledger must advance every
+            # cycle, not only on forecast bars
+            try:
+                self.kronos.tracker.resolve(df["close"].iloc[: i + 1], market=market)
+            except Exception:
+                pass
+            err = self.kronos_service.last_error
+            if err and err != self._kronos_last_error and not self.quiet:
+                print(f"[engine] kronos forecast failed for {spec.symbol} "
+                      f"{spec.timeframe}: {err}")
+            self._kronos_last_error = err
+            if sig is not None:
                 self._kronos_promoted = self.kronos.promoted()
             return sig, self._kronos_promoted
         except Exception as exc:

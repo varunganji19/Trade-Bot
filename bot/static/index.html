@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F6F8FB">
+<title>Algo Trading Bot — Dashboard</title>
+<script>
+/* theme boot — runs before first paint so a saved theme never flashes.
+   light is the default; first-time visitors follow the OS preference.
+   values: light · dark (TRUE black — the old grayish dark was folded into
+   it; a stored 'black' maps to 'dark'). */
+(function(){var t='light';
+try{t=localStorage.getItem('algo-theme')||t;
+if(t==='black')t='dark';
+if(t!=='light'&&t!=='dark')
+  t=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+}catch(e){t='light';}
+document.documentElement.setAttribute('data-theme',t);})();
+</script>
+<script src="/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+<a class="skip-link" href="#mainContent">Skip to workspace</a>
+
+<!-- SVG sprite: the tab/card icons below repeat 2-5× each — each <use> inherits
+     fill/stroke from its own <svg>, the symbol carries only viewBox -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="i-rotate" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo-chip" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+    </span>
+    <div>
+      <div class="brand-name">ALGO<span class="brand-divider"> / </span>Trading workspace</div>
+      <div class="sub" id="brandSub">paper trading · IST</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span class="paper-badge">Paper account</span>
+    <!-- engine start/stop live IN THE NAV (moved out of the Overview card):
+         the ids are the same ones the JS has always wired, so the enable/
+         disable logic in refreshStats keeps working unchanged -->
+    <button class="btn" id="btnStart" style="padding:7px 12px" title="Start the standard paper engine">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+      Start engine</button>
+    <button class="btn btn-secondary" id="btnStop" disabled style="padding:7px 12px" title="Stop the standard paper engine">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+      Stop engine</button>
+    <div class="engine-pill" role="status" title="">
+      <span class="dot" id="engineDot"></span>
+      <span id="enginePillText">engine: checking…</span>
+    </div>
+    <div class="theme-switch" role="group" aria-label="Color theme">
+      <button type="button" data-theme="light" aria-pressed="false" title="Light" aria-label="Light theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </button>
+      <button type="button" data-theme="dark" aria-pressed="false" title="Dark (true black)" aria-label="Dark theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs" aria-label="Dashboard sections">
+  <button class="tab active" data-view="overview" id="tab-overview">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+    Overview</button>
+  <button class="tab" data-view="portfolio" id="tab-portfolio">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+    Portfolio</button>
+  <button class="tab" data-view="hft" id="tab-hft">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+    HFT</button>
+  <button class="tab" data-view="watchlist" id="tab-watchlist">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-clock"/></svg>
+    Watchlist</button>
+  <button class="tab" data-view="lab" id="tab-lab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V2"/><line x1="8.5" y1="2" x2="15.5" y2="2"/><line x1="7" y1="16" x2="17" y2="16"/></svg>
+    Lab</button>
+  <button class="tab" data-view="evidence" id="tab-evidence">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+    Evidence</button>
+  <button class="tab" data-view="account" id="tab-account">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    Account</button>
+  <button class="tab" data-view="chat" id="tab-chat">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-chat"/></svg>
+    Chat</button>
+</nav>
+
+<!-- no bottom nav: it duplicated the top tabs and rendered at EVERY width
+     (its min-width:769px hide rule sat above the base .bottom-nav rule, so the
+     later display:grid always won) — the sticky, horizontally-scrollable
+     .tabs bar is the nav at all sizes now -->
+
+<main id="mainContent" tabindex="-1">
+<div class="workspace-heading">
+  <div>
+    <div class="workspace-kicker" id="workspaceKicker">STANDARD PAPER ACCOUNT · IST</div>
+    <h1 id="pageTitle">Portfolio overview</h1>
+    <p id="pageDescription">Your performance, positions and trading activity at a glance.</p>
+  </div>
+  <div class="workspace-meta">
+    <span id="connectionState" role="status">Connecting…</span>
+    <button type="button" class="btn btn-ghost" id="refreshNow" aria-label="Refresh dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><use href="#i-rotate"/></svg>Refresh
+    </button>
+  </div>
+</div>
+<div class="pause-banner" id="connectionBanner" role="alert" hidden>
+  <div><b>Connection lost.</b> Displayed values may be out of date. The engine may still be running.
+  Retrying automatically; use Refresh to try now.</div>
+</div>
+<div class="pause-banner" id="pauseBanner" role="status">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+  <div class="p-body"><b>Trading paused (manual).</b> Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.<span id="pauseNoteBox"></span> <span style="opacity:.85">Resume from the Overview tab when you want new entries again.</span></div>
+</div>
+<div class="health-banner" id="healthBanner" role="alert">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>
+  <div><b>Engine degraded:</b> <span id="healthMsg"></span></div>
+  <button class="h-dismiss" id="healthDismiss" type="button" aria-label="Dismiss">dismiss</button>
+</div>
+<!-- ============================================================ OVERVIEW -->
+<section class="view active" id="view-overview">
+  <div class="stats-grid" id="ovStats"></div>
+  <div class="overview-secondary" id="overviewSecondary"></div>
+  <div class="first-run" id="firstRun" hidden>
+    <div><strong>Your paper workspace is ready</strong><p>Review your markets or try a strategy in the Lab. Start the engine when you are ready to collect paper results.</p></div>
+    <div class="first-run-actions"><button class="btn btn-secondary" data-goto="watchlist">Review watchlist</button><button class="btn btn-ghost" data-goto="lab">Explore the Lab</button></div>
+  </div>
+  <div class="hint" id="ovDemoNote" style="margin:-6px 0 10px"></div>
+  <div class="grid overview-grid">
+    <div class="card chart-card">
+      <div class="card-head"><h2>Account performance</h2><span class="hint">Marked equity</span></div>
+      <div class="chart-toolbar"><span class="hint" id="eqRange">Waiting for equity history</span>
+        <div class="range-switch" role="group" aria-label="Equity history range"><button type="button" data-days="7" aria-pressed="false">7D</button><button type="button" data-days="30" aria-pressed="false">30D</button><button type="button" data-days="0" aria-pressed="true">All</button></div>
+      </div>
+      <div class="chart-body"><canvas id="equityChart" role="img" aria-label="Paper account equity over time"></canvas>
+        <div class="chart-empty" id="equityEmpty" hidden><strong>No equity history yet</strong><span>Paper results appear here after the engine completes a cycle.</span></div>
+      </div>
+    </div>
+    <div class="card engine-card">
+      <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Engine control</h2></div>
+      <div class="row">
+        <div>
+          <label class="fld" for="intervalSel">Interval</label>
+          <select id="intervalSel" aria-label="Engine cycle interval">
+            <option value="30">30 s</option>
+            <option value="60" selected>60 s</option>
+            <option value="120">2 min</option>
+            <option value="300">5 min</option>
+            <option value="900">15 min</option>
+          </select>
+        </div>
+        <button class="btn btn-warn" id="btnPause" title="Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          <span id="pauseLabel">Pause trading</span></button>
+        <span class="hint">Pause blocks new entries. Existing positions stay managed.</span>
+      </div>
+      <div class="engine-state" style="margin-top:12px">
+        <span class="st" id="engineStateText">stopped</span>
+        <span class="sub" id="engineStateSub">0 cycles · watchlist 0 specs</span>
+      </div>
+      <!-- WHY IT IS NOT TRADING: entry attempts vs approvals, by blocker.
+           Without this a book can refuse every entry for a week and the page
+           still looks healthy — which is exactly what happened. -->
+      <div id="vetoBox" class="veto-box" hidden>
+        <div class="veto-head"><b>Entry attempts</b><span id="vetoSummary"></span></div>
+        <div id="vetoList" class="veto-list"></div>
+      </div>
+      <details class="risk-controls risk-details">
+        <summary>How risk controls work</summary>
+        <div class="rc-row"><b>Daily kill switch (automatic):</b> after a −3% day it blocks new entries for the rest of the UTC day. It resets by itself at the next UTC day. It never force-closes positions — their stops, targets and strategy exits keep running.</div>
+        <div class="rc-row"><b>Pause trading (manual):</b> stays until you press Resume. Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.</div>
+      </details>
+    </div>
+  </div>
+  <div class="grid overview-bottom-grid">
+    <div class="card">
+      <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14"/><polyline points="2 20 22 20"/><path d="M14 12v8"/><path d="M10 12v8"/></svg>Strategy P&amp;L</h2><span class="hint">closed trades</span></div>
+      <div class="strat-bars" id="stratBars"><div class="sk-row"><div class="skeleton" style="width:60%"></div></div><div class="sk-row"><div class="skeleton" style="width:45%"></div></div></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Recent decisions</h2><span class="hint">every evaluation · HOLDs included</span></div>
+      <div class="term" id="decisionFeed"><div class="sk-row"><div class="skeleton" style="width:85%"></div></div><div class="sk-row"><div class="skeleton" style="width:70%"></div></div><div class="sk-row"><div class="skeleton" style="width:78%"></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ PORTFOLIO -->
+<section class="view" id="view-portfolio">
+  <div class="card">
+    <div class="card-head">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7 7 7-7"/></svg>Open positions</h2>
+      <span class="hint" id="liveHint"></span>
+    </div>
+    <div class="tbl-wrap">
+      <table id="posTable"><thead><tr>
+        <th>Market</th><th>Side</th><th class="num">Qty</th><th class="num">Entry</th>
+        <th class="num">Mark</th><th class="num">Stop</th><th class="num">Target</th>
+        <th>Strategy</th><th class="num">Bars</th><th class="num">Unrealized</th><th></th>
+      </tr></thead><tbody><tr><td colspan="11"><div class="sk-row"><div class="skeleton" style="width:90%"></div></div></td></tr></tbody></table>
+    </div>
+    <div class="empty" id="posEmpty" hidden>No open positions.</div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>Trade history</h2>
+    </div>
+    <div class="trade-toolbar">
+      <input class="input trade-search" id="tradeSearch" type="search" placeholder="Search symbol, strategy or exit reason" aria-label="Search trades by symbol, strategy or exit reason" autocomplete="off">
+      <select class="trade-status" id="stratFilter" aria-label="Filter trades by strategy">
+        <option value="">All strategies</option>
+      </select>
+      <select class="trade-status" id="tradeStatus" aria-label="Filter trades by status">
+        <option value="">All statuses</option>
+        <option value="OPEN">Open</option>
+        <option value="CLOSED">Closed</option>
+        <option value="ABORTED">Aborted</option>
+      </select>
+      <button class="btn btn-ghost" type="button" id="tradeClear" hidden>Clear filters</button>
+    </div>
+    <p class="hint table-scroll-hint">Scroll horizontally to see all trade details.</p>
+    <div class="tbl-wrap" tabindex="0" role="region" aria-label="Trade history">
+      <table id="tradeTable"><thead><tr>
+        <th>Opened</th><th>Market</th><th>Side</th><th class="num">Qty</th>
+        <th class="num">Entry</th><th class="num">Exit</th><th class="num">P&amp;L</th>
+        <th>Strategy</th><th>Status</th><th>Exit reason</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <div class="empty" id="tradeEmpty" hidden>No trades recorded yet. Review your watchlist, then start the paper engine.</div>
+    <div class="table-footer">
+      <span class="hint" id="tradeCount" aria-live="polite">Loading trade history…</span>
+      <div class="pagination">
+        <button class="btn btn-ghost" type="button" id="tradePrev" aria-label="Previous page of trades" disabled>Previous</button>
+        <button class="btn btn-ghost" type="button" id="tradeNext" aria-label="Next page of trades" disabled>Next</button>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:10px">Trades from previous market modes remain in the journal history; the bot only opens new positions in the active market.</p>
+  </div>
+</section>
+
+<!-- ================================================================ HFT -->
+<section class="view" id="view-hft">
+  <div class="card">
+    <div class="card-head">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Fast book <span class="badge">5m · paper</span></h2>
+      <span class="hint" id="hftFeeHint"></span>
+    </div>
+    <p class="hint" style="margin:0 0 10px">A SECOND paper account trading <b>5-minute</b> bars (crypto + forex) with its own capital, risk dials and fee tier — the standard book above is untouched. It ran 1m until 2026-09-19: at a 16bp round trip against a 5-8bp 1m ATR, no stop could pay for its own fees, so entries were vetoed rather than taken. Strategies: <b>hft_micro_breakout</b> (2R range breakout, taker), <b>hft_exhaustion_fade</b> (volume-spike reversion). Every one refuses a setup whose stop cannot clear the fee tier's round trip. Research + fee math: <code>HFT.md</code>.</p>
+    <div class="stats-grid" id="hftStats"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px" id="hftEngineControls">
+      <button class="btn primary" id="hftStartBtn">Start HFT engine</button>
+      <button class="btn btn-danger" id="hftStopBtn" disabled>Stop</button>
+      <label class="fld" for="hftIntervalSel" style="margin:0">Interval</label>
+      <select id="hftIntervalSel" style="min-height:36px;width:auto" aria-label="Fast book cycle interval">
+        <option value="5">5 s</option>
+        <option value="10" selected>10 s</option>
+        <option value="30">30 s</option>
+        <option value="60">60 s</option>
+      </select>
+      <span class="engine-pill"><span class="dot" id="hftEngineDot"></span><span id="hftPillText">hft: checking…</span></span>
+    </div>
+    <p class="hint" id="hftEngineNote" style="margin:8px 0 0" hidden></p>
+    <div id="hftVetoBox" class="veto-box" hidden>
+      <div class="veto-head"><b>Entry attempts</b><span id="hftVetoSummary"></span></div>
+      <div id="hftVetoList" class="veto-list"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Live 1m price</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="hftMarketSel" style="min-height:36px;width:auto" aria-label="HFT market to chart"></select>
+        <span class="hint" id="hftPriceHint">the bars the engine decides on</span>
+      </div>
+    </div>
+    <div class="chart-wrap"><canvas id="hftPriceChart" aria-label="HFT 1-minute price and EMA20" role="img"></canvas></div>
+    <div class="empty" id="hftPriceEmpty" hidden>No candles yet — the feed is warming up.</div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Equity curve</h2>
+      <span class="hint">mode='hft' journal rows</span>
+    </div>
+    <div class="chart-wrap"><canvas id="hftEquityChart" aria-label="HFT equity curve" role="img"></canvas></div>
+    <div class="empty" id="hftEquityEmpty" hidden>No HFT equity points yet — start the HFT engine.</div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>All high-frequency trades</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label class="fld" for="hftStratFilter" style="margin:0">Filter</label>
+        <select id="hftStratFilter" style="min-height:36px;width:auto" aria-label="Filter HFT trades by strategy">
+          <option value="">all strategies</option>
+        </select>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table id="hftTradeTable"><thead><tr>
+        <th>Opened</th><th>Market</th><th>Side</th><th class="num">Qty</th>
+        <th class="num">Entry</th><th class="num">Exit</th><th class="num">P&amp;L</th>
+        <th>Strategy</th><th>Status</th><th>Exit reason</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <div class="empty" id="hftTradeEmpty" hidden>No HFT trades yet — start the HFT engine or run `python3 main.py hft-backtest`.</div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Decision feed</h2>
+      <span class="hint">every HFT evaluation, HOLDs included</span>
+    </div>
+    <div id="hftDecisions" class="decision-feed"></div>
+  </div>
+</section>
+
+<!-- ============================================================ WATCHLIST -->
+<section class="view" id="view-watchlist">
+  <div class="card">
+    <div class="card-head">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-clock"/></svg>Add a market</h2>
+      <span class="hint" id="wlCount"></span>
+    </div>
+    <form id="wlForm" class="wl-form">
+      <div><label class="fld" for="wlKind">Kind</label>
+        <select id="wlKind" aria-label="Market kind">
+          <option value="crypto">crypto</option>
+          <option value="forex">forex</option>
+        </select></div>
+      <div><label class="fld" for="wlSymbol">Symbol</label>
+        <input class="input" id="wlSymbol" placeholder="BTC/USDT" autocomplete="off" required></div>
+      <div><label class="fld" for="wlTf">Timeframe</label>
+        <select id="wlTf" aria-label="Timeframe">
+          <option value="1h">1h</option><option value="15m">15m</option>
+          <option value="4h">4h</option><option value="5m">5m</option><option value="1d">1d</option>
+        </select></div>
+      <div><label class="fld" for="wlDisplay">Display name (opt.)</label>
+        <input class="input" id="wlDisplay" placeholder="Bitcoin" style="font-family:var(--font-ui)" autocomplete="off"></div>
+      <button class="btn" type="submit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><use href="#i-plus"/></svg>Add</button>
+    </form>
+    <div style="margin-top:14px">
+      <label class="fld">Quick add presets</label>
+      <div class="presets">
+        <button class="preset-btn" type="button" data-preset="crypto-majors" title="BTC, ETH, SOL on 1h/15m/4h">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><use href="#i-plus"/></svg>Crypto majors (9 specs)</button>
+        <button class="preset-btn" type="button" data-preset="forex-majors" title="EUR/USD, GBP/USD, USD/JPY on 1h">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><use href="#i-plus"/></svg>Forex majors (1h)</button>
+        <button class="preset-btn" type="button" data-preset="reset-default" title="Restore the shipped default watchlist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-rotate"/></svg>Default watchlist</button>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Traded markets</h2>
+      <span class="hint">engine hot-reloads changes on its next cycle</span>
+    </div>
+    <div class="wl-grid" id="wlGrid"><div class="sk-row"><div class="skeleton" style="width:70%"></div></div></div>
+    <div class="empty" id="wlEmpty" hidden>Watchlist is empty — add markets or use a preset.</div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>How ownership works</h2></div>
+    <p style="color:var(--color-muted-foreground);font-size:12.5px;line-height:1.6">
+      Each timeframe runs one specialized strategy: <span class="mono">1h → turtle_trend</span>,
+      <span class="mono">15m/5m → vwap_scalper</span>, <span class="mono">4h/1d → connors_meanrev</span>.
+      5m scalping is enabled by explicit decision but measured unprofitable
+      (BACKTESTS.md) — pull it back by reverting the scalper's timeframes.
+      One position per symbol across timeframes (risk rule). Max 12 specs.
+    </p>
+  </div>
+</section>
+
+<!-- ================================================================ LAB -->
+<section class="view" id="view-lab">
+  <div class="hint" style="margin:-6px 0 10px">Pick any stock or pair, apply every strategy registered for it, and backtest on real data with full costs. <b>Standard</b> = the forex+crypto+NSE book's strategies and kind-aware cost stacks; <b>HFT</b> = the high-frequency book's 1m strategies and fee tiers. Pure backtest — your open paper positions are never touched. Chart on the left, controls on the right; scroll down for the trade history (right) and the per-strategy P&amp;L (left).</div>
+  <div class="lab-grid">
+    <div class="lab-col">
+<div class="card" id="labResultCard" hidden>
+    <div class="card-head">
+      <h2 id="labResultTitle">Result</h2>
+      <span class="hint" id="labResultMeta"></span>
+    </div>
+    <div class="stats-grid" id="labStats"></div>
+    <div class="card-head" style="margin-top:8px"><h2>Equity curve</h2><span class="hint" id="labCurveHint"></span></div>
+    <div class="chart-wrap"><canvas id="labEquityChart" aria-label="Lab equity curve" role="img"></canvas></div>
+    <div class="card-head" style="margin-top:8px"><h2>Exit reasons</h2></div>
+    <div id="labExits" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  </div>
+    <div class="card" id="labPnlCard" hidden>
+    <div class="card-head">
+      <h2>How much each strategy made</h2>
+      <span class="hint">total P&amp;L, full costs — best on top</span>
+    </div>
+    <div id="labStratBars"></div>
+  </div>
+<div class="card" id="labCompareCard" hidden>
+    <div class="card-head">
+      <h2>Strategy comparison</h2>
+      <span class="hint">every registered strategy on the same frame — best total P&amp;L drives the charts above</span>
+    </div>
+    <div class="tbl-wrap">
+      <table id="labCompareTable"><thead><tr>
+        <th>Strategy</th><th class="num">Return</th><th class="num">P&amp;L</th>
+        <th class="num">Trades</th><th class="num">Win rate</th><th class="num">PF</th>
+        <th class="num">Max DD</th><th class="num">Sharpe</th><th class="num">Fees</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+      </div>
+    <div class="lab-col">
+<div class="card">
+    <div class="card-head">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V2"/><line x1="8.5" y1="2" x2="15.5" y2="2"/><line x1="7" y1="16" x2="17" y2="16"/></svg>Strategy Lab <span class="badge">pick · apply · backtest</span></h2>
+      <span class="hint">any stock/pair, both books</span>
+    </div>
+    <div style="display:grid;gap:12px" id="labForm">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+        <label class="fld">Book
+          <select id="labBook">
+            <option value="standard">Standard (forex + crypto + NSE)</option>
+            <option value="hft">HFT (high-frequency, 1m)</option>
+          </select>
+        </label>
+        <label class="fld">Market
+          <select id="labKind">
+            <option value="crypto">Crypto</option>
+            <option value="forex">Forex</option>
+          </select>
+        </label>
+        <label class="fld" style="flex:1;min-width:200px">Symbol
+          <input id="labSymbol" type="text" placeholder="BTC/USDT" maxlength="24" autocomplete="off">
+        </label>
+      </div>
+      <div id="labChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+        <label class="fld">Timeframe
+          <select id="labTimeframe"></select>
+        </label>
+        <label class="fld">Strategy
+          <select id="labStrategy"></select>
+        </label>
+        <label class="fld">History
+          <select id="labDays"></select>
+        </label>
+        <label class="fld" id="labFeeWrap" hidden>Fee tier
+          <select id="labFee">
+            <option value="perp">perp (maker 2bp / taker 5bp)</option>
+            <option value="spot">spot (10bp / 10bp)</option>
+          </select>
+        </label>
+        <button class="btn primary" id="labRunBtn">Backtest</button>
+      </div>
+      <div class="hint" id="labNote"></div>
+    </div>
+    <div class="empty" id="labStatus" hidden></div>
+  </div>
+      </div>
+  </div>
+<div class="card" id="labTradesCard" hidden>
+    <div class="card-head"><h2>Trades</h2><span class="hint" id="labTradesHint"></span></div>
+    <div class="tbl-wrap">
+      <table id="labTradeTable"><thead><tr>
+        <th>Opened</th><th>Side</th><th class="num">Qty</th><th class="num">Entry</th>
+        <th class="num">Exit</th><th class="num">P&amp;L</th><th>Exit reason</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================ EVIDENCE -->
+<section class="view" id="view-evidence">
+  <div class="stats-grid" id="evCards"></div>
+  <div class="hint" style="margin:-6px 0 10px">The honesty layer, rendered: every card and chart here is a GENERATED artifact (<code>make validate</code>, <code>python3 main.py shadow</code>, the fetch manifest) — never hand-edited. Empty cards mean the command hasn't been run on this machine yet.</div>
+  <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+    <div class="card chart-card">
+      <div class="card-head"><h2>Kronos rolling rank-IC vs its promotion hurdle</h2><span class="hint" id="krMeta"></span></div>
+      <div class="chart-body"><canvas id="kronosChart"></canvas></div>
+      <div class="empty" id="krEmpty" hidden>no resolved forecasts yet — the ledger fills as the engine (or <code>main.py kronos</code>) forecasts and the horizons resolve</div>
+    </div>
+    <div class="card chart-card">
+      <div class="card-head"><h2>Purged-CV out-of-sample path distribution</h2>
+        <select class="input" id="evReportSel" style="max-width:300px;min-height:34px"></select></div>
+      <div class="chart-body"><canvas id="cvChart"></canvas></div>
+      <div class="empty" id="cvEmpty" hidden>no validation reports on this machine — run <code>make validate</code></div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-head"><h2>Shadow Account — did the bot follow its own rules?</h2></div>
+    <div id="evShadow"><div class="empty">loading…</div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Pinned data manifest — fetch provenance</h2></div>
+    <div id="evManifest"><div class="empty">loading…</div></div>
+  </div>
+</section>
+
+<!-- ============================================================ ACCOUNT -->
+<section class="view" id="view-account">
+  <div class="card balance-card">
+    <div class="balance-label">Paper account equity</div>
+    <div class="balance-value" id="balanceBig">$0.00</div>
+    <div style="color:var(--color-muted-foreground);font-size:12px" id="balanceMode">paper mode</div>
+    <div class="balance-grid">
+      <div class="card-in"><div class="k">Cash</div><div class="v mono" id="balCash">—</div></div>
+      <div class="card-in"><div class="k">Unrealized</div><div class="v mono" id="balUnreal">—</div></div>
+      <div class="card-in"><div class="k">Start capital</div><div class="v mono" id="balCapital">—</div></div>
+      <div class="card-in"><div class="k">Last mark</div><div class="v mono" id="balLast" style="font-size:12px">—</div></div>
+    </div>
+  </div>
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="card">
+      <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>Deposit</h2></div>
+      <form id="depositForm" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <div style="flex:1;min-width:130px"><label class="fld" for="depositAmt">Amount ($)</label>
+          <input class="input" id="depositAmt" inputmode="decimal" placeholder="500" autocomplete="off"></div>
+        <button class="btn btn-success" type="submit" style="flex-shrink:0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><use href="#i-plus"/></svg>Deposit</button>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>Withdraw</h2></div>
+      <form id="withdrawForm" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <div style="flex:1;min-width:130px"><label class="fld" for="withdrawAmt">Amount ($)</label>
+          <input class="input" id="withdrawAmt" inputmode="decimal" placeholder="200" autocomplete="off"></div>
+        <button class="btn btn-danger" type="submit" style="flex-shrink:0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><use href="#i-plus"/></svg>Withdraw</button>
+      </form>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>Deposit / withdrawal history</h2><span class="hint">account ledger · times in IST</span></div>
+    <div class="tbl-wrap">
+      <table id="txnTable"><thead><tr>
+        <th>Time</th><th>Type</th><th class="num">Amount</th>
+        <th class="num">Cash after</th><th class="num">Equity after</th><th>Note</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <div class="empty" id="txnEmpty" hidden>No deposits or withdrawals yet.</div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>Danger zone</h2></div>
+    <p style="color:var(--color-muted-foreground);font-size:12.5px;margin-bottom:14px">
+      Reset stops the engine, backs up the journal to <span class="mono">data/trading.backup.&lt;ts&gt;.db</span>,
+      then clears the standard paper book's trades, decisions, equity and transactions.
+      HFT, demo records and chat history are retained. The account restarts at a new
+      start capital you choose. This cannot be undone (the backup file is the only copy).
+    </p>
+    <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+      <div style="flex:1;min-width:150px;max-width:280px"><label class="fld" for="resetCapital">New start capital ($)</label>
+        <input class="input" id="resetCapital" inputmode="decimal" placeholder="10000" autocomplete="off"></div>
+      <button class="btn btn-danger" type="button" id="btnResetOpen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-rotate"/></svg>
+        Reset account…</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ CHAT -->
+<section class="view" id="view-chat">
+  <div class="card">
+    <div class="card-head">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-chat"/></svg>Ask the bot</h2>
+      <span class="hint">answers from the journal — it cannot invent trades</span>
+    </div>
+    <div class="chat-shell">
+      <div class="chat-quick">
+        <button class="quick-chip" data-q="how much did you earn?">how much did you earn?</button>
+        <button class="quick-chip" data-q="which strategy is best?">best strategy?</button>
+        <button class="quick-chip" data-q="explain the turtle strategy">explain the turtle strategy</button>
+        <button class="quick-chip" data-q="what are the risk rules?">risk rules?</button>
+        <button class="quick-chip engine-quick" data-engine="start">[ start engine ]</button>
+        <button class="quick-chip engine-quick" data-engine="stop">[ stop engine ]</button>
+      </div>
+      <div class="chatlog" id="chatlog" aria-live="polite"></div>
+      <form id="chatform" class="chatform">
+        <input class="input" id="chatbox" type="text" autocomplete="off"
+               placeholder="e.g. why did you buy BTC? which strategy is best?" aria-label="Message the bot">
+        <button class="btn" type="submit" style="flex-shrink:0">Send</button>
+      </form>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- reset modal -->
+<div class="modal-overlay" id="resetModal" role="dialog" aria-modal="true" aria-labelledby="resetTitle">
+  <div class="modal">
+    <h3 id="resetTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>Reset the paper account?</h3>
+    <p>This stops the standard engine, backs up the journal and clears this paper
+    account's trades, decisions, equity and transactions. HFT, demo records and chat history stay intact.</p>
+    <label class="fld" for="resetConfirm">Type RESET to confirm</label>
+    <input class="input" id="resetConfirm" placeholder="RESET" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="resetCancel">Cancel</button>
+      <button class="btn btn-danger" id="resetGo" disabled>Reset paper account</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="closeModal" role="dialog" aria-modal="true" aria-labelledby="closeTitle">
+  <div class="modal"><h3 id="closeTitle">Close this paper position?</h3>
+    <p id="closeMessage"></p><p>This realizes the position's gain or loss. The final fill includes the configured fees and slippage.</p>
+    <div class="modal-actions"><button type="button" class="btn btn-ghost" id="closeCancel">Keep position</button><button type="button" class="btn btn-danger" id="closeGo">Close position</button></div>
+  </div>
+</div>
+<div id="toasts" aria-live="polite"></div>
+
+<!-- token gate: shown by askForToken() when the API answers 401 with no
+     stored token (DASHBOARD_TOKEN mode) -->
+<div class="modal-overlay" id="tokenGate" role="dialog" aria-modal="true" aria-labelledby="tokenTitle">
+  <div class="modal">
+    <h3 id="tokenTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Token required</h3>
+    <p>This dashboard requires a bearer token. Paste it once — it is stored in
+    this browser only and attached to every API call.</p>
+    <label class="fld" for="tokenInput">Bearer token</label>
+    <input class="input" id="tokenInput" placeholder="the DASHBOARD_TOKEN value" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="tokenCancel">Cancel</button>
+      <button class="btn" id="tokenSave">Save &amp; reload</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js" defer></script>
+</body>
+</html>

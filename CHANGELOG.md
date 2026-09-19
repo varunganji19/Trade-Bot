@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — the page leaves the Python file; correlated risk
+
+- **dashboard.py: 4,461 -> 1,750 lines.** The page was a 2,700-line
+  triple-quoted string inside the module: HTML, CSS and JavaScript with no
+  syntax highlighting, no linting, and no way to diff a UI change apart from
+  an API change. Every UI bug in this repo's history was written in that
+  string. It is now `bot/static/{index.html,app.css,app.js}`, served with
+  no-store (a cached asset against a redeployed shell is the UI bug nobody
+  can reproduce — it bit this session twice). A test asserts the three parts
+  are served, wired, uncacheable, and — the useful one — that **every element
+  app.js drives exists in the shell it was split from**.
+- **Correlated-cluster exposure cap.** `max_gross_leverage` bounds the whole
+  book and `max_position_pct` bounds one position, but BTC + ETH + SOL held
+  together are one bet wearing three hats. `bot.risk.correlation_cluster`
+  names the family and approve() caps its gross notional at
+  `max_cluster_leverage` x equity, categorized so the veto telemetry counts
+  it. The map is STATIC on purpose: a measured correlation would have to be
+  computed identically by the engine and the backtester, and parity is the
+  property everything else rests on. **0.6 is a risk-policy number, not a
+  measurement — it is yours to set.**
+- 271 tests + the parity smoke.
+
 ## [Unreleased] — v1 tidy: one history doc, one verify command, one soak fix
 
 - **`make verify`** = tests + lint + `scripts/parity_smoke.py`, a no-network

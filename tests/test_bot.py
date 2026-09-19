@@ -2488,14 +2488,14 @@ def test_engine_interval_is_changeable_while_running():
     import bot.dashboard as dash
     from fastapi.testclient import TestClient
     client = TestClient(dash.app, base_url="http://127.0.0.1")
-    src = dash.__file__
-    with open(src) as f:
+    with open(dash.__file__) as f:
         code = f.read()
+    js = open(dash.static_path("app.js")).read()
     # the sleep must be computed from the GLOBAL, never the captured argument
     assert "remaining = max(0.0, _engine_interval - (time.monotonic() - cycle_t0))" in code
     assert "remaining = max(0.0, _hft_interval - (time.monotonic() - cycle_t0))" in code
     # ...and the UI must not disable the control while the engine runs
-    assert "$('#intervalSel').disabled = transitioning;" in code
+    assert "$('#intervalSel').disabled = transitioning;" in js
 
     original, original_hft = dash._engine_interval, dash._hft_interval
     try:
@@ -2556,10 +2556,9 @@ def test_hft_strategy_filter_lists_registered_strategies_not_just_traded_ones():
     registered = meta["strategies"]["hft"]["5m"]
     for name in HFT_STRATEGY_NAMES:
         assert name in registered, name
-    with open(dash.__file__) as f:
-        code = f.read()
-    assert "hftRegisteredStrategies" in code
-    assert "syncStrategyFilter(sel, [...new Set([...hftRegisteredStrategies, ...seen])].sort());" in code
+    js = open(dash.static_path("app.js")).read()
+    assert "hftRegisteredStrategies" in js
+    assert "syncStrategyFilter(sel, [...new Set([...hftRegisteredStrategies, ...seen])].sort());" in js
 
 
 def test_dashboard_evidence_endpoint_smoke():
@@ -3023,6 +3022,52 @@ def test_engine_counts_vetoes_and_says_when_it_never_enters():
     assert eng.health_note is None
 
 
+def test_dashboard_page_is_served_from_static_files():
+    """The page was a 2,700-line triple-quoted string inside dashboard.py:
+    HTML, CSS and JavaScript with no highlighting, no linting and no way to
+    diff a UI change apart from an API change. Every UI bug in this repo's
+    history was written in that string.
+
+    The split can regress silently (a page that 200s while its stylesheet
+    404s still "works"), so assert the three parts are served, are wired to
+    each other, and that the shell is not cacheable."""
+    import bot.dashboard as dash
+    from fastapi.testclient import TestClient
+    client = TestClient(dash.app, base_url="http://127.0.0.1")
+
+    page = client.get("/")
+    assert page.status_code == 200
+    html = page.text
+    assert page.headers["cache-control"] == "no-store"
+    # the shell references both assets and no longer carries them inline
+    assert '<link rel="stylesheet" href="/app.css">' in html
+    assert '<script src="/app.js" defer></script>' in html
+    assert "<style>" not in html          # the inline block is gone...
+    assert "function renderVetoes" not in html   # ...and so is the app JS
+
+    css = client.get("/app.css")
+    js = client.get("/app.js")
+    assert css.status_code == 200 and "text/css" in css.headers["content-type"]
+    assert js.status_code == 200 and "javascript" in js.headers["content-type"]
+    # a cached asset against a redeployed shell is the UI bug nobody can
+    # reproduce — neither may be cached
+    assert css.headers["cache-control"] == "no-store"
+    assert js.headers["cache-control"] == "no-store"
+    # substance, not just a 200: the real stylesheet and the real app
+    assert ".veto-box" in css.text and "--color-background" in css.text
+    assert "async function refreshStats" in js.text
+    assert "renderVetoes('#vetoBox'" in js.text
+    # every element the JS drives must exist in the shell it was split from
+    import re
+    ids = set(re.findall(r"\$\('#([A-Za-z0-9_-]+)'\)", js.text))
+    missing = sorted(i for i in ids if f'id="{i}"' not in html)
+    assert not missing, f"app.js drives elements the page does not define: {missing}"
+    # the module itself no longer holds the page
+    assert dash.static_path("index.html").endswith("bot/static/index.html")
+    with open(dash.__file__) as f:
+        assert "<!DOCTYPE html>" not in f.read()
+
+
 def test_correlated_cluster_cap_sees_one_bet_in_four_hats():
     """max_gross_leverage bounds the whole book and max_position_pct bounds
     one position — but BTC, ETH and SOL held at once are ONE bet wearing
@@ -3181,7 +3226,12 @@ def test_veto_counts_are_served_to_the_dashboard():
         code = f.read()
     assert 'stats["vetoes"] = _veto_payload(eng)' in code       # both books
     assert code.count('stats["vetoes"] = _veto_payload(eng)') == 2
-    assert "renderVetoes('#vetoBox'" in code and "renderVetoes('#hftVetoBox'" in code
+    # the UI half lives in the SERVED files now (bot/static/), so the test
+    # reads what the app actually sends rather than a module-source copy
+    js = open(dash.static_path("app.js")).read()
+    html = open(dash.static_path("index.html")).read()
+    assert "renderVetoes('#vetoBox'" in js and "renderVetoes('#hftVetoBox'" in js
+    assert 'id="vetoBox"' in html and 'id="hftVetoBox"' in html
 
 
 def test_kronos_is_not_wired_into_the_live_trading_loop():
@@ -5125,7 +5175,9 @@ def test_hft_dashboard_endpoints_and_tab():
             html = client.get("/").text
             assert 'data-view="hft"' in html
             assert 'id="hftTradeTable"' in html
-            assert "/api/hft/trades" in html
+            # the page's JS is a served FILE now (bot/static/app.js), so the
+            # endpoint wiring is asserted where it actually lives
+            assert "/api/hft/trades" in client.get("/app.js").text
             # engine start/stop roundtrip (auto-resume is a no-op under pytest)
             r = client.post("/api/hft/engine/start", json={"interval": 30})
             assert r.status_code == 200 and r.json()["status"] in ("started", "already_running", "stopping")
@@ -5337,7 +5389,7 @@ def test_lab_dashboard_endpoints():
             assert r.status_code == 422      # the india kind is gone
             html = client.get("/").text
             assert 'data-view="lab"' in html and 'id="labRunBtn"' in html
-            assert "/api/lab/meta" in html
+            assert "/api/lab/meta" in client.get("/app.js").text
         finally:
             (CONFIG.db_path, config_mod.WATCHLIST_PATH, dash_mod.journal, dash_mod.chatbot) = saved
 

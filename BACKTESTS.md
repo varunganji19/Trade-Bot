@@ -30,7 +30,7 @@ Starting capital $10,000, 1% risk per trade.
 >   segments (purge counts rise accordingly).
 
 > **Strategy changelog (2026-09-09 Gemini-audit fixes — see
-> FLAW_VALIDATION.md).** Five STRATEGY/ACCOUNTING bugs were fixed after the
+> HISTORY.md).** Five STRATEGY/ACCOUNTING bugs were fixed after the
 > rounds below; the turtle numbers in every earlier round are from a strategy
 > whose 10-bar Donchian exit could mathematically never fire (the channel
 > included the decision bar's own low/high, and close ≥ low by candlestick
@@ -87,7 +87,7 @@ What changed and why it matters:
   1-2. No configuration changed; only the stop arithmetic.
 - Exit-mix evidence the fix is live: 108 of 242 turtle exits across the three
   symbols are now the Donchian opposite-channel exit, which was structurally
-  0 before (see FLAW_VALIDATION.md for the impossibility proof).
+  0 before (see HISTORY.md for the impossibility proof).
 
 The purged-CV / PBO / Monte Carlo batteries should be re-run on the new
 turtle path before citing any distributional claim; earlier purged-CV turtle
@@ -102,7 +102,7 @@ stop/target. Before this fix the scanner ran first, so a same-bar stop or
 target could "win" over an exit order that was already filled at the open —
 a mixed-direction bias on a small slice of trades. The fill bar's own scan
 (entered at its open) stays first, and within-bar conservatism (stop before
-target) is unchanged. See FLAW_VALIDATION.md §1.2 for the validation.
+target) is unchanged. See HISTORY.md §1.2 for the validation.
 
 All seven runs use PINNED `--start/--end` windows (byte-identical cached
 data, see `scripts/pinned_runs.py`), so the before/after columns differ by

@@ -3,7 +3,7 @@
 
 Usage: python3 scripts/pinned_runs.py <before|mid|after>
 
-The windows match the Round-8 cached frames (see MILESTONES.md) so continuity
+The windows match the Round-8 cached frames (see HISTORY.md) so continuity
 is preserved; pinned --start/--end makes every rerun byte-identical.
 """
 from __future__ import annotations

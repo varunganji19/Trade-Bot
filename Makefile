@@ -1,4 +1,4 @@
-.PHONY: setup setup-locked setup-kronos test lint lock backtest validate battery run dashboard demo clean-cache ui hft-battery hft-status pinned shadow kronos
+.PHONY: setup setup-locked setup-kronos test lint verify lock backtest validate battery run dashboard clean-cache ui hft-battery hft-status pinned shadow kronos
 
 setup:
 	python3 -m pip install -r requirements.txt
@@ -29,6 +29,12 @@ test:
 lint:
 	python3 -m ruff check bot main.py config.py run_battery.py tests scripts
 
+# ONE command before you trust a change: tests + lint + a live-vs-backtest
+# parity smoke on the same bar (the property this codebase is built on —
+# the engine and the backtester must execute identical strategy code).
+verify: test lint
+	python3 scripts/parity_smoke.py
+
 # one-off backtest (needs network; disk-cached per day after the first run)
 backtest:
 	python3 main.py backtest --symbol BTC/USDT --timeframe 1h --days 365 --strategy turtle_trend
@@ -52,11 +58,6 @@ run:
 dashboard:
 	python3 main.py dashboard
 
-# seed the demo journal (real backtest replay, mode='demo') and open the UI
-demo:
-	python3 main.py seed-demo
-	python3 main.py dashboard
-
 # drop rolling parquet cache entries older than 14 days via the bot's own
 # prune (same _prune_rolling_cache fetch_history runs on boot; pinned-window
 # caches are never pruned). Needs network deps only for import, no fetch.
@@ -67,7 +68,7 @@ clean-cache:
 ui: dashboard
 
 hft-battery:
-	python3 main.py hft-battery --days 3
+	python3 main.py hft-battery --days 14
 
 hft-status:
 	python3 main.py hft-status

@@ -11,7 +11,7 @@ Grounding (all three on Indian equity data):
 
 ARCHITECTURAL NOTE: those papers rank a WHOLE stock universe cross-sectionally
 every month and hold a top-decile portfolio. This bot's BaseStrategy is a
-single-symbol time-series evaluator — a different shape. Per MILESTONES.md
+single-symbol time-series evaluator — a different shape. Per HISTORY.md
 Milestone C1, the MVP is path (a): a TIME-SERIES/absolute momentum variant
 scored per symbol (fits BaseStrategy, no new infrastructure); the papers'
 6-12 month momentum horizon becomes a trailing-N-bar return threshold, and the

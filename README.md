@@ -126,7 +126,6 @@ python3 main.py market              # show the active market universe (forex | i
 python3 main.py market --mode india # switch to the NSE universe (refused while positions are open)
 make test / make lint / make demo / make battery   # common tasks
 python3 main.py chat "explain the connors strategy"
-python3 main.py seed-demo           # fill journal with real backtest history for the demo
 python3 tests/test_bot.py           # 188 tests
 ```
 
@@ -332,7 +331,6 @@ on BTC 1h, 16 lingering exits, 236 trades that blew through their initial stop
 distance, and a +342h disposition gap (losers held much longer than winners) —
 exactly the diagnostics the attribution story needs.
 
-**Journal labeling**: `seed-demo` writes real backtest replays as `mode='demo'`
 rows — badged in the trade history, excluded from the chatbot's paper-record
 answers, and skipped by `shadow` by default (`--include-demo` audits them).
 Those headline shadow numbers were computed on such seeded replays, not on
@@ -344,7 +342,6 @@ trades the live engine took; they demonstrate the tooling, not a live record.
 config.py            all tunables (watchlist, risk, costs, strategy params, allocation)
 RESEARCH.md          the evidence behind every strategy + honest limitations
 BACKTESTS.md         real-data results across symbols/strategies
-main.py              CLI (backtest / run / dashboard / status / chat / kronos / shadow / seed-demo)
 bot/
   data.py            ccxt fallback chain (Binance→Bybit→OKX) + yfinance + RSS;
                      OHLCV validation, caliber stamps, forming-bar drop, parquet cache
@@ -395,7 +392,6 @@ scripts/pinned_runs.py  pinned Milestone-A windows (byte-identical reruns)
 LICENSE              MIT
 pyproject.toml       committed ruff + pytest config (the lint floor CI enforces)
 Makefile             make setup / test / lint / backtest / validate / demo / battery
-DEMO.md              the 90-second demo runbook + panel Q&A
 CHANGELOG.md         rounds 1–6 and the audit hardening, mapped to history
 ```
 

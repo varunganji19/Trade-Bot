@@ -298,11 +298,45 @@ _QUARANTINE_MIN_BARS = 220
 _FLAT_RUN_MAX = {"1m": 120, "5m": 120, "15m": 100, "1h": 60, "4h": 30, "1d": 10}
 
 
+# spot FX closes Fri 22:00 UTC and reopens Sun 22:00 UTC
+_FX_CLOSE_WEEKDAY, _FX_CLOSE_HOUR = 4, 22     # Friday
+_FX_OPEN_WEEKDAY, _FX_OPEN_HOUR = 6, 22       # Sunday
+
+
+def _weekend_seconds(start, end) -> float:
+    """Seconds between `start` and `end` that fall inside the FX weekend.
+
+    WHY: the frozen-feed guard used to compare a WALL-CLOCK gap against a
+    flat 72h allowance for forex. Yahoo routinely drops the bars either side
+    of the close, so an ordinary weekend shows up as e.g. Fri 15:00 -> Mon
+    19:00 = 76h and the guard refused a perfectly good frame — EUR/USD and
+    GBP/USD errored on every single cycle of the live standard book. For a
+    24x5 market the meaningful quantity is TRADING time, so the weekend is
+    subtracted before the comparison."""
+    if end <= start:
+        return 0.0
+    total = 0.0
+    # walk each calendar day the span touches; the weekend window is at most
+    # one per week, so this is a handful of iterations for any sane gap
+    day = (start - pd.Timedelta(days=3)).normalize()
+    while day <= end:
+        if day.weekday() == _FX_CLOSE_WEEKDAY:
+            w_start = day + pd.Timedelta(hours=_FX_CLOSE_HOUR)
+            w_end = day + pd.Timedelta(days=2, hours=_FX_OPEN_HOUR)
+            lo, hi = max(w_start, start), min(w_end, end)
+            if hi > lo:
+                total += (hi - lo).total_seconds()
+        day += pd.Timedelta(days=1)
+    return total
+
+
 def _max_gap_seconds(kind: str, timeframe: str) -> float:
+    """Allowed gap. For forex this is TRADING-time (see _weekend_seconds):
+    two trading days covers a holiday plus Yahoo's ragged weekend edges,
+    while a genuinely frozen feed still trips it."""
     tf_s = TIMEFRAME_SECONDS.get(timeframe, 3600)
     if kind == "forex":
-        # 24x5: allow the Fri->Sun weekend gap (~48h) plus margin
-        return max(5.0 * tf_s, 3.0 * 86400.0)
+        return max(5.0 * tf_s, 2.0 * 86400.0)
     return 5.0 * tf_s  # crypto trades 24/7: any 5-bar hole is suspicious
 
 
@@ -379,11 +413,22 @@ def _validate_ohlcv(df: pd.DataFrame, origin: str, caliber: str = "raw",
     if len(diffs):
         eff_tf = timeframe or "1h"
         max_gap = _max_gap_seconds(eff_kind, eff_tf)
-        worst = float(diffs.max())
-        if worst > max_gap:
+        if eff_kind == "forex":
+            # measure TRADING time: subtract the weekend the gap spans
+            trading = {}
+            for idx, seconds in diffs.items():
+                prev = idx - pd.Timedelta(seconds=float(seconds))
+                trading[idx] = float(seconds) - _weekend_seconds(prev, idx)
+            idx = max(trading, key=trading.get)
+            worst = trading[idx]
+            wall = float(diffs.loc[idx])
+        else:
             idx = diffs.idxmax()
+            worst = wall = float(diffs.max())
+        if worst > max_gap:
             raise RuntimeError(
-                f"{origin}: max gap {worst / 3600.0:.1f}h at {idx} exceeds "
+                f"{origin}: max gap {worst / 3600.0:.1f}h of trading time "
+                f"({wall / 3600.0:.1f}h wall clock) at {idx} exceeds "
                 f"{max_gap / 3600.0:.1f}h for {eff_kind}/{eff_tf} (frozen feed?)")
     flat_max = _FLAT_RUN_MAX.get(timeframe or "1h", 60)
     try:
@@ -799,7 +844,7 @@ def fetch_history(spec: MarketSpec, days: int | None = None,
         # with now anyway, so reuse is bounded by FRESHNESS, not by the fetch
         # day embedded in the file name — the old exact-day-stamp lookup
         # refetched every calendar day even when yesterday's file was minutes
-        # old. (FLAW_VALIDATION Fix 4.1: freshness is the honest bound.) The
+        # old. (HISTORY.md Fix 4.1: freshness is the honest bound.) The
         # glob is the ONLY rolling reuse path on purpose: keeping a same-day
         # exact-name fallback would let a day-stamped file that aged past the
         # window sneak back in, defeating CACHE_FRESHNESS_HOURS=0 as a

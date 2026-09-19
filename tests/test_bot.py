@@ -2646,72 +2646,6 @@ def test_reset_backup_is_wal_checkpointed_and_pruned():
             dash.chatbot = dash.ChatBot(dash.journal)
 
 
-def test_seed_demo_idempotent_and_headline_coherent():
-    """Re-seeding must REPLACE the demo rows (it used to stack: 419 → 1,256
-    trades, headline return → 0.0%), and the seeded equity walk must be ONE
-    portfolio-threaded account whose end equals capital + total trade P&L —
-    the old per-spec walks restarted at paper_capital each, so the headline
-    showed '-$1,020 P&L' beside '+3.40% return'."""
-    import tempfile
-    from types import SimpleNamespace
-    from bot import seed_demo
-    from config import MarketSpec
-
-    with tempfile.TemporaryDirectory() as td:
-        old_db = CONFIG.db_path
-        CONFIG.db_path = os.path.join(td, "t.db")
-        try:
-            cfg = SimpleNamespace(
-                watchlist=[MarketSpec("crypto", "TESTA/USDT", "1h"),
-                           MarketSpec("crypto", "TESTB/USDT", "1h")],
-                paper_capital=10_000.0)
-            fake_trades = [
-                {"symbol": "TESTA/USDT", "side": "long", "qty": 1.0, "entry_price": 100.0,
-                 "stop": 95.0, "target": 110.0, "strategy": "turtle_trend",
-                 "rationale": "r", "entry_ts": "2026-01-01T00:00:00+00:00",
-                 "exit_ts": "2026-01-02T00:00:00+00:00", "exit_price": 105.0,
-                 "pnl": 300.0, "pnl_pct": 3.0, "fees": 1.0, "exit_reason": "target"},
-                {"symbol": "TESTB/USDT", "side": "short", "qty": 1.0, "entry_price": 50.0,
-                 "stop": 55.0, "target": 45.0, "strategy": "connors_meanrev",
-                 "rationale": "r", "entry_ts": "2026-01-03T00:00:00+00:00",
-                 "exit_ts": "2026-01-04T00:00:00+00:00", "exit_price": 52.0,
-                 "pnl": -150.0, "pnl_pct": -3.0, "fees": 1.0, "exit_reason": "stop"},
-            ]
-            class _FakeBT:
-                def run(self, spec, df=None, strategy=None):
-                    class _R:
-                        trades = fake_trades
-                        equity_curve = []
-                        def stats(self):
-                            return {"trades": len(fake_trades), "total_pnl": 150.0,
-                                    "win_rate_pct": 50.0}
-                    return _R()
-            old_bt = seed_demo.Backtester
-            old_fetch = seed_demo.fetch_history
-            seed_demo.Backtester = lambda cfg=None: _FakeBT()
-            seed_demo.fetch_history = lambda spec, days=240: pd.DataFrame(
-                {"a": range(300)})
-            try:
-                n1 = seed_demo.seed(cfg)
-                assert n1["trades"] == 4 and n1["equity"] >= 2
-                n2 = seed_demo.seed(cfg)          # RE-SEED: must replace, not stack
-                assert n2["trades"] == 4
-                j = seed_demo.Journal()
-                modes = j.trade_mode_counts()
-                assert modes == {"demo": 4}, modes
-                s = j.stats()                       # demo-only journal: all rows
-                assert s["closed_trades"] == 4
-                # headline coherence: end equity == capital + total trade P&L
-                # (each fake trade is duplicated across both specs: +300×2, −150×2)
-                assert abs(s["current_equity"] - (10_000.0 + 300.0)) < 0.01, s
-                assert abs(s["return_pct"] - 3.0) < 0.01, s
-            finally:
-                seed_demo.Backtester = old_bt
-                seed_demo.fetch_history = old_fetch
-        finally:
-            CONFIG.db_path = old_db
-
-
 def test_decisions_feed_filters_demo_rows():
     """/api/decisions must read the paper feed first and only fall back to all
     rows on a demo-only journal (the Overview terminal and the chatbot's 'why'
@@ -2880,7 +2814,7 @@ def test_ccxt_source_cooldown_benches_dead_exchanges():
 
 
 # ---------------------------------- verification-gap pass (2026-09-08)
-# Fixes from the JUDGE_REPORT passes shipped with holes in their test cover:
+# Fixes from the HISTORY.md passes shipped with holes in their test cover:
 # these six pin the ones that had NO regression test standing guard.
 
 def test_account_reset_refused_while_engine_stopping():
@@ -3087,6 +3021,49 @@ def test_engine_counts_vetoes_and_says_when_it_never_enters():
     eng.entries_approved = 1
     engine_mod.TradingEngine._refresh_health_note(eng)
     assert eng.health_note is None
+
+
+def test_forex_gap_guard_measures_trading_time_not_wall_clock():
+    """FOUND BY THE LIVE SOAK: the frozen-feed guard compared a WALL-CLOCK
+    gap against a flat 72h forex allowance. Yahoo routinely drops the bars on
+    either side of the weekend close, so an ordinary weekend (Fri 15:00 ->
+    Mon 19:00 = 76h) refused the whole frame — EUR/USD and GBP/USD errored on
+    EVERY cycle of the live standard book. For a 24x5 market the meaningful
+    quantity is trading time."""
+    from bot.data import _max_gap_seconds, _validate_ohlcv, _weekend_seconds
+
+    fri, mon = (pd.Timestamp("2026-01-30 15:00", tz="UTC"),
+                pd.Timestamp("2026-02-02 19:00", tz="UTC"))
+    wall = (mon - fri).total_seconds()
+    assert wall / 3600 == 76
+    assert _weekend_seconds(fri, mon) / 3600 == 48        # Fri 22:00 -> Sun 22:00
+    assert (wall - _weekend_seconds(fri, mon)) <= _max_gap_seconds("forex", "1h")
+
+    # a genuine mid-week outage still trips
+    tue, fri2 = (pd.Timestamp("2026-02-03 00:00", tz="UTC"),
+                 pd.Timestamp("2026-02-06 12:00", tz="UTC"))
+    out = (fri2 - tue).total_seconds() - _weekend_seconds(tue, fri2)
+    assert out > _max_gap_seconds("forex", "1h")
+
+    # end to end through the validator: a weekend-spanning frame passes...
+    idx = pd.DatetimeIndex([fri - pd.Timedelta(hours=1), fri, mon,
+                            mon + pd.Timedelta(hours=1)])
+    frame = pd.DataFrame({"open": [1.0] * 4, "high": [1.1] * 4, "low": [0.9] * 4,
+                          "close": [1.0, 1.02, 1.01, 1.03], "volume": [5.0] * 4},
+                         index=idx)
+    ok = _validate_ohlcv(frame, "forex:yahoo(test)", caliber="spot-fx",
+                         kind="forex", timeframe="1h")
+    assert len(ok) == 4
+    # ...and a mid-week hole does not
+    bad_idx = pd.DatetimeIndex([tue, tue + pd.Timedelta(hours=1), fri2,
+                                fri2 + pd.Timedelta(hours=1)])
+    bad = frame.set_index(bad_idx)
+    try:
+        _validate_ohlcv(bad, "forex:yahoo(test)", caliber="spot-fx",
+                        kind="forex", timeframe="1h")
+        raise AssertionError("a 3.5-day mid-week hole must be refused")
+    except RuntimeError as exc:
+        assert "trading time" in str(exc) and "wall clock" in str(exc)
 
 
 def test_off_watchlist_positions_are_still_managed():
@@ -3413,7 +3390,7 @@ def test_meanrev_never_fires_short_gate_on_warmup_rsi():
     assert mr.evaluate(old, i).action == "SHORT"
 
 
-# ------------------- confirmed-flaw fixes (FLAW_VALIDATION.md, 2026-09-09)
+# ------------------- confirmed-flaw fixes (HISTORY.md, 2026-09-09)
 def test_turtle_opposite_channel_exit_actually_fires():
     """Flaw 1.1: the unshifted exit channel included the decision bar's own
     low/high, making the exit mathematically impossible (close >= low by

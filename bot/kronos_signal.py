@@ -490,7 +490,7 @@ class KronosSignalEngine:
             # np.mean(preds, axis=1)), so one batched call with
             # sample_count=30 yields ONE mean path — P(up) would collapse to
             # exactly 0/1 and dispersion to 0. Batching requires patching the
-            # vendored model (out of scope; see FLAW_VALIDATION correction #3).
+            # vendored model (out of scope; see HISTORY.md correction #3).
             preds = []
             sample_count = max(1, self.sample_budget(timeframe))
             # ONE inference at a time process-wide: torch saturates every

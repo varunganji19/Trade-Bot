@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] — v1 tidy: one history doc, one verify command, one soak fix
+
+- **`make verify`** = tests + lint + `scripts/parity_smoke.py`, a no-network
+  check of the invariant everything else rests on: the live engine and the
+  backtester decide IDENTICALLY. That invariant was silently false for
+  months — the backtester passed `llm_client=None`, so live decisions ran
+  through a code path no backtest ever executed. The smoke also re-checks
+  causality (truncated frame == full frame at bar i) for every strategy and
+  the standard/fast book separation.
+- **FOUND BY THE LIVE SOAK**: the frozen-feed guard compared a WALL-CLOCK gap
+  against a flat 72h forex allowance. Yahoo routinely drops the bars either
+  side of the weekend close, so an ordinary weekend (Fri 15:00 -> Mon 19:00 =
+  76h) refused the frame and EUR/USD and GBP/USD errored on EVERY cycle of
+  the live standard book. For a 24x5 market the meaningful quantity is
+  TRADING time, so the weekend is now subtracted before the comparison; a
+  mid-week outage still trips the guard, and the message reports both numbers.
+- **seed-demo retired** (the writer only). The read-side `mode='demo'` labels
+  stay: the live journal holds 898 replay trades beside 431 real paper
+  trades, and merging those records would corrupt every headline number.
+- **Four history documents folded into HISTORY.md** (JUDGE_REPORT,
+  FLAW_VALIDATION, AUDIT, MILESTONES). Each described the code at a moment in
+  time and none described it as it stands, which made them a liability: a
+  reader could not tell which parts were still true. They are kept verbatim
+  and dated, because several record a fix a later measurement overturned.
+- 269 tests + the parity smoke.
+
 ## [Unreleased] — v1 adds: telemetry, the promotion gate, a cycle budget
 
 The instrumentation half of the post-v1 pass. Every item here exists because

@@ -20,7 +20,6 @@ Usage:
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
   python3 main.py status                       # journal summary
   python3 main.py chat "question"              # chatbot from the terminal
-  python3 main.py seed-demo                    # demo journal: real backtest replay, marked mode='demo'
 """
 from __future__ import annotations
 
@@ -525,13 +524,6 @@ def cmd_chat(args):
     print(ChatBot().answer(args.question))
 
 
-def cmd_seed_demo(args):
-    from bot.seed_demo import seed
-    n = seed()
-    print(f"[seed-demo] journal seeded: {n['trades']} trades, {n['decisions']} decisions, "
-          f"{n['equity']} equity points. Run `python3 main.py dashboard`.")
-
-
 def cmd_kronos(args):
     """Offline Kronos evaluation: walk history bar-by-bar, resolve IC, report
     whether the model has EARNED an orchestrator vote on this data."""
@@ -786,10 +778,6 @@ def main():
     ch = sub.add_parser("chat", help="ask the journal-aware chatbot")
     ch.add_argument("question")
     ch.set_defaults(fn=cmd_chat)
-
-    sd = sub.add_parser("seed-demo", help="seed the journal with a demo history "
-                                          "(real backtest replay, mode='demo')")
-    sd.set_defaults(fn=cmd_seed_demo)
 
     kr = sub.add_parser("kronos", help="offline Kronos IC evaluation on history")
     kr.add_argument("--symbol", default="BTC/USDT")

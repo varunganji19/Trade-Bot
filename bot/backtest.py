@@ -173,7 +173,7 @@ class Backtester:
             pos = broker.positions.get(broker.position_key(spec.symbol, spec.timeframe))
             if pos is not None:
                 pos.bars_held += 1
-                # Event ordering (audit Fix 1.2, FLAW_VALIDATION correction #1):
+                # Event ordering (audit Fix 1.2, HISTORY.md correction #1):
                 # the strategy exit decided at bar i's CLOSE fills at bar i+1's
                 # OPEN — that market fill is already on the tape BEFORE bar i+1
                 # trades, so it must execute before any bar-i+1 stop/target scan.

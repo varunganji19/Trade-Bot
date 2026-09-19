@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] — Kronos horizon policy for sub-5m books
+
+- **Kronos was a permanent silent no-op on the whole HFT book.** The
+  per-timeframe horizon normalized to ~1 day of bars, i.e. 1440 bars on a 1m
+  book — but the vendored `KronosPredictor` is autoregressive over its own
+  context and generates at most `max_context` (512) steps, so every 1m
+  forecast raised `Shape of passed values is (512, 6), indices imply
+  (1440, 6)` and `evaluate()` swallowed it into `last_error`.
+- The horizon policy now lives in `bot/kronos_signal.py`
+  (`kronos_horizon` / `validate_horizon_policy`): ~1 day ahead on 5m and
+  slower, **1 hour ahead (60 bars) on sub-5m books** — matched to the HFT
+  book's own 45-60 bar time stops rather than a day it never holds through,
+  and well inside the predictor's reach. The IC ledger resolves on the same
+  number, so Kronos is scored on the horizon it was asked for.
+- An unproducible horizon now fails **loudly at config time**:
+  `TradingEngine._init_kronos` validates the policy against the predictor's
+  `max_context` outside the degrade-gracefully path, `evaluate()` raises
+  instead of hiding it in `last_error`, and `main.py kronos --horizon`
+  rejects out-of-range values up front.
+- 281/281 tests green (3 new Kronos horizon regressions).
+
 ## [1.4.3] 2026-09-13 — final audit: security, docs truth, live GUI verification
 
 Three more audit passes (security, docs-vs-code truth, and the first LIVE

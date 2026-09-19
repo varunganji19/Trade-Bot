@@ -605,6 +605,12 @@ def cmd_kronos(args):
 
     spec = _spec_from_args(args)
     eng = KronosSignalEngine()
+    if args.horizon < 1 or args.horizon > eng.cfg.max_context:
+        # the predictor generates at most max_context steps; a longer horizon
+        # raises inside every single forecast instead of once, here
+        print(f"[kronos] --horizon must be 1..{eng.cfg.max_context} "
+              f"(the predictor's max_context), got {args.horizon}")
+        sys.exit(2)
     if not eng.predictor.available:
         print("[kronos] model unavailable — vendor it first:")
         print("  git clone https://github.com/shiyu-coder/Kronos models/kronos")

@@ -2939,14 +2939,86 @@ def test_kronos_ledger_quarantines_torn_file_and_survives_restart():
 def test_kronos_horizon_normalized_to_one_day_per_timeframe():
     """horizon=24 was hardcoded for every book: 24x4h forecast FOUR DAYS out,
     24x15m forecast four hours. The horizon must be ~one day of bars for
-    whichever timeframe the book trades."""
-    import bot.engine as engine_mod
+    whichever timeframe the book trades (1m excepted — see the sub-5m test)."""
+    from bot.kronos_signal import kronos_horizon as h
     from config import TIMEFRAME_SECONDS
-    h = engine_mod.TradingEngine._kronos_horizon
     assert h("5m") == 288 and h("15m") == 96 and h("1h") == 24
     assert h("4h") == 6 and h("1d") == 1
     for tf in ("5m", "15m", "1h", "4h", "1d"):
         assert h(tf) * TIMEFRAME_SECONDS[tf] == 86400   # exactly one day ahead
+
+
+def test_kronos_horizon_is_producible_by_the_predictor():
+    """REGRESSION: the ~1-day rule gave the 1m HFT book horizon=1440, but the
+    vendored KronosPredictor generates at most max_context (512) steps, so
+    EVERY 1m forecast raised
+    'Shape of passed values is (512, 6), indices imply (1440, 6)' —
+    swallowed by evaluate() into last_error. Kronos was a permanent, silent
+    no-op on the whole HFT book. Every supported timeframe must map to a
+    horizon the predictor can actually produce."""
+    from bot.kronos_signal import (KronosConfig, kronos_horizon,
+                                   validate_horizon_policy)
+    from config import HFT_WATCHLIST, TIMEFRAME_SECONDS, VALID_TIMEFRAMES
+    max_context = KronosConfig.max_context
+    for tf in VALID_TIMEFRAMES:
+        assert 1 <= kronos_horizon(tf) <= max_context, tf
+    # the live HFT specs specifically (the book that was broken)
+    for spec in HFT_WATCHLIST:
+        assert 1 <= kronos_horizon(spec.timeframe) <= max_context, spec.symbol
+    # sub-5m books forecast one hour ahead — matched to the HFT book's own
+    # 45-60 bar time stops, not a full trading day it never holds through
+    assert kronos_horizon("1m") == 60
+    assert kronos_horizon("1m") * TIMEFRAME_SECONDS["1m"] == 3600
+    # and the policy validator covers every timeframe config allows
+    got = validate_horizon_policy()
+    assert set(got) >= set(VALID_TIMEFRAMES)
+    assert all(1 <= v <= max_context for v in got.values())
+
+
+def test_kronos_over_long_horizon_fails_loudly_not_per_cycle():
+    """An unproducible horizon must raise at config time, not degrade to a
+    swallowed last_error once per cycle forever."""
+    import pytest
+    from bot.kronos_signal import (KronosSignalEngine, kronos_horizon,
+                                   validate_horizon_policy)
+    with pytest.raises(ValueError, match="max_context"):
+        kronos_horizon("1m", max_context=30)          # 60-bar horizon > 30
+    with pytest.raises(ValueError, match="max_context"):
+        validate_horizon_policy(max_context=10)
+    # evaluate() raises instead of hiding it in last_error (it never even
+    # loads the model: the check precedes the predictor)
+    eng = KronosSignalEngine()
+    with pytest.raises(ValueError, match="max_context"):
+        eng.evaluate(pd.DataFrame(), horizon=eng.cfg.max_context + 1)
+    assert eng.last_error is None
+
+
+def test_kronos_engine_horizon_matches_ic_resolution_horizon():
+    """The forecast horizon and the horizon the IC ledger resolves on are the
+    same number — Kronos must be scored on the question it was asked."""
+    import bot.engine as engine_mod
+    from bot.kronos_signal import KronosSignal, KronosSignalEngine, kronos_horizon
+
+    eng = engine_mod.TradingEngine.__new__(engine_mod.TradingEngine)
+    eng.kronos = type("K", (), {"cfg": type("C", (), {"max_context": 512})()})()
+    assert eng._kronos_horizon("1m") == kronos_horizon("1m") == 60
+    assert eng._kronos_horizon("1h") == 24
+
+    horizon = eng._kronos_horizon("1m")
+    sig = KronosSignal(direction="LONG", p_up=0.8, dispersion_pct=1.0,
+                       expected_return_pct=0.5, horizon_bars=horizon,
+                       bar_ts="2024-01-01T00:00:00Z")
+    logged = []
+    ksig = KronosSignalEngine.__new__(KronosSignalEngine)
+    ksig.tracker = type("T", (), {
+        "resolve": lambda self, closes, market="": None,
+        "log_forecast": (lambda self, score, ts, h, market="":
+                         logged.append(h)),
+    })()
+    idx = pd.date_range("2024-01-01", periods=5, freq="1min", tz="UTC")
+    ksig.log_and_maybe_resolve(pd.DataFrame({"close": [1.0] * 5}, index=idx),
+                               sig, market="BTC/USDT|1m")
+    assert logged == [horizon] == [60]        # resolved on the forecast horizon
 
 
 def test_bars_per_year_forex_weekday_scaling():

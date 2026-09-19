@@ -52,6 +52,59 @@ class KronosConfig:
     track_file: str = os.path.join(os.path.dirname(__file__), "..", "data", "kronos_ic.json")
 
 
+# --------------------------------------------------------------- horizon policy
+# How far ahead Kronos forecasts, per book timeframe. Two hard constraints:
+#
+#   1. The vendored predictor is autoregressive over its own context window:
+#      `KronosPredictor.generate` can emit at most `max_context` (512) steps,
+#      and `predict` then builds a frame indexed by the caller's y_timestamp,
+#      so ANY horizon above max_context raises
+#      "Shape of passed values is (512, 6), indices imply (N, 6)".
+#   2. The horizon is also what the IC ledger scores Kronos on
+#      (`log_and_maybe_resolve` -> `KronosICTracker.resolve` reads
+#      `sig.horizon_bars`), so it must match the book's actual holding period
+#      or the model is graded on a question the book never asks.
+#
+# A full trading day fits comfortably on 5m and slower (288 bars at 5m, 96 at
+# 15m, 24 at 1h, 1 at 1d). It does NOT fit on a 1m book: 1440 bars is both
+# unproducible AND the wrong question — the HFT book's own time stops are
+# 45-60 bars, so a day-ahead read would score Kronos on a move it never
+# holds through. Sub-5m books therefore forecast (and are scored over) one
+# hour: 60 bars at 1m, inside the predictor's reach and matched to the book.
+KRONOS_FAST_TIMEFRAME_SECONDS = 300    # a book faster than 5m is "sub-5m"
+KRONOS_FAST_HORIZON_SECONDS = 3600     # ...and forecasts 1h ahead
+KRONOS_HORIZON_SECONDS = 86400         # every other book: ~1 day ahead
+
+
+def kronos_horizon(timeframe: str, max_context: int = KronosConfig.max_context) -> int:
+    """Forecast horizon in bars for `timeframe` (see the policy note above).
+
+    Raises ValueError when the resulting horizon exceeds what the predictor
+    can actually generate — a policy bug, surfaced at config time by
+    `validate_horizon_policy` rather than once per cycle forever."""
+    step = TIMEFRAME_SECONDS[timeframe]
+    ahead = (KRONOS_FAST_HORIZON_SECONDS if step < KRONOS_FAST_TIMEFRAME_SECONDS
+             else KRONOS_HORIZON_SECONDS)
+    bars = max(1, ahead // step)
+    if bars > max_context:
+        raise ValueError(
+            f"Kronos horizon for {timeframe} is {bars} bars, above the "
+            f"predictor's max_context ({max_context}) — it can generate at "
+            f"most {max_context} steps. Shorten the horizon policy for this "
+            f"timeframe (see KRONOS_FAST_HORIZON_SECONDS in bot/kronos_signal.py).")
+    return bars
+
+
+def validate_horizon_policy(max_context: int = KronosConfig.max_context) -> dict[str, int]:
+    """Assert every supported timeframe maps to a producible horizon.
+
+    Called once when the engine attaches Kronos: an over-long horizon used to
+    fail deep inside `evaluate`, which swallows exceptions into `last_error`,
+    making Kronos a permanent silent no-op on the 1m book. Now it raises
+    before the first cycle."""
+    return {tf: kronos_horizon(tf, max_context=max_context) for tf in TIMEFRAME_SECONDS}
+
+
 @dataclass
 class KronosSignal:
     direction: str          # LONG | SHORT | FLAT
@@ -316,6 +369,15 @@ class KronosSignalEngine:
     # ------------------------------------------------------------- forecast
     def evaluate(self, df: pd.DataFrame, horizon: int = 24,
                  timeframe: str | None = None) -> KronosSignal | None:
+        # Deliberately OUTSIDE the try below: everything in there degrades to
+        # "no signal this cycle", but a horizon the predictor cannot generate
+        # is a caller bug that would otherwise hide as a per-cycle last_error
+        # forever (it did, on the 1m book).
+        if horizon > self.cfg.max_context:
+            raise ValueError(
+                f"horizon={horizon} exceeds the predictor's max_context "
+                f"({self.cfg.max_context}); it can generate at most "
+                f"{self.cfg.max_context} steps")
         p = self.predictor._ensure()
         if p is None or df is None or len(df) < 30:
             return None

@@ -123,6 +123,18 @@ class TradingEngine:
         try:
             from bot.kronos_signal import KronosSignalEngine
             self.kronos = KronosSignalEngine()
+        except Exception as exc:
+            if not self.quiet:
+                print(f"[engine] Kronos init skipped: {type(exc).__name__}: {exc}")
+            self.kronos = None
+            return
+        # Config-time horizon check, OUTSIDE the degrade-gracefully path: a
+        # horizon the predictor cannot generate is a policy bug, and
+        # evaluate() swallows it into last_error — which is exactly how the
+        # 1m book ran with a permanently silent Kronos.
+        from bot.kronos_signal import validate_horizon_policy
+        validate_horizon_policy(self.kronos.cfg.max_context)
+        try:
             if not self.kronos.predictor.available:
                 if not self.quiet:
                     print("[engine] Kronos unavailable (model not vendored or "
@@ -567,12 +579,18 @@ class TradingEngine:
                 time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
 
     # ------------------------------------------------------------- per market
-    @staticmethod
-    def _kronos_horizon(timeframe: str) -> int:
-        """Forecast horizon in bars, normalized to ~1 day ahead regardless of
-        the book's timeframe — a hardcoded 24 made the 4h book forecast four
-        days out and the 15m book four hours."""
-        return max(1, 86400 // TIMEFRAME_SECONDS[timeframe])
+    def _kronos_horizon(self, timeframe: str) -> int:
+        """Forecast horizon in bars for this book's timeframe.
+
+        The policy lives in bot/kronos_signal.py (~1 day ahead, 1h on sub-5m
+        books) because it is bounded by the predictor's max_context; it is the
+        SAME number the IC ledger resolves on, so the model is always scored
+        on the horizon it was asked for."""
+        from bot.kronos_signal import kronos_horizon
+        max_context = self.kronos.cfg.max_context if self.kronos else None
+        if max_context is None:
+            return kronos_horizon(timeframe)
+        return kronos_horizon(timeframe, max_context=max_context)
 
     def _kronos_eval(self, spec: MarketSpec, df, i: int):
         """Forecast + IC bookkeeping for Kronos. Returns (signal, promoted).

@@ -2904,6 +2904,47 @@ def test_kronos_ledger_quarantines_torn_file_and_survives_restart():
         assert tr2.n() == 1 and tr2.records == tr.records
 
 
+def test_promotion_gate_announces_when_it_has_no_evidence(tmp_path, monkeypatch):
+    """THE HOLE THIS CLOSES: the verdicts file resolves under db_dir(), so
+    pointing the app at a different data directory returned the gate to its
+    permissive state IN SILENCE — hft_micro_breakout, measured at median PF
+    0.39 over 81 trades, went straight back to voting on the live book with
+    no line of output anywhere. "No evidence" is a state the operator has to
+    be able to SEE."""
+    import config as config_mod
+    import bot.promotion as promo
+
+    monkeypatch.setattr(config_mod.CONFIG, "db_path", str(tmp_path / "t.db"))
+    promo._CACHE.update(path=None, mtime=None, verdicts={})
+
+    gate = promo.gate_state()
+    assert gate["state"] == "no_evidence"
+    assert gate["path"].endswith("results/promotions.json")
+    assert "UNMEASURED" in gate["why"] or "votes UNMEASURED" in gate["why"]
+    assert "hft-battery" in gate["why"]          # names the fix
+    # and the voting payload carries it, so every surface can show it
+    assert promo.voting_strategies("hft")["gate"]["state"] == "no_evidence"
+
+    # once verdicts exist the gate reports itself active, with provenance
+    promo.save_verdicts({"hft_micro_breakout": {"status": promo.DEMOTED, "why": "m"}},
+                        "perp", path=gate["path"])
+    promo._CACHE.update(path=None, mtime=None, verdicts={})
+    on = promo.gate_state()
+    assert on["state"] == "active"
+    assert on["demoted"] == ["hft_micro_breakout"] and on["measured"] == 1
+    assert on["generated_at"]
+    assert promo.is_demoted("hft_micro_breakout")
+
+    # the UI leads with the gate state, and the CLI says where it looked
+    import bot.dashboard as dash
+    js = open(dash.static_path("app.js")).read()
+    assert "promotion gate: UNMEASURED" in js
+    assert "gateRow + head + rest" in js
+    with open("main.py") as f:
+        cli = f.read()
+    assert 'print(f"  file   {gate[\'path\']}")' in cli
+
+
 def test_a_book_with_no_voting_strategy_says_so(tmp_path, monkeypatch):
     """A book that CANNOT trade must not look identical to a quiet market.
     The first promotion run left the fast book with one voter (two demoted on
@@ -3112,12 +3153,16 @@ def test_config_command_reports_every_setting_and_its_source(capsys, monkeypatch
     main.cmd_config(type("A", (), {})())
     out = capsys.readouterr().out
     for section in ("effective configuration", "environment (value <- source)",
-                    "promotion verdicts"):
+                    "promotion gate"):
         assert section in out
     for key in ("journal", "fast book", "cost floors", "risk", "dashboard auth"):
         assert key in out
     # the auth line must be unambiguous when there is no token
     assert ("auth OFF" in out) or ("auth ON" in out)
+    # the gate section must name the FILE it consulted: a data-dir switch
+    # silently turning the gate off is what this whole section exists for
+    assert "promotions.json" in out
+    assert ("state  UNMEASURED" in out) or ("state  active" in out)
     # every setting the bot steers on is recorded by the time it has printed
     # (HFT_FEE_TIER decides whether any fast strategy can clear its costs)
     assert {"HFT_INTERVAL", "PAPER_CAPITAL", "HFT_FEE_TIER"} <= set(cfg_mod.ENV_PROVENANCE)

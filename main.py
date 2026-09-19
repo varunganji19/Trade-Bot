@@ -572,10 +572,18 @@ def cmd_config(args):
         print(f" {mark} {name:24s} {str(p_['value']):22s} <- {p_['source']}"
               f" (default {p_['default']}){bad}")
 
+    from bot.promotion import gate_state
+    gate = gate_state()
     verdicts = load_verdicts()
-    print("\n=== promotion verdicts ===")
-    if not verdicts:
-        print("  none yet — run `make hft-battery`; every registered strategy votes")
+    print("\n=== promotion gate ===")
+    print(f"  file   {gate['path']}")
+    if gate["state"] == "no_evidence":
+        # the exact state that let a strategy measured at PF 0.39 vote again
+        # on a different data directory, without a line of output anywhere
+        print("  state  UNMEASURED — every registered strategy votes")
+        print("         run `make hft-battery` to gather verdicts here")
+    else:
+        print(f"  state  active ({gate['why']}, generated {gate['generated_at']})")
     for name in sorted(verdicts):
         v = verdicts[name]
         print(f"  {v['status']:9s} {name:22s} {v.get('why', '')}")

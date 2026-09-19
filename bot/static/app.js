@@ -285,6 +285,19 @@ function renderStrategies(boxSel, listSel, st) {
   const box = $(boxSel);
   box.hidden = false;
   const voting = st.voting || [], silent = st.silent || [];
+  /* the gate can be OFF without anything looking wrong — the verdicts file
+     lives under the active data directory, so switching directories returns
+     it to "everything votes" in silence. Say which state it is in, first. */
+  const g = st.gate || {};
+  const gateRow = g.state === 'no_evidence'
+    ? '<div class="veto-row top"><span class="r">promotion gate: UNMEASURED</span>' +
+      '<span class="n" style="font-weight:400">' + esc(g.why || '') + '</span></div>'
+    : (g.state === 'active'
+        ? '<div class="veto-row"><span class="r" style="color:var(--color-muted-foreground)">' +
+          'promotion gate: active</span><span class="n" style="font-weight:400;' +
+          'color:var(--color-muted-foreground)">' + esc(g.why || '') +
+          ' · ' + esc(g.generated_at || '') + '</span></div>'
+        : '');
   const head = voting.length
     ? '<div class="veto-row"><span class="r">voting</span><span class="n">' +
       esc(voting.join(', ')) + '</span></div>'
@@ -294,7 +307,7 @@ function renderStrategies(boxSel, listSel, st) {
     '<div class="veto-row"><span class="r" style="color:var(--color-muted-foreground)">' +
     esc(x.name) + '</span><span class="n" style="font-weight:400;color:var(--color-muted-foreground)">' +
     esc(x.why) + '</span></div>').join('');
-  $(listSel).innerHTML = head + rest;
+  $(listSel).innerHTML = gateRow + head + rest;
 }
 function renderVetoes(boxSel, sumSel, listSel, v) {
   /* "the engine is running" and "the engine is trading" are different

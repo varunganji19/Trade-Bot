@@ -802,7 +802,7 @@ def _voting_payload(book: str) -> dict:
         from bot.promotion import voting_strategies
         return voting_strategies(book)
     except Exception as exc:
-        return {"voting": [], "silent": [], "registered": 0,
+        return {"voting": [], "silent": [], "registered": 0, "gate": {},
                 "error": f"{type(exc).__name__}: {exc}"}
 
 

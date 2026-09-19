@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import os
 import statistics
+import time
 
 MIN_TRADES = 30          # total trades across cells before a verdict is possible
 MIN_CELLS = 2            # ...spread over at least this many symbol cells
@@ -127,6 +128,29 @@ def load_verdicts(path: str | None = None) -> dict:
     return verdicts
 
 
+def gate_state(path: str | None = None) -> dict:
+    """Is the gate ACTUALLY on, and where is it looking?
+
+    The verdicts file resolves under db_dir(), so pointing the app at a
+    different data directory silently returns the gate to its permissive
+    state — which is how a strategy measured at PF 0.39 went back to voting
+    on the live book without a single line of output. "No evidence" is a
+    state the operator has to be able to SEE, not infer."""
+    path = path or promotions_path()
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return {"state": "no_evidence", "path": path,
+                "why": f"no verdicts at {path} — every registered strategy "
+                       f"votes UNMEASURED; run `make hft-battery` to gather them"}
+    verdicts = load_verdicts(path)
+    demoted = [n for n, v in verdicts.items() if v.get("status") == DEMOTED]
+    return {"state": "active", "path": path,
+            "generated_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)),
+            "measured": len(verdicts), "demoted": demoted,
+            "why": f"{len(verdicts)} strategies measured, {len(demoted)} demoted"}
+
+
 def voting_strategies(book: str) -> dict:
     """Which strategies actually vote on `book`, and why the others do not.
 
@@ -150,7 +174,8 @@ def voting_strategies(book: str) -> dict:
         else:
             voting.append(name)
     return {"voting": voting, "silent": silent,
-            "registered": len(voting) + len(silent)}
+            "registered": len(voting) + len(silent),
+            "gate": gate_state()}
 
 
 def is_demoted(name: str, verdicts: dict | None = None) -> bool:

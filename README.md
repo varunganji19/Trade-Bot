@@ -1,16 +1,22 @@
-# AI Trading Bot — Crypto, Forex & India NSE (Paper Trading)
+# AI Trading Bot — Crypto & Forex (Paper Trading)
 
 [![CI](https://github.com/Varunsai1930/Algo/actions/workflows/ci.yml/badge.svg)](https://github.com/Varunsai1930/Algo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An autonomous trading bot for **crypto and forex** — with a one-click toggle to
-**India's NSE** (Nifty 50 + NSE cash equities) — that reads chart data and news,
-decides **buy / sell / hold** with written reasoning, sizes and manages positions
-by itself — plus a live **dashboard** (equity curve, trade history, strategy
+An autonomous paper-trading bot for **crypto and forex** that decides
+**buy / sell / hold** with written reasoning, sizes and manages positions by
+itself — plus a live **dashboard** (equity curve, trade history, strategy
 attribution, decision feed, **evidence view**) and a chatbot that answers
-questions about its own trading record. A **separate high-frequency paper book**
-(`mode='hft'`) trades 1-minute bars with maker-fill simulation, its own fee
-tiers, and its own dashboard page — see [HFT.md](HFT.md).
+questions about its own trading record. A **separate fast book**
+(`mode='hft'`) trades 5-minute bars with maker-fill simulation and its own fee
+tier — see [HFT.md](HFT.md).
+
+The decision path is **deterministic**: no LLM and no news sentiment sit
+between the strategy vote and the risk manager. Both used to, and because the
+backtester did not run them, live and backtest were executing different
+decision code. The LLM still explains the book through the chatbot, where
+being wrong is free. (2026-09-19; the India/NSE universe was removed the same
+day — zero trades, zero decisions, ever. See CHANGELOG.md and HISTORY.md.)
 
 **Why this is different** (each bullet is a measured result, not a claim):
 
@@ -29,7 +35,7 @@ tiers, and its own dashboard page — see [HFT.md](HFT.md).
   statistics that quantify how much of the Sharpe is trial-selection.
 - **Causality and determinism are tested**, not assumed: truncating history at
   bar *i* cannot change the bar-*i* signal; identical inputs produce identical
-  trades. **188 tests**, CI on every push.
+  trades. **274 tests** + a parity smoke and a soak harness, CI on every push.
 
 Built for a competition with an explicit engineering thesis: **the edge is the
 process** — evidence-based strategies (researched from the most profitable
@@ -104,16 +110,16 @@ python3 main.py dashboard           # → http://127.0.0.1:8000
 # 3a-2. Strategy Lab — pick ANY stock/pair, apply strategies, backtest
 #    (dashboard: the Lab tab; works for BOTH books via a toggle)
 python3 main.py dashboard            # → http://127.0.0.1:8000/#lab
-#    crypto/forex/NSE symbols normalize from aliases ("btcusdt", "reliance",
-#    "nifty"); "ALL strategies" runs a comparison on one fetched frame;
+#    crypto/forex symbols normalize from aliases ("btcusdt", "eurusd");
+#    "ALL strategies" runs a comparison on one fetched frame;
 #    async runs poll /api/lab/status; artifacts land in data/results/lab_*.json
 
 # 3b. the high-frequency paper book (separate account + dashboard tab)
-python3 main.py hft-backtest --symbol BTC/USDT --timeframe 1m --days 3 \
-  --strategy hft_market_maker            # maker fills, perp fee tier
-python3 main.py hft-backtest --triangular --days 3   # the arb monitor (measures its own absence)
-python3 main.py hft-battery             # every strategy x symbol x fee tier
-python3 main.py hft-run                 # live 1m paper engine (mode='hft')
+python3 main.py hft-backtest --symbol BTC/USDT --days 14 \
+  --strategy hft_micro_breakout          # 5m bars, perp fee tier
+python3 main.py hft-battery             # every strategy x symbol x fee tier,
+                                        # and it writes the promotion verdicts
+python3 main.py hft-run                 # live 5m paper engine (mode='hft')
 python3 main.py hft-status              # ALL high-frequency trades, one place
 #   (the dashboard's HFT tab has its own engine controls, equity curve,
 #    full HFT trade history and decision feed)
@@ -122,11 +128,12 @@ python3 main.py hft-status              # ALL high-frequency trades, one place
 python3 main.py status              # journal summary (+ pause state)
 python3 main.py pause "note"        # manual halt: new entries only, nothing force-closed
 python3 main.py resume              # clear the manual pause
-python3 main.py market              # show the active market universe (forex | india)
-python3 main.py market --mode india # switch to the NSE universe (refused while positions are open)
-make test / make lint / make demo / make battery   # common tasks
+python3 main.py config              # effective settings + where each came from
+make verify                         # tests + lint + live-vs-backtest parity smoke
+make soak                           # drive the RUNNING dashboard and flag breakdowns
+make test / make lint / make battery / make config
 python3 main.py chat "explain the connors strategy"
-python3 tests/test_bot.py           # 188 tests
+python3 -m pytest tests/ -q         # 274 tests
 ```
 
 ## The strategies (each mapped to evidence — see RESEARCH.md)
@@ -135,9 +142,9 @@ python3 tests/test_bot.py           # 188 tests
 |---|---|---|---|
 | **Turtle Trend** | Donchian / Richard Dennis's Turtles + ADX regime filter (SSRN 6272239) | trend-following breakout, 2×ATR stop, opposite-channel exit | 1h |
 | **Connors Mean Reversion** | Larry Connors RSI(2) + EMA(200) trend filter (documented ~75% win rate on indices) + Chan AR(1)/OU half-life gate | buy deep pullbacks in uptrends *while pullbacks are actually reverting* (measured half-life ≤ 12 bars), snapback exits, 3×ATR stop + time stop | 4h / 1d |
-| **TS Momentum (India)** | Indian momentum papers (SSRN 3345280/3510433/4587697) | long-only absolute momentum: 240-bar return >8% + near 52-week high + EMA200 | 1h / 4h |
+| **TS Momentum** | Momentum papers (SSRN 3345280/3510433/4587697) | long-only absolute momentum: 240-bar return >8% + near 52-week high + EMA200 | 1h / 4h |
 | **FX Regime Mean-Rev** | Regime-conditioned FX reversion (SSRN 6087107) | z-score stretch fade with AR(1) half-life regime gate | 1h |
-| **HFT trio** (separate book) | Avellaneda-Stoikov 2008, Carver 2025, Zarattini-Aziz 2023 (see HFT.md) | maker market-making, exhaustion fade, micro-breakout + triangular-arb monitor | 1m |
+| **Fast book** (separate account) | Carver 2025, Zarattini-Aziz 2023 (see HFT.md) | exhaustion fade, micro-breakout; market-making and OFI are measured CANDIDATES that do not vote | 5m |
 | **VWAP Scalper** | Opening Range Breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP institutional benchmark + team's earlier VWAP prototype | VWAP reclaim/loss with momentum + volume confirmation, rolling-range breakout, breakeven trail, time stop; optional time-of-day RVOL filter (tested, off by default — measured neutral on 24/7 crypto, BACKTESTS.md) | 5m / 15m |
 
 **Orchestrator**: classifies each market's regime (ADX + EMA structure) and runs
@@ -146,12 +153,16 @@ its own validated timeframe and the three ranges are **disjoint** (turtle 1h,
 Connors 4h/1d, scalper 5m/15m), so every market today has exactly one strategy
 owner — the regime-weight blend and the conflict guard are implemented and
 journaled, but they only engage if strategies ever share a timeframe. The
-orchestration layer's active work today is the Kronos earned-vote gate,
-sentiment veto, confidence floors, the risk veto, and full decision journaling.
-News sentiment (RSS headlines, LLM-scored if a key is configured,
-deterministic lexicon otherwise) can **veto or shrink** a trade but never
-initiate one — per the Lopez-Lira & Tang (2023) finding that headline sentiment
-is predictive but small relative to costs.
+orchestration layer's active work today is the **promotion gate** (a strategy
+the harness measured as a loser stops voting — bot/promotion.py), the
+**book separation** (both books trade 5m, so `BaseStrategy.book` is what keeps
+them apart), confidence floors, the risk veto, and full decision journaling.
+
+News sentiment and the LLM tie-breaker used to sit here and were removed on
+2026-09-19: two nondeterministic, network-dependent calls between the vote and
+the risk manager, unmeasured, and — because the backtester ran neither — proof
+that live and backtest were executing different decision code.
+`make verify` now fails if they ever diverge again.
 
 **LLM integration is optional**: with `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`)
 set, the LLM scores news, acts as a tie-breaker/veto, and powers the chatbot's
@@ -212,67 +223,22 @@ hard stops, targets and strategy exits while either is engaged.
   as **paused** (a flag we can't read must fail toward "not trading", never
   toward trading).
 
-## Markets: Forex ↔ India toggle
+## Markets
 
-The bot trades **one market universe at a time — never both** (the account
-model is single-currency: the crypto+forex book is kept in US dollars, the
-India book in rupees, and the two books cannot mix). The dashboard's
-Overview tab has a two-state switch next to the engine controls:
+**Crypto and forex, in US dollars.** The standard book trades BTC, ETH and SOL
+on 1h (BTC and ETH also on 15m and 4h) plus EUR/USD and GBP/USD on 1h; the
+fast book trades five 5m markets with its own capital and fee tier.
 
-- **On = Forex active** — the crypto + forex universe (BTC, ETH, SOL on
-  1h; BTC and ETH also on 15m and 4h + EUR/USD, GBP/USD on 1h; the
-  historical default)
-- **Off = India active** — the NSE universe (Nifty 50 + Reliance, TCS,
-  HDFC Bank, Infosys, ICICI Bank on 1h; Reliance and TCS also on 4h)
+The India/NSE universe — a session calendar, a per-side regulatory cost stack,
+a currency-isolation rule and a market-mode toggle — was removed on
+2026-09-19. It had produced **zero trades and zero decisions** in the entire
+journal while touching every module, including a 4h refusal that raised on
+every live cycle. `git log` has it if you want it back; HISTORY.md has the
+reasoning.
 
-Switching is guarded so nothing is ever silently lost:
-
-- **The orphan guard.** A switch rewrites the watchlist, so an open position
-  whose market dropped out of the universe would be orphaned — its feed
-  gone, its stops never checked again. If any open paper position exists
-  (in the live engine *or* the journal), the switch is **refused** and the
-  dashboard shows a confirmation dialog: *"You have N open paper positions.
-  Switching markets will close them at their last prices so none are left
-  orphaned. Blocks nothing else — this only changes which markets the bot
-  watches."* Positions are force-closed **only** after you explicitly
-  confirm — one click never closes anything by itself. With no open
-  positions the switch is immediate.
-- **Your choice is remembered.** The mode is persisted in
-  `data/market_mode.json` (and `data/watchlist.json` is kept in lockstep —
-  the mode is the single source of truth). Restarting the dashboard — or
-  the whole machine — keeps the same market; the blue banner at the top of
-  every tab always shows which market is active, so a restart can never
-  silently flip markets on you.
-
-The CLI equivalent (no dashboard needed):
-
-```bash
-python3 main.py market                  # show the active universe
-python3 main.py market --mode india     # switch to NSE
-python3 main.py market --mode forex     # switch back
-```
-
-The CLI refuses the switch outright while open positions exist (close them
-first); the dashboard offers the explicit confirm-and-close path above.
-
-**v1 scope, stated honestly:**
-
-- India means **NSE cash equities and indices only** — no options, no
-  futures/F&O. There is no options infrastructure in this repo (pricing,
-  expiry handling, margining); that is deliberately out of scope, not an
-  oversight.
-- Supported watchlist kinds: **`crypto` | `forex` | `india`** — but only
-  one mode's universe is active at a time; the watchlist is derived state
-  of the mode (a hand-edited watchlist that disagrees with the persisted
-  mode is normalized back to the mode's universe on boot).
-- India market data comes from Yahoo Finance (`RELIANCE.NS` equities,
-  `^NSEI` index) with a **conservative regulatory cost stack** (delivery
-  STT both legs, 0.03% standing brokerage, exchange/SEBI/stamp/GST; see
-  `config.py` and BACKTESTS.md's India section — turtle on NSE 1h is
-  cost-dominated at delivery rates, no edge is claimed).
-- Trades from a previous market mode stay visible in the journal history
-  (it is a record, not a dashboard filter); the bot only *opens* new
-  positions in the active market. The Portfolio tab says so in one line.
+A watchlist spec whose kind or timeframe the bot no longer trades is dropped
+at load with a printed reason, rather than loaded as a spec that can only
+ever HOLD.
 
 ## Honesty rules (backtester & data)
 
@@ -306,13 +272,19 @@ first); the dashboard offers the explicit confirm-and-close path above.
 
 `bot/kronos_signal.py` wraps [Kronos](https://github.com/shiyu-coder/Kronos)
 (AAAI 2026, MIT): a foundation model pre-trained on K-lines from 45+
-exchanges. Every cycle it samples ~30 forecast paths and reports P(up),
-expected return, and dispersion — but it **starts as a tracked non-voter**. A rolling rank-IC ledger scores its forecasts against what
-actually happened; it joins the orchestrator vote (weight 0.20) only after
-60+ resolved forecasts with IC ≥ 0.02, and loses the vote if IC decays.
-First measured verdict on BTC 1h: IC −0.06 over 115 forecasts → **not
-promoted**. The gate is the point: no signal votes on faith, not even a
-foundation model. (`python3 main.py kronos` runs the evaluation.)
+exchanges. It samples ~30 forecast paths and reports P(up), expected return
+and dispersion — and it **starts as a tracked non-voter**. A rolling rank-IC
+ledger scores its forecasts against what actually happened; it would join the
+orchestrator vote only after 60+ resolved forecasts with IC >= 0.02. First
+measured verdict on BTC 1h: IC -0.06 over 115 forecasts -> **not promoted**.
+
+**It now runs OFFLINE** (`python3 main.py kronos`), not in the trading loop.
+Three measurements put it there: it never earned a vote; one 1m forecast cost
+~41s of CPU against a cycle budget of seconds; and two books forecasting at
+once aborted the process on Metal (the vendored predictor auto-selects MPS,
+which is single-threaded). The gate and the ledger are intact, so the day the
+evidence says it deserves a vote, wiring it back is a decision with numbers
+behind it. The Evidence tab reads the ledger either way.
 
 ## Shadow Account — did the bot follow its own rules?
 
@@ -343,47 +315,55 @@ config.py            all tunables (watchlist, risk, costs, strategy params, allo
 RESEARCH.md          the evidence behind every strategy + honest limitations
 BACKTESTS.md         real-data results across symbols/strategies
 bot/
-  data.py            ccxt fallback chain (Binance→Bybit→OKX) + yfinance + RSS;
-                     OHLCV validation, caliber stamps, forming-bar drop, parquet cache
+  data.py            ccxt fallback chain (Binance→Bybit→OKX) + yfinance;
+                     OHLCV validation (weekend-aware gap guard), caliber
+                     stamps, forming-bar drop, parquet cache
   indicators.py      Wilder RSI/ATR/ADX, EMA, Donchian, VWAP (session + rolling)
   strategies/        base + turtle + meanrev + scalper + ts_momentum +
                      fx_regime_meanrev + hft (stateless, testable)
-  sentiment.py       lexicon + LLM headline scoring; veto/shrink only
-  llm.py             optional OpenAI/Anthropic client (auto-detected)
-  orchestrator.py     regime detection, weighted vote, conflict guard, Kronos
-                      earned vote, LLM guardrails
+  llm.py             optional OpenAI/Anthropic client — CHATBOT ONLY, it does
+                     not touch a decision
+  orchestrator.py    regime detection, weighted vote, conflict guard, book
+                     separation, promotion gate (deterministic end to end)
+  promotion.py       promoted / probation / demoted from the battery's own
+                     cells: a vote is a measurement, not a citation
   risk.py            sizing, caps, kill switch (simulated-clock aware), cooldowns,
                      manual pause flag, gross-notional leverage cap
   pause.py           manual "pause all trading" flag file (entries-only halt)
   allocator.py       skfolio inverse-vol / HRP cross-symbol risk budget
   broker.py          paper fills with fees/slippage; OCO brackets, gap-aware fills
-  engine.py          autonomous live loop (journal-recovered positions, Kronos eval)
+  engine.py          autonomous live loop (journal-recovered positions, veto
+                     telemetry, cycle budget, off-watchlist position management)
   backtest.py        event-driven backtester + walk-forward + allocation hooks
   validation.py      purged-CV OOS path distribution + signal IC reports
   kronos_signal.py   Kronos foundation-model signal: probabilistic forecast,
-                     IC ledger, earned voting rights
+                     IC ledger, earned voting rights — OFFLINE (main.py kronos)
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
-  hft/               the separate high-frequency paper book (HFT.md):
-                     config factory, perp/spot fee tiers, triangular-arb
-                     monitor, harness battery — 1m strategies in
-                     bot/strategies/hft.py (maker fills, A-S market maker)
+  hft/               the separate fast (5m) paper book (HFT.md): config
+                     factory, perp/spot fee tiers, derived cost floors,
+                     harness battery + promotion verdicts — strategies in
+                     bot/strategies/hft.py
   lab.py             Strategy Lab: pick any symbol, apply registered
                      strategies, backtest — both books (dashboard + CLI)
-  calendar.py        NSE session gate (IST clock + holiday list)
   journal.py         SQLite: decisions / trades / equity / chat_log
-                     (mode column: 'paper' standard book, 'demo' seeded
-                     replays, 'hft' high-frequency book)
+                     (mode column: 'paper' standard book, 'hft' fast book,
+                     'demo' historical seeded replays — the seeder is gone,
+                     the labels stay so those rows never mix in)
   chatbot.py         journal-aware Q&A (LLM or deterministic)
-  dashboard.py       FastAPI + Chart.js single-page dashboard (incl. Evidence
-                     view: Kronos IC ledger, purged-CV paths, PBO/DSR verdicts,
-                     shadow adherence, data manifest)
+  dashboard.py       FastAPI endpoints only — the page lives in bot/static/
+  static/            index.html + app.css + app.js (the dashboard itself:
+                     equity curves, live price, veto telemetry, Evidence view)
   report.py          validate --report renderer (generated REPORT.md)
-  seed_demo.py       fill the journal from real backtests (mode='demo', badged)
+scripts/
+  parity_smoke.py    live-vs-backtest parity + causality + book separation
+                     (make verify)
+  soak.py            drive the RUNNING dashboard in a loop, flag breakdowns
+                     (make soak)
 models/kronos/       vendored Kronos model source (upstream MIT license vendored;
                      weights via HF Hub)
 HFT.md               the high-frequency paper book: research grounding,
                      fee math, strategies, harness, measured results
-tests/test_bot.py    188 tests: indicators, strategies, causality, determinism,
+tests/test_bot.py    274 tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,
                      shadow, journal, backtest, live-engine regressions
                      (cross-timeframe isolation, restart cash, bars_held)

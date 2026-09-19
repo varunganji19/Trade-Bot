@@ -2540,6 +2540,11 @@ def test_hft_candles_endpoint_serves_the_engines_own_bars(monkeypatch):
     assert "BTC/USDT" in payload["markets"]          # the 1m watchlist
     assert len(payload["bars"]) == 50
     assert payload["bars"][0]["ema20"] > 0 and payload["change_pct"] > 0
+    # the chart must not lie about its own bars: this label read "1m" long
+    # after the book moved to 5m
+    assert payload["timeframe"] == "5m"
+    js = open(dash.static_path("app.js")).read()
+    assert "'1m · '" not in js and "× 1m" not in js
     # an off-watchlist symbol is a 404, not a silent default
     assert client.get("/api/hft/candles?symbol=DOGE/USDT").status_code == 404
 
@@ -2560,6 +2565,17 @@ def test_hft_strategy_filter_lists_registered_strategies_not_just_traded_ones():
     js = open(dash.static_path("app.js")).read()
     assert "hftRegisteredStrategies" in js
     assert "syncStrategyFilter(sel, [...new Set([...hftRegisteredStrategies, ...seen])].sort());" in js
+    # REGRESSION: the lookup hardcoded meta.strategies.hft['1m']. When the
+    # book moved to 5m it silently returned undefined and the filter went
+    # back to empty — the exact bug it was written to fix. It must not name
+    # a timeframe at all.
+    lookup = js[js.index("const byTf ="):][:200]      # the lookup itself
+    for tf in ("'1m'", '"1m"', "'5m'", '"5m"'):
+        assert tf not in lookup, f"the registry lookup hardcodes {tf}"
+    # no stale universe copy anywhere in the shipped page
+    html = open(dash.static_path("index.html")).read()
+    for stale in ("NSE", "India", "high-frequency, 1m"):
+        assert stale not in html, stale
 
 
 def test_dashboard_evidence_endpoint_smoke():

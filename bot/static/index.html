@@ -289,13 +289,13 @@ document.documentElement.setAttribute('data-theme',t);})();
   </div>
   <div class="card">
     <div class="card-head">
-      <h2>Live 1m price</h2>
+      <h2>Live price</h2>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select id="hftMarketSel" style="min-height:36px;width:auto" aria-label="HFT market to chart"></select>
         <span class="hint" id="hftPriceHint">the bars the engine decides on</span>
       </div>
     </div>
-    <div class="chart-wrap"><canvas id="hftPriceChart" aria-label="HFT 1-minute price and EMA20" role="img"></canvas></div>
+    <div class="chart-wrap"><canvas id="hftPriceChart" aria-label="Fast book price and EMA20" role="img"></canvas></div>
     <div class="empty" id="hftPriceEmpty" hidden>No candles yet — the feed is warming up.</div>
   </div>
   <div class="card">
@@ -393,7 +393,7 @@ document.documentElement.setAttribute('data-theme',t);})();
 
 <!-- ================================================================ LAB -->
 <section class="view" id="view-lab">
-  <div class="hint" style="margin:-6px 0 10px">Pick any stock or pair, apply every strategy registered for it, and backtest on real data with full costs. <b>Standard</b> = the forex+crypto+NSE book's strategies and kind-aware cost stacks; <b>HFT</b> = the high-frequency book's 1m strategies and fee tiers. Pure backtest — your open paper positions are never touched. Chart on the left, controls on the right; scroll down for the trade history (right) and the per-strategy P&amp;L (left).</div>
+  <div class="hint" style="margin:-6px 0 10px">Pick any stock or pair, apply every strategy registered for it, and backtest on real data with full costs. <b>Standard</b> = the crypto+forex book's strategies and kind-aware cost stacks; <b>Fast</b> = the 5m book's strategies and fee tiers. Pure backtest — your open paper positions are never touched. Chart on the left, controls on the right; scroll down for the trade history (right) and the per-strategy P&amp;L (left).</div>
   <div class="lab-grid">
     <div class="lab-col">
 <div class="card" id="labResultCard" hidden>
@@ -438,8 +438,8 @@ document.documentElement.setAttribute('data-theme',t);})();
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
         <label class="fld">Book
           <select id="labBook">
-            <option value="standard">Standard (forex + crypto + NSE)</option>
-            <option value="hft">HFT (high-frequency, 1m)</option>
+            <option value="standard">Standard (crypto + forex)</option>
+            <option value="hft">Fast book (5m)</option>
           </select>
         </label>
         <label class="fld">Market

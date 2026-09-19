@@ -618,11 +618,16 @@ let hftDefaultInterval = 10;
 let hftMarket = '';
 let hftRegisteredStrategies = [];
 async function loadHftStrategies() {
-  /* one source of truth for "what can run on the 1m book": the Lab meta
-     endpoint derives it from the strategy registry */
+  /* one source of truth for "what can run on the fast book": the Lab meta
+     endpoint derives it from the strategy registry.
+     NOTE: this used to hardcode ['1m']. When the book moved to 5m the lookup
+     silently returned undefined and the filter went back to being empty —
+     the exact bug it was written to fix. Read EVERY timeframe the book
+     registers instead, so the next move cannot break it. */
   try {
     const meta = await jget('/api/lab/meta');
-    hftRegisteredStrategies = ((meta.strategies || {}).hft || {})['1m'] || [];
+    const byTf = (meta.strategies || {}).hft || {};
+    hftRegisteredStrategies = [...new Set([].concat(...Object.values(byTf)))];
     hftRegisteredStrategies = hftRegisteredStrategies.filter(x => x !== 'all' && x !== 'ensemble');
   } catch (e) { /* the filter falls back to strategies seen in trades */ }
 }
@@ -676,7 +681,9 @@ async function refreshHftPrice() {
   $('#hftPriceEmpty').hidden = bars.length > 0;
   if (!bars.length) return;
   const chg = d.change_pct || 0;
-  $('#hftPriceHint').textContent = bars.length + ' × 1m · ' +
+  /* the timeframe comes from the API: this label said "1m" long after the
+     book moved to 5m — a chart that lies about its own bars */
+  $('#hftPriceHint').textContent = bars.length + ' × ' + esc(d.timeframe || '') + ' · ' +
     (chg >= 0 ? '+' : '') + chg.toFixed(2) + '% over the window · last ' +
     fmtPx(bars[bars.length - 1].close, hftMarket);
   hftPriceChart.data.labels = bars.map(b => fmtTs(b.ts));
@@ -748,7 +755,7 @@ async function refreshHft() {
   /* ALL HFT trades — the one place for the high-frequency history */
   let trades;
   try { trades = await jget('/api/hft/trades?limit=1000'); } catch (e) { trades = []; }
-  /* the picker lists every strategy REGISTERED for the 1m book, not just the
+  /* the picker lists every strategy REGISTERED for the fast book, not just the
      ones that happen to appear in the trade history — with an empty history
      (which is the normal state of a fresh book) it used to render a single
      "all strategies" option, so the control looked broken. */

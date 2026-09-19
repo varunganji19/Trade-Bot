@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] — `make soak`, and three breakdowns it found
+
+`make soak` drives the RUNNING dashboard in a loop the way an operator would
+— read every page, retune both cadences, stop/start the fast book, net-zero
+deposit/withdraw, pause/resume — and flags 5xx, slow requests, tracebacks and
+Metal aborts in the log, RSS/thread growth, cycles over budget, zombie
+engines, and a book attempting entries without approving any. Every serious
+bug this week was invisible to the tests AND to a glance at the UI. This is
+the "someone actually ran it and looked" step, written down.
+
+What it (and looking at the live page) found, all fixed:
+
+1. **The strategy filter was broken again.** The JS looked up
+   `meta.strategies.hft['1m']`; the book moved to 5m, the lookup returned
+   undefined, and the picker went back to being empty — the exact bug it was
+   written to fix two commits earlier. It now reads every timeframe the book
+   registers, and a test asserts the lookup names no timeframe at all.
+2. **The price chart lied about its own bars**, labelling 5m candles "1m"
+   from a hardcoded string. The timeframe comes from the API now.
+3. **A book can have no voting strategy and nothing said so.** The first
+   promotion run left the fast book with ONE voter; a book that cannot trade
+   looked identical to a quiet market. Both pages now show who can trade and
+   why the rest cannot.
+
+Plus: stale universe copy ("forex + crypto + NSE", "HFT 1m") still shipped in
+the page after the India cut, and the promotion verdicts were read once at
+construction so a battery run mid-session changed nothing until a restart.
+
 ## [Unreleased] — `main.py config`: what the process actually believes
 
 A wrong environment variable fails SILENTLY in this system. The documented

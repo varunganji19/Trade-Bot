@@ -1467,7 +1467,7 @@ def api_hft_decisions(limit: int = Query(default=50, ge=1, le=200)):
 @app.get("/api/hft/candles")
 def api_hft_candles(symbol: str = Query(default=""),
                     limit: int = Query(default=180, ge=20, le=1000)):
-    """Recent 1m candles + EMA20 for ONE market on the HFT book.
+    """Recent candles + EMA20 for ONE market on the fast book.
 
     The HFT page only ever plotted the equity curve, which is a flat line
     until the book fills its first trade — there was no way to see whether
@@ -1488,13 +1488,15 @@ def api_hft_candles(symbol: str = Query(default=""),
     except Exception as exc:
         raise HTTPException(503, f"{sym}: {type(exc).__name__}: {exc}")
     if df is None or not len(df):
-        return {"symbol": sym, "markets": list(specs), "bars": []}
+        return {"symbol": sym, "timeframe": spec.timeframe,
+                "markets": list(specs), "bars": []}
     df = df.tail(limit)
     ema = df["close"].ewm(span=20, adjust=False).mean()
     bars = [{"ts": str(ts), "close": float(c), "ema20": float(e)}
             for ts, c, e in zip(df.index, df["close"], ema)]
     first, last = bars[0]["close"], bars[-1]["close"]
-    return {"symbol": sym, "markets": list(specs), "bars": bars,
+    return {"symbol": sym, "timeframe": spec.timeframe,
+            "markets": list(specs), "bars": bars,
             "change_pct": round((last / first - 1.0) * 100.0, 3) if first else 0.0}
 
 

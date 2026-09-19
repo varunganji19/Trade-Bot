@@ -13,14 +13,14 @@
   "timeframe": "15m"
  },
  "crypto:BTC/USDT:1h": {
-  "bars": 8759,
-  "cache_file": "crypto_BTCUSDT_1h_365d_20260919.parquet",
+  "bars": 1439,
+  "cache_file": "crypto_BTCUSDT_1h_60d_20260919.parquet",
   "caliber": "raw",
-  "fetched_at": "2026-09-19T06:14:47+00:00",
-  "first_ts": "2025-09-19 07:00:00+00:00",
+  "fetched_at": "2026-09-19T06:40:56+00:00",
+  "first_ts": "2026-07-21 07:00:00+00:00",
   "kind": "crypto",
   "last_ts": "2026-09-19 05:00:00+00:00",
-  "sha256": "6c5594434da8a2a3e1d5037625a79531d2d4bb5ae5fb43577dc3e8735235b860",
+  "sha256": "c718a75fb34ec8d4c957549bcd539009c86ed2284d33112ef32f35cd8c37f184",
   "source": "binance",
   "symbol": "BTC/USDT",
   "timeframe": "1h"

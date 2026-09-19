@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] — Kronos fails its offline promotion gate
+
+`python3 main.py kronos --days 60` completed on 2026-09-19 with 128 resolved
+BTC/USDT 1h forecasts and rolling IC -0.0754 against a +0.02 hurdle: **not
+promoted**. The default 30-path evaluation took 2,976 seconds (49m36s). The
+Evidence panel now has resolved observations instead of an indefinitely empty
+ledger; 13 market-keyed 1m forecasts remain pending and were correctly not
+scored against the 1h frame.
+
+The measured recommendation is full removal in a dedicated follow-up, not a
+return to the live loop. Removal would retire the 49m36s recurring research
+job, 1,822 lines of dedicated wrapper/vendored model implementation, 15 tests,
+109 MB of Kronos-only cached weights, and an optional dependency surface whose
+installed package directories total about 712 MB in this environment. Live
+latency would not change because Kronos is already offline-only.
+
 ## [Unreleased] — the dashboard JavaScript enters the lint gate
 
 `bot/static/app.js` was executable production code with no JavaScript parser

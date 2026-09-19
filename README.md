@@ -277,6 +277,12 @@ and dispersion — and it **starts as a tracked non-voter**. A rolling rank-IC
 ledger scores its forecasts against what actually happened; it would join the
 orchestrator vote only after 60+ resolved forecasts with IC >= 0.02. First
 measured verdict on BTC 1h: IC -0.06 over 115 forecasts -> **not promoted**.
+The requested 60-day rerun on 2026-09-19 was no better: 128 resolved
+forecasts, rolling IC -0.0754 -> **not promoted** (hurdle +0.02). It took
+2,976 seconds (49m36s) at the default 30 paths, 24-bar horizon and 8-bar
+step. The Evidence tab now has those resolved observations; 13 unrelated,
+market-keyed 1m forecasts remain pending and were correctly not resolved
+against the BTC 1h frame.
 
 **It now runs OFFLINE** (`python3 main.py kronos`), not in the trading loop.
 Three measurements put it there: it never earned a vote; one 1m forecast cost
@@ -285,6 +291,18 @@ once aborted the process on Metal (the vendored predictor auto-selects MPS,
 which is single-threaded). The gate and the ledger are intact, so the day the
 evidence says it deserves a vote, wiring it back is a decision with numbers
 behind it. The Evidence tab reads the ledger either way.
+
+**Removal proposal:** delete Kronos completely in a dedicated follow-up:
+the offline command and IC ledger, Evidence card, 573-line wrapper, 1,249
+lines of vendored model implementation, optional requirements, and 15
+dedicated tests. That removes a 49m36s recurring evidence job and 109 MB of
+Kronos-specific cached weights. In an isolated project environment it also
+avoids about 712 MB of optional package directories (`torch`, `transformers`,
+`huggingface_hub`, `einops`, `tqdm`); no non-Kronos Python module in this
+repository imports them. It saves **no additional live-cycle latency**, since
+Kronos is already absent from the trading loop. Until that explicit deletion
+is approved, the populated ledger makes the remaining research surface
+observable rather than half-alive.
 
 ## Shadow Account — did the bot follow its own rules?
 

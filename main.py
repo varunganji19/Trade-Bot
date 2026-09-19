@@ -17,7 +17,6 @@ Usage:
   python3 main.py shadow [--include-demo]      # journal-vs-own-rules Shadow Account report
   python3 main.py pause [note]                 # manual halt: blocks NEW entries only
   python3 main.py resume                       # clear the manual pause (new entries allowed)
-  python3 main.py market [--mode forex|india]  # show or switch the active market universe
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
   python3 main.py status                       # journal summary
   python3 main.py chat "question"              # chatbot from the terminal
@@ -94,7 +93,7 @@ def _spec_from_args(args) -> MarketSpec:
     'crypto'; no VALID symbol changes behavior — valid ones contain exactly
     one of the kind markers, so only the garbage-input case can shift."""
     kind = infer_kind(args.symbol)
-    sym = args.symbol if kind in ("crypto", "india") else args.symbol.upper()
+    sym = args.symbol if kind == "crypto" else args.symbol.upper()
     return MarketSpec(kind, sym, args.timeframe)
 
 
@@ -238,8 +237,8 @@ def _run_owned(engine, once: bool, interval: int, label: str):
 def cmd_hft_run(args):
     """Run the HFT paper engine (the separate high-frequency book)."""
     from bot.hft import build_hft_engine
-    from config import apply_market_mode
-    apply_market_mode()  # keeps the standard book's watchlist normalized; HFT book ignores it
+    from config import apply_saved_watchlist
+    apply_saved_watchlist()   # data/watchlist.json -> CONFIG.watchlist
     engine = build_hft_engine()
     interval = args.interval or CONFIG.hft.live_interval_seconds
     summary = _run_owned(engine, args.once, interval, "hft")
@@ -403,8 +402,8 @@ def cmd_validate(args):
 
 def cmd_run(args):
     from bot.engine import TradingEngine
-    from config import apply_market_mode
-    apply_market_mode()  # the persisted market mode seeds/normalizes watchlist.json
+    from config import apply_saved_watchlist
+    apply_saved_watchlist()   # data/watchlist.json -> CONFIG.watchlist
     engine = TradingEngine(mode="paper")
     interval = args.interval or CONFIG.live_interval_seconds
     summary = _run_owned(engine, args.once, interval, "engine")
@@ -433,56 +432,13 @@ def cmd_resume(args):
           "risk gates still apply).")
 
 
-def cmd_market(args):
-    """Show or switch the active market universe (forex default | india).
-    Switching is REFUSED while open paper positions exist: the watchlist is
-    rewritten by the switch, and an open position whose market dropped out
-    of the universe would be orphaned (its feed gone, its books gone)."""
-    from bot.journal import Journal
-    from config import get_market_mode, set_market_mode, active_specs
-    if not args.mode:
-        mode = get_market_mode()
-        print(f"[market] active mode: {mode}")
-        for s in active_specs(mode):
-            print(f"  {s.kind:6s} {s.symbol:14s} {s.timeframe}  {s.display}")
-        return
-    if args.mode not in ("forex", "india"):
-        print(f"[market] unknown mode {args.mode!r} (expected --mode forex|india)")
-        sys.exit(1)
-    open_trades = Journal().open_trades()
-    if open_trades:
-        print(f"[market] REFUSING to switch: {len(open_trades)} open paper "
-              f"position(s) exist:")
-        for t in open_trades:
-            print(f"  {t['side'].upper()} {t['symbol']} qty {t['qty']} @ {t['entry_price']}")
-        print("[market] close them first (dashboard or close_manual) so nothing "
-              "gets orphaned when its market's feed drops out of the watchlist.")
-        sys.exit(1)
-    live = _live_engine_state()
-    if live:
-        print(f"[market] REFUSING to switch: the {live} engine reports "
-              f"desired='running' (engine_state.json) — stop the engine "
-              f"(dashboard Stop, or kill the run loop) before switching, so no "
-              f"live cycle trades the old universe mid-switch.")
-        sys.exit(1)
-    if not set_market_mode(args.mode):
-        print(f"[market] could not persist mode {args.mode!r} (disk error?) — "
-              "the market is NOT switched")
-        sys.exit(1)
-    print(f"[market] switched to {args.mode} — active universe:")
-    for s in active_specs(args.mode):
-        print(f"  {s.kind:6s} {s.symbol:14s} {s.timeframe}  {s.display}")
-    print("[market] data/watchlist.json rewritten to match; restart run/"
-          "dashboard to load the new universe.")
-
-
 def cmd_dashboard(args):
     import errno
     import socket
     import uvicorn
-    from config import apply_market_mode
+    from config import apply_saved_watchlist
     from bot.dashboard import app
-    apply_market_mode()  # the persisted market mode seeds/normalizes watchlist.json
+    apply_saved_watchlist()   # data/watchlist.json -> CONFIG.watchlist
 
     # bind check BEFORE uvicorn starts: a second dashboard on the same port
     # used to surface as a raw "[Errno 48] address already in use" traceback
@@ -795,16 +751,6 @@ def main():
 
     rp = sub.add_parser("resume", help="clear the manual pause (new entries allowed again)")
     rp.set_defaults(fn=cmd_resume)
-
-    mk = sub.add_parser("market",
-                        help="show or switch the active market universe "
-                             "(--mode forex|india; switching refused while "
-                             "paper positions are open)")
-    mk.add_argument("--mode", default=None, choices=["forex", "india"],
-                    help="switch the persisted market mode and rewrite "
-                         "watchlist.json to that mode's universe "
-                         "(omit to just show the active mode)")
-    mk.set_defaults(fn=cmd_market)
 
     va = sub.add_parser("validate",
                         help="honest-statistics battery: purged-CV, PBO, Deflated Sharpe, "

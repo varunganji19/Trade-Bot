@@ -28,14 +28,12 @@ Tabs (hash routing, ~4s polling):
 API: GET /  /api/stats /api/equity /api/trades /api/decisions /api/evidence
      /api/positions (open positions) /api/watchlist /api/account
      /api/account/transactions /api/chat /api/engine/status
-     /api/market/mode (the ACTIVE market universe: forex | india — one at a
      time, never both; see config.MARKET_MODE)
      POST /api/chat {message}  /api/engine/start {interval}  /api/engine/stop
           /api/watchlist {kind,symbol,timeframe,display?}
           /api/account/deposit {amount}  /api/account/withdraw {amount}
           /api/account/reset {capital}
           /api/trading/pause {note?}  /api/trading/resume {}   (manual halt)
-          /api/market/mode {mode,confirm_close_positions?}     (forex ↔ india)
      DELETE /api/watchlist/{kind}/{symbol}/{timeframe}
 """
 from __future__ import annotations
@@ -61,7 +59,6 @@ from bot.engine import TradingEngine
 from bot.journal import NO_OWNER, BookOwnedError, Journal
 from bot.pause import is_paused, set_paused
 from bot.strategies import STRATEGY_CLASSES
-import config as config_mod
 from config import (CONFIG, MarketSpec, VALID_KINDS,
                     VALID_TIMEFRAMES, MAX_WATCHLIST_SPECS,
                     apply_saved_watchlist, save_watchlist, db_dir, infer_kind)
@@ -225,15 +222,6 @@ class EmptyIn(BaseModel):
     """Body-required marker for POSTs that take no fields: a JSON body forces
     the CORS preflight that defeats form-encoded CSRF (same rule every other
     mutating endpoint already follows)."""
-
-
-class MarketModeIn(BaseModel):
-    """Market-universe switch body. `mode` is the target universe; the
-    optional confirm flag is the ONLY way past the orphan guard (an
-    explicit, second-click "yes, close my open paper positions" — the UI
-    never sends it on the first click)."""
-    mode: str
-    confirm_close_positions: bool = False
 
 
 # --------------------------------------------------------------- engine state
@@ -510,7 +498,6 @@ def _get_hft_engine() -> TradingEngine | None:
 
 # ---------------------------------------------------------------------------
 # helpers — shared by several endpoints
-INDIA_RE = re.compile(r"^([A-Z0-9]{2,15}\.NS|\^NSEI|\^NSEBANK|\^[A-Z0-9]+)$")
 
 
 def _validate_spec(kind: str, symbol: str, timeframe: str) -> tuple[str, str, str]:
@@ -523,9 +510,6 @@ def _validate_spec(kind: str, symbol: str, timeframe: str) -> tuple[str, str, st
     if kind == "crypto":
         if not CRYPTO_RE.match(symbol):
             raise HTTPException(422, "crypto symbol must be BASE/QUOTE, e.g. BTC/USDT")
-    elif kind == "india":
-        if not (symbol.endswith(".NS") or symbol == "^NSEI" or INDIA_RE.match(symbol)):
-            raise HTTPException(422, "india symbol must be NSE equity e.g. RELIANCE.NS or ^NSEI")
     elif not FOREX_RE.match(symbol):
         raise HTTPException(422, "forex symbol must be XXXXXX=X, e.g. EURUSD=X")
     return kind, symbol, timeframe
@@ -675,11 +659,6 @@ def api_stats():
         paused = paused or bool(getattr(eng.risk, "paused", False))
     stats["paused"] = paused
     stats["paused_note"] = pause_note
-    # the active market universe rides the same poll as paused (W1's pattern):
-    # the mode badge/banner must flip within one 4s tick, without a second
-    # request. Reported for a stopped engine too — the mode file outlives any
-    # single engine run, so a restart can never silently flip markets.
-    stats["market_mode"] = config_mod.get_market_mode()
     if eng is not None:
         stats["llm_mode"] = eng.llm.provider if eng.llm.enabled else "quant"
         # live-state trio via the shared helper (marks come from the engine's
@@ -913,16 +892,12 @@ def api_watchlist_get():
 @app.post("/api/watchlist", status_code=201)
 def api_watchlist_add(body: WatchlistIn):
     kind, symbol, timeframe = _validate_spec(body.kind, body.symbol, body.timeframe)
-    # single-currency guard: one market universe at a time (USD vs INR books
-    # never mix). Cross-mode adds are refused with the mode hint — switch
-    # universes via POST /api/market/mode instead.
-    mode = config_mod.get_market_mode()
-    allowed = {"crypto", "forex"} if mode == "forex" else {"india"}
+    # USD-only book: the india kind (and its INR accounting) was removed on
+    # 2026-09-19, so the guard is now a straight kind check
+    allowed = {"crypto", "forex"}
     if kind not in allowed:
-        raise HTTPException(
-            409, f"kind {kind!r} does not belong to the active market mode "
-                 f"{mode!r} (allowed: {sorted(allowed)}) — switch modes via "
-                 f"POST /api/market/mode")
+        raise HTTPException(409, f"kind {kind!r} is not tradable "
+                                 f"(allowed: {sorted(allowed)})")
     display = (body.display or "").strip()
     with _wl_lock:
         current = list(CONFIG.watchlist)
@@ -1377,7 +1352,7 @@ def api_engine_status():
                 # mode badge stays live (reported for a stopped engine too:
                 # the mode is a file that outlives any engine run)
                 "paused": paused,
-                "market_mode": config_mod.get_market_mode()}
+                }
     return {"running": False, "cycles": 0, "llm": "quant", "positions": 0,
             # the operator's CHOSEN cadence, not the config default: reporting
             # the default snapped the UI's Interval select back after every
@@ -1386,7 +1361,7 @@ def api_engine_status():
             "alive": bool(th is not None and th.is_alive()),
             "last_error": _last_engine_error, "health_note": None,
             "paused": paused,
-            "market_mode": config_mod.get_market_mode()}
+            }
 
 
 # ------------------------------------------------------------- HFT book API
@@ -1577,7 +1552,7 @@ def api_lab_meta():
     (derived from the registry, never hand-maintained)."""
     from bot import lab
     books = ("standard", "hft")
-    kinds = ("crypto", "forex", "india")
+    kinds = ("crypto", "forex")
     tfs_all = sorted(set(lab._STANDARD_TFS) | set(lab._HFT_TFS))
     return {
         "suggestions": lab.SUGGESTIONS,
@@ -1625,11 +1600,6 @@ def api_trading_resume(body: EmptyIn):
 
 
 # ---------------------------------------------------------------------------
-# market mode — the forex ↔ india universe toggle (ONE active book at a time;
-# never both: single-currency accounting, USD vs INR books cannot mix)
-_MARKET_MODES = ("forex", "india")
-
-
 def _open_position_dicts(eng: TradingEngine | None) -> list[dict]:
     """Every open position the switch could orphan, from BOTH holders:
     the live engine's broker (engine-on case) and the journal's OPEN rows
@@ -1733,79 +1703,6 @@ def _close_all_open_positions(eng: TradingEngine | None) -> list[dict]:
     return closed
 
 
-@app.get("/api/market/mode")
-def api_market_mode_get():
-    """The ACTIVE market universe: 'forex' (crypto + forex, the historical
-    default) or 'india' (NSE cash equities + the Nifty 50 index). One is
-    active at a time — never both (single-currency accounting)."""
-    mode = config_mod.get_market_mode()
-    return {"mode": mode,
-            "specs": [s.to_dict() for s in config_mod.active_specs(mode)]}
-
-
-@app.post("/api/market/mode")
-def api_market_mode_set(body: MarketModeIn):
-    """Switch the active market universe and rewrite data/watchlist.json in
-    lockstep (the mode is the single source of truth — see config.py).
-
-    THE ORPHAN GUARD: switching while paper positions are open would drop
-    their markets' feeds out of the watchlist — unpriced, unmanaged zombie
-    books. Both holders are checked (live engine positions AND the
-    journal's OPEN rows — a stale engine process could still hold rows).
-    With open positions the switch is refused with 409 +
-    requires_confirm:true; ONLY an explicit confirm_close_positions=true
-    proceeds, and then every position is force-closed FIRST (at its last
-    mark, via the engine's own close path when one is live), and only then
-    does the mode flip. If anything fails mid-close the mode is NOT
-    switched — a half-closed book is recoverable, an orphaned one is not."""
-    mode = body.mode.strip().lower()
-    if mode not in _MARKET_MODES:
-        raise HTTPException(422, f"mode must be one of {list(_MARKET_MODES)} "
-                                 f"(got {body.mode!r})")
-    if mode == config_mod.get_market_mode():
-        specs = config_mod.active_specs(mode)
-        return {"status": "unchanged", "mode": mode, "closed": 0,
-                "specs": [s.to_dict() for s in specs]}
-    eng = _get_engine()
-    open_positions = _open_position_dicts(eng)
-    if open_positions and not body.confirm_close_positions:
-        raise HTTPException(
-            409,
-            {"detail": f"{len(open_positions)} open paper position(s) would be "
-                       f"orphaned by the switch — confirm to close them at "
-                       f"their last prices, or close them yourself first",
-             "open_positions": open_positions,
-             "requires_confirm": True})
-    closed = []
-    if open_positions:
-        # verify the engine identity too: a stop racing this handler could
-        # have cleared it between _get_engine() and the close (a fast
-        # stop/start must never patch a NEW engine with the OLD one's rows)
-        if eng is not None and _get_engine() is not eng:
-            raise HTTPException(409, "engine changed state mid-switch — retry")
-        closed = _close_all_open_positions(eng)
-        # the close must have actually emptied the books (a concurrent entry
-        # could have slipped in under the cycle lock we do NOT hold here)
-        if _open_position_dicts(_get_engine()):
-            raise HTTPException(
-                409, "positions were opened while the switch was closing — "
-                     "the market is NOT switched; retry the switch")
-    if not config_mod.set_market_mode(mode):
-        raise HTTPException(500, f"could not persist market mode {mode!r} "
-                                 "(disk error?) — the market is NOT switched")
-    # hot-install the new universe into CONFIG so a RUNNING engine's next
-    # cycle trades the new book (apply_saved_watchlist mutates
-    # CONFIG.watchlist in place — the same rule the watchlist CRUD uses)
-    with _wl_lock:
-        config_mod.apply_saved_watchlist()
-    return {"status": "switched", "mode": mode, "closed": len(closed),
-            "closes": closed,
-            "specs": [s.to_dict() for s in config_mod.active_specs(mode)]}
-
-
-# ===========================================================================
-# UI — module-level HTML constant (single-page app, no build tooling)
-# ===========================================================================
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2478,10 +2375,6 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
   <div class="p-body"><b>Trading paused (manual).</b> Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.<span id="pauseNoteBox"></span> <span style="opacity:.85">Resume from the Overview tab when you want new entries again.</span></div>
 </div>
-<div class="market-banner" id="marketBanner" role="status">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-  <div class="m-body"><b id="marketBannerText">Market: —</b><span class="m-sub" id="marketBannerSub"></span></div>
-</div>
 <div class="health-banner" id="healthBanner" role="alert">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>
   <div><b>Engine degraded:</b> <span id="healthMsg"></span></div>
@@ -2533,15 +2426,6 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
         <div class="rc-row"><b>Daily kill switch (automatic):</b> after a −3% day it blocks new entries for the rest of the UTC day. It resets by itself at the next UTC day. It never force-closes positions — their stops, targets and strategy exits keep running.</div>
         <div class="rc-row"><b>Pause trading (manual):</b> stays until you press Resume. Blocks new entries only — open positions are still managed (stops, targets, strategy exits). Nothing is force-closed.</div>
       </details>
-      <div class="mkt-row">
-        <span class="lbl" id="mktLabel">Market</span>
-        <div class="mkt-switch" role="group" aria-label="Active market: on = Forex, off = India">
-          <button type="button" id="mktForex" aria-pressed="false">Crypto + Forex</button>
-          <span class="sep" aria-hidden="true"></span>
-          <button type="button" id="mktIndia" aria-pressed="false">India (NSE)</button>
-        </div>
-        <span class="hint" id="mktHint">One active market universe. Your choice is saved.</span>
-      </div>
     </div>
   </div>
   <div class="grid overview-bottom-grid">
@@ -2613,7 +2497,7 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 <section class="view" id="view-hft">
   <div class="card">
     <div class="card-head">
-      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>High-frequency book <span class="badge">1m · paper</span></h2>
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Fast book <span class="badge">5m · paper</span></h2>
       <span class="hint" id="hftFeeHint"></span>
     </div>
     <p class="hint" style="margin:0 0 10px">A SECOND paper account trading <b>5-minute</b> bars (crypto + forex) with its own capital, risk dials and fee tier — the standard book above is untouched. It ran 1m until 2026-09-19: at a 16bp round trip against a 5-8bp 1m ATR, no stop could pay for its own fees, so entries were vetoed rather than taken. Strategies: <b>hft_micro_breakout</b> (2R range breakout, taker), <b>hft_exhaustion_fade</b> (volume-spike reversion). Every one refuses a setup whose stop cannot clear the fee tier's round trip. Research + fee math: <code>HFT.md</code>.</p>
@@ -2622,11 +2506,10 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       <button class="btn primary" id="hftStartBtn">Start HFT engine</button>
       <button class="btn btn-danger" id="hftStopBtn" disabled>Stop</button>
       <label class="fld" for="hftIntervalSel" style="margin:0">Interval</label>
-      <select id="hftIntervalSel" style="min-height:36px;width:auto" aria-label="HFT cycle interval">
-        <option value="1">1 s</option>
-        <option value="2" selected>2 s</option>
+      <select id="hftIntervalSel" style="min-height:36px;width:auto" aria-label="Fast book cycle interval">
         <option value="5">5 s</option>
-        <option value="15">15 s</option>
+        <option value="10" selected>10 s</option>
+        <option value="30">30 s</option>
         <option value="60">60 s</option>
       </select>
       <span class="engine-pill"><span class="dot" id="hftEngineDot"></span><span id="hftPillText">hft: checking…</span></span>
@@ -2792,7 +2675,6 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
           <select id="labKind">
             <option value="crypto">Crypto</option>
             <option value="forex">Forex</option>
-            <option value="india">NSE India</option>
           </select>
         </label>
         <label class="fld" style="flex:1;min-width:200px">Symbol
@@ -2962,20 +2844,6 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
     <div class="modal-actions">
       <button class="btn btn-ghost" id="resetCancel">Cancel</button>
       <button class="btn btn-danger" id="resetGo" disabled>Reset paper account</button>
-    </div>
-  </div>
-</div>
-
-<!-- market-switch confirmation modal: shown ONLY when the switch would close
-     open paper positions (the orphan guard's 409). Plain language, both what
-     it does and what it does NOT do. -->
-<div class="modal-overlay" id="marketModal" role="dialog" aria-modal="true" aria-labelledby="marketTitle">
-  <div class="modal">
-    <h3 id="marketTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-alert"/></svg>Switch markets and close open positions?</h3>
-    <p id="marketModalMsg"></p>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" id="marketCancel">Cancel</button>
-      <button class="btn" id="marketGo">Switch &amp; close positions</button>
     </div>
   </div>
 </div>
@@ -3175,7 +3043,7 @@ const VIEWS = ['overview', 'portfolio', 'hft', 'watchlist', 'lab', 'evidence', '
 const VIEW_COPY = {
   overview: ['Portfolio overview', 'Your performance, positions and trading activity at a glance.'],
   portfolio: ['Positions & trade history', 'Follow open exposure and inspect the decisions behind each trade.'],
-  hft: ['High-frequency book', 'A separate paper account for short-horizon strategies.'],
+  hft: ['Fast book', 'A separate 5-minute paper account with its own capital and fee tier.'],
   watchlist: ['Your market watchlist', 'Choose the markets and timeframes your paper engine follows.'],
   lab: ['Strategy Lab', 'Test a strategy on historical data before putting it to work.'],
   evidence: ['Research & evidence', 'Check validation results, model quality and rule adherence.'],
@@ -3469,7 +3337,6 @@ async function refreshStats() {
   /* market mode rides the same poll (W1's paused pattern): the banner +
      toggle must follow the PERSISTED mode within one 4s tick — a restart
      can never silently flip markets on the operator. */
-  applyMarketMode(s.market_mode === 'india' ? 'india' : 'forex');
 
   renderPositions(s);
   renderStratBars(s.by_strategy || {});
@@ -3582,7 +3449,7 @@ $('#btnPause').addEventListener('click', togglePause);
    so the standard book's pages above never mix in HFT records. */
 let hftChart = null, hftPriceChart = null;
 let hftAutoResumeToasted = false;
-let hftDefaultInterval = 2;
+let hftDefaultInterval = 10;
 let hftMarket = '';
 let hftRegisteredStrategies = [];
 async function loadHftStrategies() {
@@ -3668,7 +3535,7 @@ async function refreshHft() {
   if (!hftRegisteredStrategies.length) loadHftStrategies();
   refreshHftPrice();
   $('#hftFeeHint').textContent = 'fee tier: ' + (s.fee_tier || 'perp') +
-    ' · capital ' + fmt$(s.capital) + ' · 1m bars';
+    ' · capital ' + fmt$(s.capital) + ' · 5m bars';
   const cards = [
     ['Equity', fmt$(s.broker_equity ?? s.current_equity ?? s.capital),
       (s.broker_equity ?? 0) > s.capital ? 'pos' : (s.broker_equity ?? 0) < s.capital ? 'neg' : '',
@@ -3762,7 +3629,7 @@ async function startHftEngine() {
     hftDefaultInterval = interval;
     const r = await jpost('/api/hft/engine/start', {interval: interval});
     toast('HFT engine ' + (r.status === 'started' ? 'started' : r.status),
-          'cycle interval ' + interval + 's · 1m bars', r.status !== 'error');
+          'cycle interval ' + interval + 's · 5m bars', r.status !== 'error');
     addMsg('[hft] engine started — interval ' + interval + 's', 'bot');
   } catch (e) { toastErr('Could not start HFT engine', e); }
   refreshHft();
@@ -3972,98 +3839,6 @@ $('#labChips').addEventListener('click', e => {
   if (b) { $('#labSymbol').value = b.dataset.sym; }
 });
 $('#labRunBtn').addEventListener('click', labRun);
-
-/* ===================================================== market toggle
-   One market at a time: ON = Forex (crypto + forex universe), OFF = India
-   (NSE). The switch POSTs /api/market/mode; the orphan guard on the server
-   answers 409 + requires_confirm when open paper positions exist — the
-   first click NEVER closes anything, it only opens this dialog, and only
-   the dialog's confirm button sends confirm_close_positions=true. */
-let marketMode = null;        // 'forex' | 'india' — the last state the UI rendered
-let marketPending = null;     // target mode while the confirm dialog is open
-let marketBusy = false;       // in-flight guard: a double-click must not double-POST
-const MARKET_NAMES = {forex: 'the Forex paper universe (crypto + forex)',
-                      india: 'the India (NSE) paper universe'};
-
-function applyMarketMode(mode) {
-  if (mode === marketMode) return;
-  marketMode = mode;
-  $('#mktForex').setAttribute('aria-pressed', String(mode === 'forex'));
-  $('#mktIndia').setAttribute('aria-pressed', String(mode === 'india'));
-  $('#marketBanner').classList.add('show');
-  $('#marketBannerText').textContent = mode === 'india'
-    ? 'Market: India (NSE) — Nifty 50 and NSE shares'
-    : 'Market: Forex — crypto and forex pairs';
-  $('#marketBannerSub').textContent =
-    'One market at a time. Your market choice is remembered — restarting the dashboard keeps the same market.';
-  /* every surface that names the markets follows the mode (the brand line
-     used to say "crypto + forex" statically — wrong in India mode) */
-  $('#brandSub').textContent = (mode === 'india' ? 'India (NSE)' : 'crypto + forex')
-    + ' · paper trading · IST';
-}
-
-function marketSwitchedToast(mode, closed) {
-  toast('Market switched', 'Now trading ' + (MARKET_NAMES[mode] || mode) +
-    (closed ? ' — ' + closed + ' open position' + (closed > 1 ? 's' : '') +
-      ' closed at their last prices' : ''));
-  addMsg('[engine] market switched to ' + mode + ' — now trading ' +
-    (MARKET_NAMES[mode] || mode), 'bot');
-}
-
-async function doMarketSwitch(mode, confirmClose) {
-  if (marketBusy) return false;
-  marketBusy = true;
-  try {
-    const r = await jpost('/api/market/mode',
-                          {mode, confirm_close_positions: !!confirmClose});
-    applyMarketMode(mode);
-    if (r.status === 'switched') marketSwitchedToast(mode, r.closed);
-    else toast('Market unchanged', 'already on ' + (MARKET_NAMES[mode] || mode));
-    refreshWatchlist(); refreshStats(); refreshDecisions();
-    return true;
-  } catch (e) {
-    if (e.status === 409 && e.data && e.data.requires_confirm) {
-      // the orphan guard refused the first click — show the confirmation
-      // dialog (plain language, both what it does and does not do). NOTE:
-      // FastAPI wraps the structured 409 body inside "detail", so the
-      // payload the guard built lives at e.data.detail.
-      const body = e.data.detail && e.data.detail.requires_confirm
-        ? e.data.detail : e.data;
-      const n = (body.open_positions || []).length;
-      $('#marketModalMsg').textContent =
-        'You have ' + n + ' open paper position' + (n === 1 ? '' : 's') + '. ' +
-        'Switching markets will close them at their last prices so none are left orphaned. ' +
-        'Blocks nothing else — this only changes which markets the bot watches.';
-      marketPending = mode;
-      openDialog('#marketModal', '#marketCancel');
-      return false;
-    }
-    toastErr('Could not switch market', e);
-    return false;
-  } finally {
-    marketBusy = false;
-  }
-}
-
-$('#mktForex').addEventListener('click', () => {
-  if (marketMode !== 'forex') doMarketSwitch('forex', false);
-});
-$('#mktIndia').addEventListener('click', () => {
-  if (marketMode !== 'india') doMarketSwitch('india', false);
-});
-$('#marketCancel').addEventListener('click', () => {
-  closeDialog('#marketModal');
-  marketPending = null;
-});
-$('#marketModal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) closeDialog('#marketModal');
-});
-$('#marketGo').addEventListener('click', async () => {
-  const mode = marketPending;
-  closeDialog('#marketModal');
-  marketPending = null;
-  if (mode) await doMarketSwitch(mode, true);   // explicit confirm: close + switch
-});
 
 /* ===================================================== portfolio */
 function renderPositions(s) {

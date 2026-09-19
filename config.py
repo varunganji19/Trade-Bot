@@ -126,64 +126,19 @@ class CostConfig:
     # maker halves the modeled spread cost: resting inside the book instead
     # of crossing it.
     #
-    # India (NSE cash equities) — a per-side REGULATORY cost stack, not an
-    # exchange maker/taker fee ladder. Components below are module constants
-    # so tests can compute expected rates from the same numbers (no magic
-    # totals). Rates verified against the Zerodha charge list, verified
-    # 2026-09-10 — broker/exchange rates CHANGE, re-verify annually.
-    #   - delivery brokerage: Rs 0 for retail (non-individual: min(0.1%, Rs 20))
-    #   - intraday brokerage: min(0.03%, Rs 20) per order (published discount-
-    #     broker cap)
-    #   - STT: delivery 0.1% BOTH sides; intraday 0.025% SELL side only
-    #   - NSE exchange transaction charges: 0.00307% per side
-    #   - SEBI turnover fees: Rs 10/crore = 0.0001% per side
-    #   - stamp duty (BUY side only): delivery 0.015%, intraday 0.003%
-    #   - GST: 18% on (brokerage + transaction charges + SEBI charges)
-    # DESIGN DECISION: the bot's India specs hold multi-day positions on 1h/4h
-    # bars — that is DELIVERY in Indian market terms, so the model uses
-    # delivery STT (0.1% both sides), which is also the MORE expensive round
-    # trip vs intraday (0.025% sell-only) — the conservative floor. Brokerage
-    # is modeled as 0.03% per leg: Zerodha retail delivery is Rs 0, but
-    # relying on zero brokerage flatters results — 0.03% (the published
-    # intraday cap) is a conservative standing figure.
-    india_brokerage: float = 0.0003      # 0.03% per leg (conservative standing figure)
-    india_stt: float = 0.001             # 0.1% STT per side (delivery rate, both legs)
-    india_txn: float = 0.0000307         # NSE exchange transaction charges per side
-    india_sebi: float = 0.000001        # SEBI turnover fee per side (Rs 10/crore)
-    india_stamp: float = 0.00015         # 0.015% stamp duty, BUY side only
-    india_gst: float = 0.18             # 18% GST on (brokerage + txn + SEBI)
     fee_crypto: float = 0.001
     fee_forex: float = 0.0002
     maker_fee_crypto: float = 0.001
     maker_fee_forex: float = 0.0001
     slippage_crypto: float = 0.0005
     slippage_forex: float = 0.0001
-    slippage_india: float = 0.0005      # 0.05% adverse: crypto parity; liquid large caps
     maker_pricing: bool = _env_int("MAKER_PRICING", 1) == 1  # kill-switch for the maker model
 
     def fee(self, kind: str, maker: bool = False, side: str | None = None) -> float:
-        """Per-leg cost rate for `kind`. `side` ('buy' | 'sell') is the leg
-        direction — India's stamp duty is buy-side only. side=None (call
-        sites that don't know the leg) returns the CONSERVATIVE MAX: the
-        buy-side rate, stamp included."""
-        if kind == "india":
-            # brokerage + STT + exchange txn + SEBI on every leg
-            rate = (self.india_brokerage + self.india_stt
-                    + self.india_txn + self.india_sebi)
-            # stamp duty applies to the BUY side only; unknown leg -> include
-            # it (conservative max)
-            if side is None or side == "buy":
-                rate += self.india_stamp
-            # GST on the taxable components (brokerage + txn + SEBI), computed
-            # — never a hand-total — so the components stay auditable
-            gst = self.india_gst * (self.india_brokerage + self.india_txn
-                                   + self.india_sebi)
-            rate += gst
-            # maker=True does NOT reduce the India rate: Indian charges are
-            # regulatory per-side taxes, not exchange maker rebates — a
-            # resting limit still pays brokerage + STT + txn + SEBI + GST.
-            # Only the slippage differs (see slippage()).
-            return rate
+        """Per-leg cost rate for `kind` ('crypto' | 'forex'). `side` is kept
+        in the signature (call sites pass it) but no longer changes the rate:
+        it existed for India's buy-side stamp duty, and the India universe
+        was removed on 2026-09-19 (zero trades, zero decisions, ever)."""
         if maker:
             return self.maker_fee_crypto if kind == "crypto" else self.maker_fee_forex
         return self.fee_crypto if kind == "crypto" else self.fee_forex
@@ -191,8 +146,6 @@ class CostConfig:
     def slippage(self, kind: str, maker: bool = False) -> float:
         if maker:
             return 0.0     # a resting limit fills at its own level; nothing is crossed
-        if kind == "india":
-            return self.slippage_india
         return self.slippage_crypto if kind == "crypto" else self.slippage_forex
 
 
@@ -339,13 +292,14 @@ class StrategyParams:
 
 @dataclass
 class MarketSpec:
-    """A tradable market. kind is 'crypto', 'forex' or 'india'.
-    v1 India scope: cash/index EQUITIES only, no F&O (no options
-    infrastructure exists — deliberately out of scope); one active market at
-    a time (single-currency accounting: USD and INR books are never mixed —
-    see MARKET_MODE below)."""
-    kind: str            # 'crypto' | 'forex' | 'india'
-    symbol: str          # ccxt style 'BTC/USDT', yfinance 'EURUSD=X' forex / 'RELIANCE.NS' equity / '^NSEI' index
+    """A tradable market. kind is 'crypto' or 'forex'.
+
+    The 'india' kind (NSE cash equities + indices) was removed on 2026-09-19:
+    zero trades and zero decisions in the whole journal, against a session
+    calendar, a per-side regulatory cost stack, a currency-isolation rule and
+    a market-mode toggle threaded through every module. Git history has it."""
+    kind: str            # 'crypto' | 'forex'
+    symbol: str          # ccxt style 'BTC/USDT', yfinance 'EURUSD=X' forex
     timeframe: str       # '5m', '15m', '1h', '4h', '1d'
     display: str = ""    # pretty name for dashboard
 
@@ -382,16 +336,12 @@ HFT_WATCHLIST: list[MarketSpec] = [
 
 
 def infer_kind(symbol: str) -> str:
-    """'forex' for yfinance-style XXXXXX=X, 'india' for NSE tickers
-    ('RELIANCE.NS' equities, '^NSEI' indices), else 'crypto' (ccxt BASE/QUOTE).
+    """'forex' for yfinance-style XXXXXX=X, else 'crypto' (ccxt BASE/QUOTE).
     One shared inference — call sites used to disagree on the fallback for
-    malformed symbols, and kind now drives a 3-way cost model (crypto taker
-    fees vs forex spread vs the India regulatory stack), a 5x+ fee/slippage
-    difference in every pair of directions."""
+    malformed symbols, and kind drives the cost model (crypto taker fees vs
+    the forex spread), a 5x fee/slippage difference in both directions."""
     if "=" in symbol:
         return "forex"
-    if symbol.endswith(".NS") or symbol.startswith("^"):
-        return "india"
     return "crypto"
 
 
@@ -429,25 +379,6 @@ DEFAULT_WATCHLIST: list[MarketSpec] = [
     MarketSpec("forex", "EURUSD=X", "1h", "EUR/USD"),
     MarketSpec("forex", "GBPUSD=X", "1h", "GBP/USD"),
 ]
-
-# INDIA-mode universe: NSE cash equities + the Nifty 50 index. One active
-# book at a time — the market mode is the single switch (USD and INR books
-# are never mixed; single-currency accounting).
-# 15m is excluded: yfinance intraday caps 15m history at 60d, and the 90-day
-# acceptance window needs the history.
-SPECS_INDIA: list[MarketSpec] = [
-    # 1h: turtle trend (turtle owns 1h)
-    MarketSpec("india", "^NSEI", "1h", "Nifty 50"),
-    MarketSpec("india", "RELIANCE.NS", "1h", "Reliance"),
-    MarketSpec("india", "TCS.NS", "1h", "TCS"),
-    MarketSpec("india", "HDFCBANK.NS", "1h", "HDFC Bank"),
-    MarketSpec("india", "INFY.NS", "1h", "Infosys"),
-    MarketSpec("india", "ICICIBANK.NS", "1h", "ICICI Bank"),
-    # 4h: mean-reversion books (connors owns 4h)
-    MarketSpec("india", "RELIANCE.NS", "4h", "Reliance (mean-rev)"),
-    MarketSpec("india", "TCS.NS", "4h", "TCS (mean-rev)"),
-]
-
 
 @dataclass
 class LLMConfig:
@@ -535,13 +466,6 @@ class Config:
 
     watchlist: list = field(default_factory=lambda: list(DEFAULT_WATCHLIST))
 
-    news_feeds: list = field(default_factory=lambda: [
-        "https://www.coindesk.com/arc/outboundfeeds/rss/",
-        "https://cointelegraph.com/rss",
-        "https://www.fxstreet.com/rss/news",
-    ])
-    news_max_items: int = 15
-    news_ttl_seconds: int = 600
 
     def __post_init__(self):
         # Single-journal-dir rule: every derived state file (cache, watchlist,
@@ -571,7 +495,7 @@ MAX_WATCHLIST_SPECS = 12
 # watchlist spec that can only ever HOLD. TIMEFRAME_SECONDS keeps 1m so
 # historical rows, caches and ad-hoc research frames still resolve.
 VALID_TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")
-VALID_KINDS = ("crypto", "forex", "india")
+VALID_KINDS = ("crypto", "forex")
 
 
 def db_dir() -> str:
@@ -603,12 +527,6 @@ def kronos_track_path() -> str:
     KronosSignalEngine's default track_file here so BOT_DB_PATH overrides
     stop leaking the IC ledger into the repo's data/)."""
     return os.path.join(db_dir(), "kronos_ic.json")
-
-# MARKET MODE: "forex" (default — crypto + forex universe, the historical
-# behavior) | "india" (the SPECS_INDIA universe). ONE book is active at a
-# time; data/watchlist.json is DERIVED state of the mode (v1 keeps them in
-# lockstep — set_market_mode rewrites both).
-
 
 def _watchlist_to_dicts(specs: list) -> list:
     return [{"kind": s.kind, "symbol": s.symbol, "timeframe": s.timeframe,
@@ -655,8 +573,23 @@ def apply_saved_watchlist(path: str | None = None) -> list:
             specs = [MarketSpec(s["kind"], s["symbol"], s["timeframe"],
                                 s.get("display") or "")
                      for s in payload.get("specs", [])]
-            if specs:
-                CONFIG.watchlist[:] = specs
+            # a saved spec whose kind/timeframe the bot no longer trades can
+            # only ever HOLD (its fetch path is gone). Drop those and say so,
+            # rather than loading a watchlist the engine cannot act on — the
+            # india kind and the 1m timeframe were both retired 2026-09-19.
+            live = [sp for sp in specs
+                    if sp.kind in VALID_KINDS and sp.timeframe in VALID_TIMEFRAMES]
+            dropped = [sp for sp in specs if sp not in live]
+            if dropped:
+                print(f"[config] dropped {len(dropped)} watchlist spec(s) the bot "
+                      f"no longer trades: "
+                      f"{', '.join(f'{sp.kind}:{sp.symbol} {sp.timeframe}' for sp in dropped)}")
+            if live:
+                CONFIG.watchlist[:] = live
+            elif specs:
+                print("[config] every saved watchlist spec was retired — "
+                      "falling back to the default watchlist")
+                save_watchlist(CONFIG.watchlist, path)
         except Exception:
             try:    # keep the corrupt file for inspection, out of the load path
                 os.replace(path, f"{path}.corrupt.{int(datetime.now(timezone.utc).timestamp())}")
@@ -669,135 +602,9 @@ def apply_saved_watchlist(path: str | None = None) -> list:
     return CONFIG.watchlist
 
 
-# ---------------------------------------------------------------- market mode
-def _market_mode_path() -> str:
-    """market_mode.json, derived from the ACTIVE journal dir at CALL time
-    (same hermetic-test rule as the pause flag: a test that monkeypatches
-    CONFIG.db_path to a tmp dir gets a tmp mode file)."""
-    return os.path.join(db_dir(), "market_mode.json")
-
-
-def get_market_mode() -> str:
-    """The persisted market mode: "forex" (default when the file is missing)
-    or "india". Never raises. A corrupt file is renamed to .corrupt.<epoch>
-    and the DEFAULT "forex" is returned with a printed warning — unlike the
-    pause flag (corrupt -> PAUSED, fail-safe), an unreadable MODE must not
-    trap the user in a state they can't see; "forex" is the historical
-    behavior and the safe default."""
-    path = _market_mode_path()
-    if not os.path.exists(path):
-        return "forex"
-    try:
-        import json
-        with open(path) as fh:
-            payload = json.load(fh)
-        mode = str(payload.get("mode", ""))
-        if mode in ("forex", "india"):
-            return mode
-    except Exception:
-        pass
-    try:    # quarantine for inspection, out of the load path
-        os.replace(path, f"{path}.corrupt.{int(datetime.now(timezone.utc).timestamp())}")
-    except OSError:
-        pass
-    print("[config] market_mode.json unreadable or invalid — moved to "
-          ".corrupt.<epoch>, using the default mode 'forex'")
-    return "forex"
-
-
-def set_market_mode(mode: str) -> bool:
-    """Persist the market mode AND rewrite watchlist.json with the new mode's
-    spec list — watchlist.json is DERIVED state of the mode, so v1 keeps them
-    in lockstep (the mode is the single source of truth; a watchlist file
-    that disagrees with the persisted mode is stale by definition).
-
-    JOINT-ATOMIC: both payloads are written to pid-unique tmps FIRST, then
-    both are os.replace()d — a crash between two separate atomic writes used
-    to leave mode=new/watchlist=old (or the reverse), which apply_market_mode
-    then had to repair on the next boot. Returns False on OSError, never
-    raises."""
-    if mode not in ("forex", "india"):
-        print(f"[config] refusing to set unknown market mode {mode!r} "
-              "(expected 'forex' or 'india')")
-        return False
-    import json
-    path = _market_mode_path()
-    wl_path = watchlist_path()
-    mode_tmp = f"{path}.tmp.{os.getpid()}"
-    wl_tmp = f"{wl_path}.tmp.{os.getpid()}"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(mode_tmp, "w") as fh:
-            json.dump({"mode": mode, "ts": utc_now()}, fh, indent=1)
-        os.makedirs(os.path.dirname(wl_path) or ".", exist_ok=True)
-        with open(wl_tmp, "w") as fh:
-            json.dump({"specs": _watchlist_to_dicts(active_specs(mode))}, fh, indent=1)
-        os.replace(mode_tmp, path)
-        os.replace(wl_tmp, wl_path)
-    except OSError:
-        for tmp in (mode_tmp, wl_tmp):
-            try:
-                os.path.exists(tmp) and os.remove(tmp)
-            except OSError:
-                pass
-        return False
-    return True
-
-
-def active_specs(mode: str | None = None) -> list:
-    """The spec list for `mode` (SPECS_INDIA or DEFAULT_WATCHLIST). Defaults
-    to the currently persisted mode. The two lists never merge — one active
-    book at a time (single-currency accounting: USD vs INR never mix)."""
-    mode = mode if mode is not None else get_market_mode()
-    return SPECS_INDIA if mode == "india" else list(DEFAULT_WATCHLIST)
-
-
-def apply_market_mode() -> list:
-    """Read the persisted mode; if data/watchlist.json is missing OR its
-    specs' kinds don't all match the mode (e.g. mode=india but the file
-    still holds crypto/forex specs — it was hand-edited, or the mode was
-    switched while this process was down), rewrite it with the mode's
-    universe (the normalization rule: the MODE is the single switch; a
-    watchlist file that disagrees with the persisted mode is stale by
-    definition). Then apply_saved_watchlist() and return CONFIG.watchlist.
-    Callers: cmd_run and cmd_dashboard in main.py."""
-    mode = get_market_mode()
-    specs = active_specs(mode)
-    wl_path = watchlist_path()
-    stale = True
-    if os.path.exists(wl_path):
-        try:
-            import json
-            with open(wl_path) as fh:
-                payload = json.load(fh)
-            file_specs = [MarketSpec(s["kind"], s["symbol"], s["timeframe"],
-                                     s.get("display") or "")
-                          for s in payload.get("specs", [])]
-            if file_specs and all(s.kind == specs[0].kind for s in file_specs):
-                stale = False
-        except Exception:
-            stale = True     # unreadable: rewrite it fresh from the mode
-    if stale:
-        save_watchlist(specs)
-    return apply_saved_watchlist()
-
-
 def bars_per_year(timeframe: str, kind: str = "crypto") -> float:
     """Bars/year for Sharpe annualization. Crypto trades 24/7; Yahoo forex
     trades ~24x5 (weekend gaps), so the 24/7 count overstated forex Sharpe
-    magnitudes ~18% — kind='forex' scales the count by 5/7. India trades
-    one 6.25h session (09:15-15:30 IST) per ~245 sessions/year: roughly
-    245 x ceil(session_seconds / bar seconds). The 245-sessions/year figure
-    is an approximation (some sessions are half-days — special closes,
-    budget day, Diwali Muhurat) but Sharpe annualization only needs the
-    SCALE, not the exact count."""
-    if kind == "india":
-        # NSE session 09:15-15:30 IST = 6.25h = 22500s per session; bars per
-        # session round UP (a 4h bar exists iff any part of its window
-        # overlaps an open session — Yahoo stamps 1h bars per clock hour in
-        # session, so the 6.25h session yields 7 one-hour bars and ~2 4h bars)
-        import math
-        session_seconds = 6.25 * 3600.0
-        return 245.0 * math.ceil(session_seconds / TIMEFRAME_SECONDS[timeframe])
+    magnitudes ~18% — kind='forex' scales the count by 5/7."""
     bars = (365.0 * 86400.0) / TIMEFRAME_SECONDS[timeframe]
     return bars * (5.0 / 7.0) if kind == "forex" else bars

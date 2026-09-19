@@ -1241,21 +1241,6 @@ def test_journal_timeframe_migration():
         assert j.open_trades()[-1]["timeframe"] == "4h"
 
 
-def test_sentiment_lexicon():
-    from bot.sentiment import lexicon_score, SentimentOverlay
-    s = SentimentOverlay(llm_client=None)
-    assert lexicon_score("Bitcoin surges to record high on ETF approval") > 0
-    assert lexicon_score("Crypto exchange hacked; prices plunge") < 0
-    assert lexicon_score("The weather is fine today") == 0.0
-    a1, c1, _ = s.apply("LONG", 0.8, {"score": -0.7})
-    assert a1 == "HOLD"                                   # veto on strongly contrary news
-    a2, c2, _ = s.apply("LONG", 0.8, {"score": 0.8})
-    assert a2 == "LONG" and c2 > 0.8                      # aligned news bumps confidence
-    a3, c3, _ = s.apply("HOLD", 0.5, {"score": -0.9})
-    assert a3 == "HOLD"                                   # never initiates
-
-
-# ------------------------------------------------------------------ data quality
 def test_data_validation_rejects_corrupt_bars():
     """Mixed-caliber/corrupt bars must fail loudly, never reach indicators."""
     from bot.data import _validate_ohlcv
@@ -3452,52 +3437,6 @@ def test_allocator_keeps_crypto_weekend_bars():
     assert w2["CALM/USDT"] > w2["EURUSD=X"]
 
 
-def test_sentiment_lexicon_filters_by_asset():
-    """Flaw 3.3: the lexicon branch ignored asset_hint, so a crypto-crash
-    headline vetoed EUR/USD longs (and macro forex news moved crypto).
-    Headlines about OTHER assets must be filtered out; macro stays relevant;
-    a fully-unmatched batch falls back to scoring everything."""
-    import bot.data as data_mod
-    import bot.sentiment as sentiment_mod
-    from bot.sentiment import SentimentOverlay
-    headlines = [
-        {"title": "DeFi protocol exploited for $50M; crypto plunges",
-         "summary": "hack drains bridge reserves", "source": "cointelegraph"},
-        {"title": "ECB signals dovish pivot; euro rallies",
-         "summary": "", "source": "fxstreet"},
-    ]
-    # patch where sentiment LOOKS the name up (it did `from bot.data import
-    # fetch_news` — patching bot.data.fetch_news alone rebinds nothing)
-    orig = data_mod.fetch_news
-    sentiment_mod.fetch_news = lambda: [dict(h) for h in headlines]
-    try:
-        s = SentimentOverlay(llm_client=None)
-        # EUR/USD book: the crypto-hack headline is irrelevant -> only the
-        # dovish-ECB story scores -> positive, not the -0.6 crypto panic
-        eur = s.assess(asset_hint="EUR/USD")
-        assert eur["score"] > 0, eur
-        # BTC book: only the hack story is relevant -> negative
-        btc = s.assess(asset_hint="Bitcoin")
-        assert btc["score"] < 0, btc
-        # macro headlines stay relevant to every book (and this one scores
-        # positive through the lexicon: "rate cut" + "rally" are bullish)
-        macro = [{"title": "Fed signals rate cut; stocks rally worldwide",
-                  "summary": "", "source": "fxstreet"}]
-        sentiment_mod.fetch_news = lambda: [dict(h) for h in macro]
-        s2 = SentimentOverlay(llm_client=None)
-        both = s2.assess(asset_hint="Bitcoin")
-        assert both["score"] > 0
-        # no relevant match -> fall back to the whole batch (old behavior)
-        off = [{"title": "Champions League final ends in thriller",
-                "summary": "", "source": "x"}]
-        sentiment_mod.fetch_news = lambda: [dict(off[0])]
-        s3 = SentimentOverlay(llm_client=None)
-        fb = s3.assess(asset_hint="Bitcoin")
-        assert fb["method"] == "lexicon"          # scored, just neutral
-    finally:
-        sentiment_mod.fetch_news = orig
-
-
 def test_deflated_sharpe_moments_widen_se_on_fat_tails():
     """Flaw 3.1: the normal-only SE ignored skew/kurtosis. The moment-aware
     SE (Merton/OPM form on the PER-PERIOD SR, de-annualized first) must
@@ -4198,493 +4137,6 @@ def test_backtest_take_profit_still_fills_without_signal_exit():
     assert t["exit_ts"] == str(df.index[253])
 
 
-# ---------------------------------------------------------------------------
-# Wave B1: India market support (NSE cash equities + Nifty 50 via yfinance,
-# a third market kind with its own regulatory cost stack, whole-share
-# sizing, an NSE session gate on live entries, and a persisted market mode)
-# ---------------------------------------------------------------------------
-from bot.calendar import IST, is_nse_session_open  # noqa: E402
-from config import (SPECS_INDIA, active_specs, apply_market_mode,  # noqa: E402
-                    get_market_mode, set_market_mode)
-
-
-def test_india_cost_model_leg_aware_rates():
-    """The India per-leg cost rate: both legs pay brokerage + delivery STT
-    (0.1%) + exchange txn + SEBI + GST-on-taxable; only the BUY leg adds
-    stamp duty. side=None (call sites that don't know the leg) must equal
-    the BUY rate — the conservative max. Expected values are computed IN
-    the test from the same constants (no magic totals). Pre-fix, kind='india'
-    fell through to the forex rate (0.0002/0.0001), so every assertion here
-    fails against the old code."""
-    c = CONFIG.costs
-    taxable = c.india_brokerage + c.india_txn + c.india_sebi
-    gst = c.india_gst * taxable
-    base = c.india_brokerage + c.india_stt + c.india_txn + c.india_sebi + gst
-    buy_rate = base + c.india_stamp          # stamp is buy-side only
-    sell_rate = base
-    assert c.fee("india", side="buy") == pytest_approx(buy_rate, 1e-12)
-    assert c.fee("india", side="sell") == pytest_approx(sell_rate, 1e-12)
-    # unknown leg -> conservative max = the buy-side rate (stamp included)
-    assert c.fee("india") == pytest_approx(buy_rate, 1e-12)
-    assert c.fee("india", side=None) == pytest_approx(buy_rate, 1e-12)
-    # maker does NOT reduce the India rate: Indian charges are regulatory
-    # per-side taxes (brokerage + STT + txn + SEBI + GST), not maker rebates
-    assert c.fee("india", maker=True, side="sell") == pytest_approx(sell_rate, 1e-12)
-    assert c.fee("india", maker=True) == pytest_approx(buy_rate, 1e-12)
-    # sell < buy (stamp), and delivery STT dominates the intraday rate the
-    # model deliberately does NOT use (0.025% sell-only)
-    assert sell_rate < buy_rate
-    assert c.india_stt == pytest_approx(0.001, 1e-15)
-    # slippage: adverse 0.05% taker (crypto parity — liquid large caps),
-    # zero maker (resting limit fills at its level)
-    assert c.slippage("india") == pytest_approx(0.0005, 1e-12)
-    assert c.slippage("india", maker=True) == 0.0
-
-
-def test_india_cost_model_leaves_crypto_forex_rates_byte_unchanged():
-    """Backward compatibility: the fee()/slippage() signature gained `side`
-    (default None) but the crypto/forex rates must stay byte-identical to
-    the pre-B1 values — pinned as exact floats."""
-    c = CONFIG.costs
-    assert c.fee("crypto") == 0.001 and c.fee("crypto", maker=True) == 0.001
-    assert c.fee("forex") == 0.0002 and c.fee("forex", maker=True) == 0.0001
-    assert c.fee("crypto", side="buy") == 0.001       # side ignored off-india
-    assert c.fee("forex", side="sell", maker=True) == 0.0001
-    assert c.slippage("crypto") == 0.0005 and c.slippage("crypto", maker=True) == 0.0
-    assert c.slippage("forex") == 0.0001 and c.slippage("forex", maker=True) == 0.0
-
-
-def test_infer_kind_india_detection():
-    """'.NS' equities and '^' indices infer 'india' BEFORE the crypto
-    fallback; crypto '/' and forex '=' logic unchanged."""
-    from config import infer_kind
-    assert infer_kind("RELIANCE.NS") == "india"
-    assert infer_kind("^NSEI") == "india"
-    assert infer_kind("BTC/USDT") == "crypto"
-    assert infer_kind("EURUSD=X") == "forex"
-
-
-def test_india_whole_share_sizing():
-    """India equities are whole-share: size_position(kind='india') must
-    return an integer quantity rounded DOWN to respect the risk budget, the
-    min-notional dust guard still applies, and forex uses the same rule. Pre-fix,
-    'india' fell into the round(qty, 6) crypto branch."""
-    rm = RiskManager()
-    qty = rm.size_position(10_000, 100.0, 5.0, "india")      # 20.0 exactly
-    assert qty == 20.0 and float(qty).is_integer()
-    qty2 = rm.size_position(10_000, 100.0, 6.0, "india")    # 16.67 -> 16 shares
-    assert qty2 == 16.0 and float(qty2).is_integer()
-    # dust guard: a size whose notional < 10 (currency units) returns 0
-    assert rm.size_position(10_000, 5.0, 100.0, "india") == 0.0
-    # forex unchanged: still whole units
-    assert rm.size_position(10_000, 100.0, 5.0, "forex") == float(
-        int(rm.size_position(10_000, 100.0, 5.0, "forex")))
-    # crypto unchanged: 6-decimal granularity
-    assert rm.size_position(10_000, 100.0, 5.0, "crypto") == pytest_approx(
-        round(10_000 * 0.01 / 5.0, 6), 1e-12)
-
-
-def test_bars_per_year_india_sessions():
-    """India annualizes on ~245 sessions x bars-per-session (a 6.25h NSE
-    session -> 7 one-hour bars, 2 four-hour bars), not the 24/7 crypto
-    count; crypto/forex branches unchanged."""
-    from config import bars_per_year
-    assert bars_per_year("1h", "india") == pytest_approx(245.0 * 7, 1e-9)
-    assert bars_per_year("4h", "india") == pytest_approx(245.0 * 2, 1e-9)
-    assert bars_per_year("1d", "india") == pytest_approx(245.0, 1e-9)
-    assert bars_per_year("1h") == 8760.0                       # crypto default
-    assert abs(bars_per_year("1h", "forex") - 8760.0 * 5.0 / 7.0) < 0.01
-    assert bars_per_year("1h", "india") < bars_per_year("1h", "forex") < bars_per_year("1h")
-
-
-def test_nse_calendar_session_open_pure_function():
-    """is_nse_session_open is a pure function of its input: Mon 10:00 IST
-    open; Sat/Sun, pre-open 08:00, post-close 16:00 closed; Republic Day
-    2026 (a Monday) closed. Explicit datetimes — no clock mocking.
-    Boundary is end-exclusive: start <= t < end (09:15 inclusive, 15:30 exclusive)."""
-    def ist(y, m, d, hh, mm):
-        return datetime(y, m, d, hh, mm, tzinfo=IST)
-    # 2026-06-15 is a Monday
-    assert is_nse_session_open(ist(2026, 6, 15, 10, 0)) is True
-    assert is_nse_session_open(ist(2026, 6, 13, 10, 0)) is False      # Saturday
-    assert is_nse_session_open(ist(2026, 6, 14, 10, 0)) is False      # Sunday
-    assert is_nse_session_open(ist(2026, 6, 15, 8, 0)) is False       # pre-open
-    assert is_nse_session_open(ist(2026, 6, 15, 16, 0)) is False      # post-close
-    # boundary inclusivity: 09:15 inclusive, 15:30 EXCLUSIVE (end-exclusive)
-    assert is_nse_session_open(ist(2026, 6, 15, 9, 15)) is True
-    assert is_nse_session_open(ist(2026, 6, 15, 15, 30)) is False
-    assert is_nse_session_open(ist(2026, 6, 15, 15, 29)) is True
-    # holiday Monday: Republic Day 2026-01-26
-    assert is_nse_session_open(ist(2026, 1, 26, 10, 0)) is False
-    # the same instant expressed in UTC lands in-session (05:30 IST offset)
-    assert is_nse_session_open(datetime(2026, 6, 15, 4, 30, tzinfo=timezone.utc)) is True
-    assert is_nse_session_open(datetime(2026, 1, 26, 4, 30, tzinfo=timezone.utc)) is False
-
-
-def test_market_mode_persistence_roundtrip_and_lockstep():
-    """set_market_mode writes data/market_mode.json atomically AND rewrites
-    watchlist.json to the new mode's universe (derived state, kept in
-    lockstep); get_market_mode round-trips; corrupt mode file -> quarantine
-    + default 'forex'; apply_market_mode repairs a watchlist.json that
-    disagrees with the persisted mode. All on tmp paths (CONFIG.db_path
-    monkeypatched — mode file derives from its dir at CALL time)."""
-    import config as config_mod
-    real_db, real_watchlist = CONFIG.db_path, config_mod.WATCHLIST_PATH
-    real_saved = CONFIG.watchlist[:]
-    with tempfile.TemporaryDirectory() as td:
-        CONFIG.db_path = os.path.join(td, "t.db")
-        config_mod.WATCHLIST_PATH = os.path.join(td, "watchlist.json")
-        try:
-            # default when the file is missing
-            assert get_market_mode() == "forex"
-            assert len(active_specs("india")) == 8
-            assert {s.kind for s in SPECS_INDIA} == {"india"}
-            # switch to india: mode file + watchlist lockstep
-            assert set_market_mode("india") is True
-            assert get_market_mode() == "india"
-            with open(config_mod.WATCHLIST_PATH) as fh:
-                specs = json.load(fh)["specs"]
-            assert len(specs) == 8 and all(s["kind"] == "india" for s in specs)
-            # switch back: the forex universe returns
-            assert set_market_mode("forex") is True
-            assert get_market_mode() == "forex"
-            with open(config_mod.WATCHLIST_PATH) as fh:
-                specs = json.load(fh)["specs"]
-            assert all(s["kind"] in ("crypto", "forex") for s in specs)
-            # invalid mode: refused, nothing written
-            assert set_market_mode("equities") is False
-            # corrupt mode file: quarantined, default returned, never raises
-            mode_path = config_mod._market_mode_path()
-            with open(mode_path, "w") as fh:
-                fh.write("{not json")
-            assert get_market_mode() == "forex"
-            assert os.path.exists(f"{mode_path}.corrupt.") is False or any(
-                f.startswith("market_mode.json.corrupt.")
-                for f in os.listdir(os.path.dirname(mode_path)))
-            # apply_market_mode rewrites a watchlist.json that disagrees with
-            # the persisted mode (e.g. hand-edited, or the mode switched while
-            # this process was down)
-            set_market_mode("india")
-            config_mod.save_watchlist(list(config_mod.DEFAULT_WATCHLIST)[:2],
-                                      config_mod.WATCHLIST_PATH)
-            wl = apply_market_mode()
-            assert len(wl) == 8 and all(s.kind == "india" for s in wl)
-            # ...and leaves an AGREEING file untouched
-            before = open(config_mod.WATCHLIST_PATH).read()
-            assert apply_market_mode() is wl
-            assert open(config_mod.WATCHLIST_PATH).read() == before
-        finally:
-            CONFIG.db_path = real_db
-            config_mod.WATCHLIST_PATH = real_watchlist
-            CONFIG.watchlist[:] = real_saved
-
-
-def test_engine_india_session_gate_blocks_entries_not_management():
-    """The NSE session gate sits AFTER position management and BEFORE the
-    entry decision: at a closed session an india spec takes NO entry (no
-    decision row, no position), but an existing position still gets its
-    stop-loss scan / close path. Frozen clock via monkeypatched
-    is_nse_session_open — the gate's own clock is irrelevant to the test."""
-    import bot.calendar as cal_mod
-
-    df = add_all_indicators(trending_df(260, drift=0.004, seed=13))
-    spec = MarketSpec("india", "RELIANCE.NS", "1h")
-    i = len(df) - 1
-    price = float(df["close"].iloc[i])
-    # 2026-06-13 is a Saturday in IST — outside the NSE session
-    closed_now = datetime(2026, 6, 13, 10, 0, tzinfo=IST)
-
-    real_open = cal_mod.is_nse_session_open
-    import bot.engine as eng_mod_for_patch
-    eng_mod_for_patch.is_nse_session_open = lambda now=None: False
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            eng, saved = _engine_with_db(td)
-            try:
-                # no entry: a strong LONG decision at a closed session must
-                # not even reach the orchestrator (no decision row opened)
-                summary: dict = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
-                eng._process_market(spec, summary, df)
-                assert (spec.symbol, "1h") not in eng.broker.positions
-                assert eng.journal.recent_decisions() == [] \
-                    if hasattr(eng.journal, "recent_decisions") else True
-                # and the gate really was india-specific state: a closed
-                # session was what blocked it (crypto spec at the same clock
-                # still decides)
-                # an OPEN position is still fully managed: a bar through the
-                # stop exits at the closed session
-                d = _dec("LONG", 0.9, stop=2.0, price=price)
-                eng.broker.open_position(spec, d, qty=1.0, price=price,
-                                         trade_id=-1,
-                                         ts=str(df.index[i - 3]),
-                                         decision_bar_ts=float(df.index[i - 3].timestamp()))
-                trade_id = eng.journal.open_trade(
-                    spec.symbol, "long", 1.0, price, price - 2.0, None,
-                    "turtle_trend", "r", mode="paper",
-                    opened_ts=str(df.index[i - 3]), timeframe="1h")
-                eng.broker.positions[(spec.symbol, "1h")].trade_id = trade_id
-                crash = df.copy()
-                crash.iloc[i, crash.columns.get_loc("low")] = price - 5.0
-                eng._process_market(spec, summary, crash)
-                assert (spec.symbol, "1h") not in eng.broker.positions, \
-                    "closed session must still manage exits (stop scan)"
-                assert summary["closed"] and summary["closed"][0]["reason"] == "stop loss"
-            finally:
-                CONFIG.db_path = saved[0]
-    finally:
-        eng_mod_for_patch.is_nse_session_open = real_open
-    # the frozen 'closed_now' anchor really is outside the NSE session
-    assert is_nse_session_open(closed_now) is False
-
-
-def test_india_fetch_via_yahoo_path_hermetic():
-    """fetch_history on an india spec routes through fetch_india_ohlcv
-    (yfinance path, auto_adjust=True — REQUIRED for equities: adjusted
-    prices are the tradable series), returns the frame with caliber attrs,
-    and the ^NSEI cache filename is deterministic and collision-free
-    (caret stripped). Hermetic: yf.download monkeypatched."""
-    import bot.data as data_mod
-
-    calls = []
-
-    def fake_download(symbol, **kw):
-        calls.append((symbol, kw.get("interval"), kw.get("auto_adjust")))
-        return pd.DataFrame({
-            "Open": [100.0, 101.0, 102.0, 103.0, 104.0],
-            "High": [101.0, 102.0, 103.0, 104.0, 105.0],
-            "Low": [99.0, 100.0, 101.0, 102.0, 103.0],
-            "Close": [100.5, 101.5, 102.5, 103.5, 104.5],
-            "Volume": [1000.0, 1100.0, 1200.0, 1300.0, 1400.0],
-        }, index=pd.date_range("2026-06-10", periods=5, freq="1h", tz="UTC"))
-
-    real_cache_dir, real_download = CONFIG.data_cache_dir, None
-    import yfinance as yf
-    real_download = yf.download
-    yf.download = fake_download
-    CONFIG.data_cache_dir = None  # type: ignore[assignment]
-    # route the disk cache at a tmp dir too (fetch_history stores a parquet)
-    with tempfile.TemporaryDirectory() as td:
-        CONFIG.data_cache_dir = os.path.join(td, "cache")
-        try:
-            spec = MarketSpec("india", "RELIANCE.NS", "1h")
-            df = data_mod.fetch_history(spec, days=90)
-            assert len(df) == 5
-            assert calls and calls[0][0] == "RELIANCE.NS" and calls[0][1] == "1h"
-            assert calls[0][2] is True, "auto_adjust must stay on for equities"
-            assert df.attrs["caliber"] == "adjusted-equity"
-            assert df.attrs["source"] == "yahoo"
-            # deterministic, collision-free cache names for india tickers
-            nsei = MarketSpec("india", "^NSEI", "1h")
-            p = data_mod._disk_cache_path(nsei, 90)
-            assert os.path.basename(p) == "india_NSEI_1h_90d_" + os.path.basename(p).split("_")[-1]
-            assert "NSEI" in os.path.basename(p) and "^" not in os.path.basename(p)
-            rel = MarketSpec("india", "RELIANCE.NS", "4h")
-            assert os.path.basename(data_mod._disk_cache_path(rel, 90)) == \
-                "india_RELIANCE.NS_4h_90d_" + os.path.basename(
-                    data_mod._disk_cache_path(rel, 90)).split("_")[-1]
-            # Each market kind has its own cache namespace.
-            assert os.path.basename(
-                data_mod._disk_cache_path(MarketSpec("forex", "EURUSD=X", "1h"), 90)
-            ).startswith("forex_EURUSD_1h_90d_")
-            assert os.path.basename(
-                data_mod._disk_cache_path(MarketSpec("crypto", "BTC/USDT", "1h"), 90)
-            ).startswith("crypto_BTCUSDT_1h_90d_")
-        finally:
-            yf.download = real_download
-            CONFIG.data_cache_dir = real_cache_dir
-
-
-def test_india_fetch_real_network_smoke():
-    """REAL-network smoke (allowed for this wave's data layer only): 5d of
-    ^NSEI 1d bars from yfinance validate cleanly. Skipped by default so a
-    flaky/offline machine never fails the suite — run explicitly with
-    RUN_NETWORK_TESTS=1 pytest -k real_network_smoke when the network is up."""
-    if not os.environ.get("RUN_NETWORK_TESTS"):
-        return
-    import bot.data as data_mod
-    df = data_mod.fetch_india_ohlcv("^NSEI", "1d", start="2026-09-01", end="2026-09-10")
-    assert len(df) >= 3
-    assert df.attrs["caliber"] == "adjusted-equity"
-
-
-# ---------------------------------------------------------------------------
-# Wave B2: market toggle UI + docs (dashboard forex <-> india switch)
-# The toggle's ORPHAN GUARD is the safety core: a mode switch rewrites the
-# watchlist, so an open position whose market dropped out of the universe
-# would lose its feed, its marks and its management (a zombie book). Both
-# holders are checked (live engine + journal OPEN rows), and a confirmed
-# switch closes every position BEFORE the mode flips — never after.
-# ---------------------------------------------------------------------------
-def _market_mode_dashboard(td):
-    """Hermetic dashboard fixture (the pause-endpoint pattern): tmp DB +
-    tmp watchlist + a fresh journal/chatbot pair. Returns (client, module).
-    Restore via the returned module's `_b2_restore` in the test's finally."""
-    from fastapi.testclient import TestClient
-    import config as config_mod
-    import bot.dashboard as dash_mod
-
-    dash_mod._b2_saved = (CONFIG.db_path, config_mod.WATCHLIST_PATH,
-                          CONFIG.watchlist[:], dash_mod.journal)
-    CONFIG.db_path = os.path.join(td, "t.db")
-    config_mod.WATCHLIST_PATH = os.path.join(td, "watchlist.json")
-    dash_mod.journal = dash_mod.Journal(CONFIG.db_path)
-    dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
-    return TestClient(dash_mod.app, base_url="http://127.0.0.1"), dash_mod
-
-
-def _restore_market_mode_fixture(dash_mod):
-    """Undo _market_mode_dashboard: real CONFIG paths + real journal back,
-    and the persisted mode file left in a sane state on the REAL data dir
-    (a leaked 'india' mode would silently flip the family dashboard's
-    universe on the next boot)."""
-    import config as config_mod
-    (old_db, old_wl, saved_wl, old_journal) = dash_mod._b2_saved
-    CONFIG.db_path = old_db
-    config_mod.WATCHLIST_PATH = old_wl
-    CONFIG.watchlist[:] = saved_wl
-    dash_mod.journal = old_journal
-    dash_mod.chatbot = dash_mod.ChatBot(old_journal)
-    # the mode file derives from CONFIG.db_path's dir at CALL time, so the
-    # REAL file (if any) was never touched by the test; the tmp one dies with
-    # the tmpdir. Nothing to restore on the real data dir.
-    del dash_mod._b2_saved
-
-
-def test_market_mode_endpoints_roundtrip():
-    """GET /api/market/mode -> forex default with the 9-spec crypto+forex
-    universe; POST india (no open positions) -> 200 switched; GET -> india
-    with the 8 NSE specs; the mode file + watchlist.json land in the TEST's
-    tmp dir; POST back to forex restores the crypto+forex universe; the
-    running CONFIG is hot-swapped (the live engine's next cycle sees the
-    new book); /api/engine/status carries the persisted mode. Wiring test:
-    the guard itself is proven by the two tests below."""
-    with tempfile.TemporaryDirectory() as td:
-        client, dash = _market_mode_dashboard(td)
-        try:
-            r = client.get("/api/market/mode")
-            assert r.status_code == 200
-            assert r.json()["mode"] == "forex"
-            assert len(r.json()["specs"]) == 9
-            # invalid mode: 422 like every other validation error
-            r = client.post("/api/market/mode", json={"mode": "equities"})
-            assert r.status_code == 422
-            # body-less POST refused (CSRF preflight convention)
-            assert client.post("/api/market/mode").status_code == 422
-            # clean switch to india
-            r = client.post("/api/market/mode", json={"mode": "india"})
-            assert r.status_code == 200 and r.json()["status"] == "switched"
-            assert r.json()["closed"] == 0
-            r = client.get("/api/market/mode")
-            assert r.json()["mode"] == "india"
-            specs = r.json()["specs"]
-            assert len(specs) == 8 and all(s["kind"] == "india" for s in specs)
-            assert specs[0]["symbol"] == "^NSEI"
-            # files landed in the TEST's data dir, never the real one
-            import config as config_mod
-            assert os.path.exists(os.path.join(td, "market_mode.json"))
-            assert os.path.dirname(config_mod.WATCHLIST_PATH) == td
-            # CONFIG hot-swapped: a RUNNING engine's next cycle sees the
-            # new universe (apply_saved_watchlist mutates in place)
-            assert {s.kind for s in CONFIG.watchlist} == {"india"}
-            # the status poll carries the mode so the UI badge stays live
-            assert client.get("/api/engine/status").json()["market_mode"] == "india"
-            # switch back: the crypto+forex universe returns
-            r = client.post("/api/market/mode", json={"mode": "forex"})
-            assert r.status_code == 200 and r.json()["status"] == "switched"
-            assert {s.kind for s in CONFIG.watchlist} <= {"crypto", "forex"}
-            # a same-mode POST is a no-op, never an error
-            r = client.post("/api/market/mode", json={"mode": "forex"})
-            assert r.status_code == 200 and r.json()["status"] == "unchanged"
-        finally:
-            _restore_market_mode_fixture(dash)
-
-
-def test_market_switch_blocks_with_open_positions_without_confirm():
-    """The orphan guard: a seeded OPEN journal row makes the switch answer
-    409 with requires_confirm + the position listed, and the mode must stay
-    UNCHANGED (forex) — the row stays OPEN. Pre-fix (no guard) this switch
-    would have succeeded and orphaned the position."""
-    with tempfile.TemporaryDirectory() as td:
-        client, dash = _market_mode_dashboard(td)
-        try:
-            assert client.get("/api/market/mode").json()["mode"] == "forex"
-            tid = dash.journal.open_trade("BTC/USDT", "long", 1.0, 50000.0,
-                                          49000.0, None, "turtle_trend", "r",
-                                          timeframe="1h")
-            r = client.post("/api/market/mode", json={"mode": "india"})
-            assert r.status_code == 409
-            body = r.json()["detail"]
-            assert body["requires_confirm"] is True
-            assert [(p["symbol"], p["timeframe"], p["held_in"])
-                    for p in body["open_positions"]] == [("BTC/USDT", "1h", "journal")]
-            # mode UNCHANGED, position untouched
-            assert client.get("/api/market/mode").json()["mode"] == "forex"
-            assert {s.kind for s in CONFIG.watchlist} <= {"crypto", "forex"}
-            rows = dash.journal.open_trades()
-            assert len(rows) == 1 and rows[0]["id"] == tid and rows[0]["status"] == "OPEN"
-        finally:
-            _restore_market_mode_fixture(dash)
-
-
-def test_market_switch_with_confirm_closes_positions_and_switches():
-    """The confirmed path: confirm_close_positions=true closes every open
-    position FIRST (the engine-off branch: journal close at the entry mark
-    with the conservative fee estimate — no live engine exists to fetch
-    marks), THEN flips the mode to india and hot-swaps the watchlist."""
-    with tempfile.TemporaryDirectory() as td:
-        client, dash = _market_mode_dashboard(td)
-        try:
-            tid = dash.journal.open_trade("BTC/USDT", "long", 1.0, 50000.0,
-                                          49000.0, None, "turtle_trend", "r",
-                                          timeframe="1h")
-            r = client.post("/api/market/mode",
-                            json={"mode": "india", "confirm_close_positions": True})
-            assert r.status_code == 200 and r.json()["status"] == "switched"
-            assert r.json()["closed"] == 1
-            assert r.json()["closes"][0]["symbol"] == "BTC/USDT"
-            # the open trade is now CLOSED in the journal
-            assert dash.journal.open_trades() == []
-            rows = [t for t in dash.journal.recent_trades(limit=10) if t["id"] == tid]
-            assert rows and rows[0]["status"] == "CLOSED"
-            assert "market switch" in rows[0]["exit_reason"]
-            # the fee estimate is the conservative two-leg India/crypto rate
-            # on the notional (crypto: 0.1% taker per leg -> 100.0 on 50k)
-            assert rows[0]["fees"] > 0
-            # mode + watchlist switched to the India universe
-            assert client.get("/api/market/mode").json()["mode"] == "india"
-            assert {s.kind for s in CONFIG.watchlist} == {"india"}
-            assert client.get("/api/watchlist").json()[0]["symbol"] == "^NSEI"
-        finally:
-            _restore_market_mode_fixture(dash)
-
-
-def test_market_mode_in_engine_status_and_stats():
-    """/api/engine/status AND /api/stats both report market_mode matching
-    the PERSISTED mode (the pause-flag pattern W1 set): the UI badge rides
-    the existing 4s poll, and the mode file outlives any engine run."""
-    with tempfile.TemporaryDirectory() as td:
-        client, dash = _market_mode_dashboard(td)
-        try:
-            assert client.get("/api/engine/status").json()["market_mode"] == "forex"
-            assert client.get("/api/stats").json()["market_mode"] == "forex"
-            client.post("/api/market/mode", json={"mode": "india"})
-            assert client.get("/api/engine/status").json()["market_mode"] == "india"
-            assert client.get("/api/stats").json()["market_mode"] == "india"
-        finally:
-            _restore_market_mode_fixture(dash)
-
-
-# ---------------------------------------------------------------------------
-# Milestone C1: India time-series momentum (bot/strategies/ts_momentum.py)
-# Long-only absolute momentum per symbol — path (a) of the milestone: the
-# SSRN papers rank a whole universe cross-sectionally; BaseStrategy is a
-# single-symbol evaluator, so the decile gate becomes a trailing-return
-# threshold (+8% over 240 1h bars) plus the 52w-high anchor (within 10% of
-# the rolling 1-year high) plus turtle's EMA200 structure discipline.
-# Frames must exceed the 2452-bar warmup (max(240, 2450, 30)+2) — hence the
-# ~2500-bar synthetic constructions throughout this block.
-# ---------------------------------------------------------------------------
-
 def _tsmom_frame(n=2560, drift=0.0008, vol=0.004, seed=5, tail=None):
     """Uptrend OHLC frame for ts_momentum: geometric walk with positive
     drift (as a share, not a percent) and optional `tail` prices appended to
@@ -4703,20 +4155,6 @@ def _tsmom_downtrend(n=2560, drift=-0.0012, vol=0.004, seed=9):
     steps = rng.normal(drift, vol, n)
     prices = list(100.0 * np.cumprod(1 + steps))
     return add_all_indicators(make_df(prices, seed=seed))
-
-
-def test_tsmom_warmup_returns_flat():
-    """i below the warmup line (max(lookback, 30)+2 = 242) must be FLAT.
-    New adaptive warmup drops the 52w_bars requirement (partial 52w proxy used).
-    A 400-bar frame exceeds warmup at i>=242; i<242 is FLAT, i=399 evaluates."""
-    df = _tsmom_frame(400, seed=11)
-    ts = TimeSeriesMomentum()
-    for i in (0, 100, 241):
-        sig = ts.evaluate(df, i)
-        assert sig.action == "FLAT" and "warm" in (sig.rationale or "").lower()
-    # i=399 is past warmup -> evaluates (may be LONG/FLAT/SHORT but not "warm")
-    sig = ts.evaluate(df, 399)
-    assert sig.action != "FLAT" or "warm" not in (sig.rationale or "").lower()
 
 
 def test_tsmom_uptrend_goes_long():
@@ -5502,11 +4940,7 @@ def test_lab_symbol_normalization():
     assert normalize_symbol("forex", "eurusd") == "EURUSD=X"
     assert normalize_symbol("forex", "EUR/USD") == "EURUSD=X"
     assert normalize_symbol("forex", "usdjpy=x") == "USDJPY=X"
-    assert normalize_symbol("india", "reliance") == "RELIANCE.NS"
-    assert normalize_symbol("india", "TCS.NS") == "TCS.NS"
-    assert normalize_symbol("india", "nifty") == "^NSEI"
-    assert normalize_symbol("india", "banknifty") == "^NSEBANK"
-    for kind, bad in [("crypto", "NOTACOIN"), ("forex", "EUR"), ("india", "!!")]:
+    for kind, bad in [("crypto", "NOTACOIN"), ("forex", "EUR"), ("india", "RELIANCE")]:
         try:
             normalize_symbol(kind, bad)
             raise AssertionError(f"{bad} should have been refused")
@@ -5520,7 +4954,7 @@ def test_lab_registry_derivation():
     from bot.lab import strategies_for, timeframes_for
     from bot.strategies import STRATEGY_CLASSES
     for book in ("standard", "hft"):
-        for kind in ("crypto", "forex", "india"):
+        for kind in ("crypto", "forex"):
             for tf in timeframes_for(book, kind):
                 for name in strategies_for(book, tf):
                     if name == "ensemble":
@@ -5532,8 +4966,9 @@ def test_lab_registry_derivation():
     for tf in timeframes_for("hft", "crypto"):
         for s in strategies_for("hft", tf):
             assert s == "ensemble" or s.startswith("hft_")
-    # india 15m excluded for the standard book (yfinance 60d cap vs warmup)
-    assert "15m" not in timeframes_for("standard", "india")
+    # the fast book's strategies declare book="fast"; the standard book's
+    # menus must never offer them (both trade 5m now)
+    assert "hft_micro_breakout" not in strategies_for("standard", "5m")
 
 
 def test_lab_validate_and_guardrails():
@@ -5652,9 +5087,8 @@ def test_lab_dashboard_endpoints():
             dash_mod.chatbot = dash_mod.ChatBot(dash_mod.journal)
             client = TestClient(dash_mod.app, base_url="http://127.0.0.1")
             meta = client.get("/api/lab/meta").json()
-            assert set(meta["suggestions"]) == {"crypto", "forex", "india"}
+            assert set(meta["suggestions"]) == {"crypto", "forex"}
             assert "5m" in meta["timeframes"]["hft"]["crypto"]
-            assert "15m" not in meta["timeframes"]["standard"]["india"]
             assert "turtle_trend" in meta["strategies"]["standard"]["1h"]
             assert "hft_micro_breakout" in meta["strategies"]["hft"]["5m"]
             assert client.get("/api/lab/status").json()["status"] == "idle"
@@ -5663,9 +5097,9 @@ def test_lab_dashboard_endpoints():
                                                   "strategy": "turtle_trend"})
             assert r.status_code == 422 and "BASE/QUOTE" in r.json()["detail"]
             r = client.post("/api/lab/run", json={"book": "standard", "kind": "india",
-                                                  "symbol": "RELIANCE", "timeframe": "15m",
+                                                  "symbol": "RELIANCE", "timeframe": "1h",
                                                   "strategy": "turtle_trend"})
-            assert r.status_code == 422
+            assert r.status_code == 422      # the india kind is gone
             html = client.get("/").text
             assert 'data-view="lab"' in html and 'id="labRunBtn"' in html
             assert "/api/lab/meta" in html

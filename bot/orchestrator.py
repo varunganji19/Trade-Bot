@@ -18,9 +18,15 @@ Decision orchestrator — the bot's "brain".
    SHORT conviction => HOLD) — dormant while shipped watchlists keep one
    strategy per timeframe, live the day Milestone-C strategies join one
    (Kronos, when promoted, votes but is excluded from the conflict guard).
-4. Sentiment overlay may veto/shrink (never initiates).
-5. Optional LLM: acts as tie-breaker/veto with guardrails; in quant mode the
-   deterministic vote is the decision.
+The sentiment overlay AND the LLM tie-breaker were REMOVED from this path on 2026-09-19. A
+pair of nondeterministic, network-dependent calls (RSS + an LLM) sat between
+the vote and the risk manager: they could shrink confidence, veto to HOLD, or
+fail — none of it measured, all of it in the fill path, and none of it
+reproducible in a backtest (the backtester passed llm_client=None and
+include_sentiment=False, so live and backtest were literally running
+different decision code, which is the one thing this repo's design is
+supposed to prevent). The LLM still explains the book through the chatbot,
+where being wrong costs nothing.
 
 Kronos (the foundation-model forecaster) was REMOVED from this path on
 2026-09-19. It never earned its vote, a single 1m forecast measured 41s of
@@ -80,6 +86,10 @@ def detect_regime(df, i: int) -> tuple[str, dict]:
 class Orchestrator:
     def __init__(self, params=None, llm_client=None, sentiment_overlay=None, cfg=None,
                  book: str = "standard"):
+        # llm_client is accepted and IGNORED for decisions (see the module
+        # docstring): kept in the signature so existing callers/tests are not
+        # broken by the removal, and so the chatbot's client can still be
+        # handed around without a second wiring path.
         from config import CONFIG
         self.cfg = cfg or CONFIG
         # which book's strategies may vote here (BaseStrategy.book). Timeframe
@@ -90,7 +100,9 @@ class Orchestrator:
         self.sentiment = sentiment_overlay
 
     # ------------------------------------------------------------------ main
-    def decide(self, df, i: int, spec, include_sentiment: bool = True) -> Decision:
+    def decide(self, df, i: int, spec, include_sentiment: bool = False) -> Decision:
+        # include_sentiment is accepted and ignored (the overlay is gone) so
+        # existing call sites keep working
         regime, regime_meta = detect_regime(df, i)
         weights = dict(REGIME_WEIGHTS.get(regime, REGIME_WEIGHTS["ranging"]))
 
@@ -179,45 +191,6 @@ class Orchestrator:
                     "(no stop could be bracketed) -> HOLD.")
                 action, confidence = "HOLD", 0.0
 
-        # sentiment overlay (live mode only)
-        sentiment_note = ""
-        if include_sentiment and self.sentiment is not None and action in ("LONG", "SHORT"):
-            sent = self.sentiment.assess(asset_hint=spec.display)
-            action2, confidence2, sentiment_note = self.sentiment.apply(action, confidence, sent)
-            if action2 != action:
-                rationale_parts.append(f"Sentiment veto: {sentiment_note}.")
-            elif sentiment_note:
-                rationale_parts.append(f"Sentiment: {sentiment_note}.")
-            action, confidence = action2, confidence2
-
-        # optional LLM tie-breaker / veto — applies on ALL timeframes (no
-        # timeframe exemption: a 4h/1d decision deserves the same guardrail
-        # as a 5m one; the LLM must never break trading regardless).
-        if self.llm is not None and self.llm.enabled:
-            try:
-                llm_res = self.llm.decide({
-                    "market": spec.display, "timeframe": tf, "price": price,
-                    "regime": {"name": regime, **regime_meta},
-                    "strategy_signals": {n: {"action": s.action, "confidence": round(s.confidence, 2),
-                                             "rationale": s.rationale}
-                                         for n, s in raw_signals.items()},
-                    "quant_decision": {"action": action, "confidence": round(confidence, 2)},
-                    "sentiment": self.sentiment.last_result if self.sentiment else None,
-                })
-                llm_action = str(llm_res.get("action", "HOLD")).upper()
-                llm_conf = float(max(0.0, min(1.0, llm_res.get("confidence", 0.5))))
-                if llm_action == action:
-                    confidence = min(0.95, max(confidence, (confidence + llm_conf) / 2))
-                    rationale_parts.append(f"LLM agrees ({llm_conf:.2f}).")
-                elif llm_action == "HOLD" and confidence < 0.65 and llm_conf >= 0.6:
-                    action, confidence = "HOLD", 0.0
-                    rationale_parts.append(f"LLM vetoed to HOLD: {llm_res.get('rationale', '')[:140]}")
-                else:
-                    confidence *= 0.8
-                    rationale_parts.append(f"LLM suggests {llm_action}; quant decision stands with reduced size.")
-            except Exception as exc:  # LLM must never break trading
-                rationale_parts.append(f"(LLM unavailable: {type(exc).__name__})")
-
         if action != "HOLD" and confidence < self.cfg.risk.min_confidence:
             rationale_parts.append(
                 f"Confidence {confidence:.2f} below floor {self.cfg.risk.min_confidence:.2f} -> HOLD.")
@@ -234,7 +207,7 @@ class Orchestrator:
             regime=regime,
             rationale=" ".join(rationale_parts),
             strategy_signals=out_signals,
-            sentiment=self.sentiment.last_result or {} if self.sentiment else {},
+            sentiment={},
             price=price,
             strategy_name=(best.strategy if (best and best.action == action and action != "HOLD")
                            else ("atr_fallback" if (atr_fallback and action != "HOLD") else "")),

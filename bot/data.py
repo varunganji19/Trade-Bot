@@ -34,11 +34,9 @@ import glob
 import json
 import os
 import time
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
-import requests
 
 from config import CONFIG, MarketSpec, TIMEFRAME_SECONDS
 
@@ -209,7 +207,7 @@ def _safe_name(symbol: str) -> str:
 def _yahoo_ohlcv(symbol: str, interval: str, start: str | None, end: str | None,
                  period: str | None, origin: str) -> pd.DataFrame:
     """Shared yfinance download + clean-up for the two Yahoo-backed kinds
-    (forex, india): pinned start/end window when given, else the caller's
+    (forex): pinned start/end window when given, else the caller's
     period; column flattening, UTC index, dedupe/sort; 1h->4h resample is the
     CALLER's concern (same interval map, different calendars would resample
     identically but the origin label differs per kind)."""
@@ -279,43 +277,10 @@ def fetch_forex_ohlcv(symbol: str, timeframe: str, start: str | None = None,
         df = _resample_1h_to_4h(df)
     # spot-FX caliber: auto_adjust=True is a no-op for FX (no splits/divs) —
     # the series is raw spot, NOT dividend/split-adjusted equity. Stamped
-    # distinctly from india's adjusted-equity so downstream code never mixes
+    # distinctly from a raw series so downstream code never mixes
     # the two bases.
     df = _validate_ohlcv(df, "forex:yahoo(auto_adjust=True)", caliber="spot-fx",
                          kind="forex", timeframe=timeframe)
-    df.attrs["source"] = "yahoo"
-    return df
-
-
-# --------------------------------------------------------------------------- india
-# India (NSE cash equities + indices) rides the SAME Yahoo path as forex
-# ('.NS' equity tickers, '^'-prefixed index tickers), with one caliber note:
-# auto_adjust=True is REQUIRED for equities — split/dividend-adjusted prices
-# are the tradable series (a raw unadjusted series breaks across every ex-
-# date; the adjusted series is continuous and is what any backtest must act
-# on). 15m is not fetched for India (yfinance caps 15m intraday at 60d; the
-# 90-day acceptance window needs the history) — the India universe is 1h/4h/1d.
-def fetch_india_ohlcv(symbol: str, timeframe: str, start: str | None = None,
-                      end: str | None = None, days: int | None = None) -> pd.DataFrame:
-    _enforce_yahoo_cap(timeframe, days, start, end, origin="india")
-    if timeframe == "4h":
-        # REFUSED: resample("4h") bins on UTC-midnight boundaries
-        # (00/04/08/... UTC) which cut the 09:15-15:30 IST NSE session
-        # arbitrarily — a 4h "bar" would straddle two sessions / mix the
-        # close with the next open. Session-anchored binning is not
-        # implemented, so fail loudly instead of returning mis-binned bars;
-        # callers should use 1h bars.
-        raise RuntimeError(
-            "india 4h resample refused: UTC 4h bins misalign with the "
-            "09:15-15:30 IST NSE session (use 1h bars)")
-    interval = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d"}[timeframe]
-    period_map = {"5m": "60d", "15m": "60d", "1h": "730d", "4h": "730d", "1d": "5y"}
-    df = _yahoo_ohlcv(symbol, interval, start, end,
-                      period_map[timeframe], origin="india")
-    # adjusted-EQUITY caliber: splits/dividends adjusted (the tradable
-    # series). Distinct from forex's spot-fx (no corporate actions).
-    df = _validate_ohlcv(df, "india:yahoo(auto_adjust=True)", caliber="adjusted-equity",
-                         kind="india", timeframe=timeframe)
     df.attrs["source"] = "yahoo"
     return df
 
@@ -338,17 +303,11 @@ def _max_gap_seconds(kind: str, timeframe: str) -> float:
     if kind == "forex":
         # 24x5: allow the Fri->Sun weekend gap (~48h) plus margin
         return max(5.0 * tf_s, 3.0 * 86400.0)
-    if kind == "india":
-        # one 6.25h session/day: allow Fri 15:30 IST -> Mon 09:15 IST (~65h)
-        # plus a holiday margin
-        return max(5.0 * tf_s, 4.0 * 86400.0)
     return 5.0 * tf_s  # crypto trades 24/7: any 5-bar hole is suspicious
 
 
 def _infer_kind(origin: str) -> str:
     o = (origin or "").lower()
-    if "india" in o:
-        return "india"
     if "forex" in o:
         return "forex"
     return "crypto"
@@ -455,10 +414,9 @@ def _drop_forming_bar(df: pd.DataFrame, timeframe: str, kind: str = "crypto",
     it would be trading a price that doesn't exist yet.
 
     Session-aware: when the market is CLOSED there is no forming bar — the
-    last stored bar is closed by definition. India uses the NSE session gate
-    (weekends/holidays/overnight keep the last bar); forex keeps the last
-    bar over the weekend close; crypto trades 24/7 so wall-clock always
-    applies. `now` is injectable (UTC-aware) for deterministic tests.
+    last stored bar is closed by definition. Forex keeps the last bar over
+    the weekend close; crypto trades 24/7 so wall-clock always applies.
+    `now` is injectable (UTC-aware) for deterministic tests.
     """
     if not len(df):
         return df
@@ -466,14 +424,7 @@ def _drop_forming_bar(df: pd.DataFrame, timeframe: str, kind: str = "crypto",
         now = datetime.now(timezone.utc)
     elif now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
-    if kind == "india":
-        try:
-            from bot.calendar import is_nse_session_open
-            if not is_nse_session_open(now):
-                return df
-        except Exception:
-            pass
-    elif kind == "forex":
+    if kind == "forex":
         # spot FX closes Fri 22:00 UTC -> Sun 22:00 UTC; no forming bar then
         if now.weekday() >= 5:
             return df
@@ -491,7 +442,7 @@ def _drop_forming_bar(df: pd.DataFrame, timeframe: str, kind: str = "crypto",
 def _disk_cache_path(spec: MarketSpec, days: int | None, start: str | None = None,
                      end: str | None = None) -> str:
     # kind-prefixed names: without the kind, crypto BTCUSDT/1h and forex or
-    # india stems that normalize identically collide and a forex frame can be
+    # stems that normalize identically collide and a forex frame can be
     # served for a crypto request (or vice versa). The kind prefix keeps the
     # three books' caches disjoint; the rolling glob must use the same prefix.
     safe = _safe_name(spec.symbol)
@@ -606,10 +557,9 @@ def _load_cached(path: str, spec: MarketSpec | None = None) -> pd.DataFrame | No
             if "timeframe" not in df.attrs:
                 df.attrs["timeframe"] = spec.timeframe
             if "caliber" not in df.attrs:
-                df.attrs["caliber"] = ("adjusted-equity" if spec.kind == "india"
-                                       else "spot-fx" if spec.kind == "forex" else "raw")
+                df.attrs["caliber"] = "spot-fx" if spec.kind == "forex" else "raw"
             if "source" not in df.attrs:
-                df.attrs["source"] = "yahoo" if spec.kind in ("forex", "india") else "unknown"
+                df.attrs["source"] = "yahoo" if spec.kind == "forex" else "unknown"
         return df
     except Exception:
         return None
@@ -729,8 +679,7 @@ def _validate_cache_hit(df: pd.DataFrame, spec: MarketSpec, path: str) -> pd.Dat
     small) so the caller refetches. Never raises for a stale hit."""
     try:
         caliber = df.attrs.get("caliber") or (
-            "adjusted-equity" if spec.kind == "india"
-            else "spot-fx" if spec.kind == "forex" else "raw")
+            "spot-fx" if spec.kind == "forex" else "raw")
         checked = _validate_ohlcv(
             df, f"cache:{spec.kind}:{spec.symbol}:{spec.timeframe}",
             caliber=caliber, kind=spec.kind, timeframe=spec.timeframe)
@@ -884,10 +833,6 @@ def fetch_history(spec: MarketSpec, days: int | None = None,
         df = fetch_crypto_history(spec.symbol, spec.timeframe, days or 365,
                                   start=start, end=end)
         df = _drop_forming_bar(df, spec.timeframe, kind="crypto")
-    elif spec.kind == "india":
-        df = fetch_india_ohlcv(spec.symbol, spec.timeframe, start=start, end=end,
-                               days=days)
-        df = _drop_forming_bar(df, spec.timeframe, kind="india")
     else:
         df = fetch_forex_ohlcv(spec.symbol, spec.timeframe, start=start, end=end,
                                days=days)
@@ -939,8 +884,6 @@ class MarketData:
             return hit[1]
         if spec.kind == "crypto":
             df = fetch_crypto_ohlcv(spec.symbol, spec.timeframe, limit)
-        elif spec.kind == "india":
-            df = fetch_india_ohlcv(spec.symbol, spec.timeframe).tail(limit)
         else:
             df = fetch_forex_ohlcv(spec.symbol, spec.timeframe).tail(limit)
         df = _drop_forming_bar(df, spec.timeframe, kind=spec.kind)
@@ -949,67 +892,3 @@ class MarketData:
 
 
 # --------------------------------------------------------------------------- news
-_NEWS_CACHE = {"ts": 0.0, "items": []}
-
-
-def _parse_rss(xml_text: str, source: str) -> list:
-    items = []
-    try:
-        # size cap before parsing: stdlib ET expands internal entities without
-        # a limit, so a crafted "billion laughs" feed allocates unbounded memory
-        if len(xml_text) > 2_000_000:
-            return items
-        root = ET.fromstring(xml_text)
-        for item in root.iter("item"):
-            title = (item.findtext("title") or "").strip()
-            pub = (item.findtext("pubDate") or "").strip()
-            desc = (item.findtext("description") or "").strip()
-            if title:
-                items.append({"title": title, "source": source, "published": pub,
-                              "summary": desc[:280]})
-    except ET.ParseError:
-        pass
-    return items
-
-
-def fetch_news() -> list:
-    """Fetch RSS headlines from the configured feeds. Cached, failure-tolerant."""
-    max_items = CONFIG.news_max_items
-    now = time.time()
-    if now - _NEWS_CACHE["ts"] < CONFIG.news_ttl_seconds and _NEWS_CACHE["items"]:
-        return _NEWS_CACHE["items"][:max_items]
-
-    items: list = []
-    for url in CONFIG.news_feeds:
-        try:
-            # stream + byte-counter: the 2MB cap previously bounded only the
-            # PARSE (a compromised/oversized feed still filled memory with
-            # the whole download); now the download itself aborts past the cap
-            with requests.get(url, timeout=8,
-                              headers={"User-Agent": "Mozilla/5.0 (algo-bot)"},
-                              allow_redirects=True, stream=True) as resp:
-                # redirects FOLLOWED: public feeds 301 on www->apex moves, and
-                # allow_redirects=False silently yielded zero headlines for them
-                if resp.status_code == 200:
-                    source = url.split("/")[2].replace("www.", "")
-                    buf = bytearray()
-                    for chunk in resp.iter_content(65536):
-                        buf.extend(chunk)
-                        if len(buf) > 2_000_000:
-                            buf.clear()
-                            break
-                    if buf:
-                        items.extend(_parse_rss(
-                            buf.decode(resp.encoding or "utf-8", "replace"), source))
-        except Exception:
-            continue
-    if items:
-        _NEWS_CACHE["ts"] = now
-        _NEWS_CACHE["items"] = items
-        try:
-            os.makedirs(CONFIG.data_cache_dir, exist_ok=True)
-            with open(os.path.join(CONFIG.data_cache_dir, "news_cache.json"), "w") as f:
-                json.dump(items[:50], f, indent=1)
-        except Exception:
-            pass
-    return items[:max_items]

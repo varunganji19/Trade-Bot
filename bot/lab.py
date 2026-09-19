@@ -5,7 +5,7 @@ The user-facing flow (dashboard Lab tab, backed by this module):
   1. pick a BOOK      — "standard" (the forex+crypto+NSE paper book's
                         strategies and kind-aware costs) or "hft" (the
                         high-frequency book's 1m strategies + fee tiers)
-  2. pick a MARKET    — kind (crypto | forex | india) + any symbol; aliases
+  2. pick a MARKET    — kind (crypto | forex) + any symbol; aliases
                         normalize per kind ("BTCUSDT" -> "BTC/USDT",
                         "EURUSD" -> "EURUSD=X", "RELIANCE" -> "RELIANCE.NS",
                         "NIFTY" -> "^NSEI")
@@ -25,7 +25,7 @@ Design constraints honored from the repo's own rules:
   spread / the full NSE regulatory stack) for the standard book, the HFT
   book's perp/spot tiers for the hft book.
 - Honest guardrails: Yahoo's per-timeframe history caps are enforced with a
-  visible note (1m forex/india = 7d, 5m/15m = 60d), lab compute caps per
+  visible note (forex 5m/15m = 60d), lab compute caps per
   timeframe, warmup sized per book (220 bars standard, 400 on 1m/5m for the
   ema200 column).
 - Runs execute on a background thread (a 365d fetch + backtest is minutes of
@@ -50,14 +50,9 @@ SUGGESTIONS: dict[str, list[str]] = {
                "ADA/USDT", "ETH/BTC", "BNB/USDT"],
     "forex": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X",
               "USDINR=X"],
-    "india": ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
-              "SBIN.NS", "TATAMOTORS.NS", "^NSEI"],
 }
 # known quote currencies for glueless crypto input ("BTCUSDT" -> "BTC/USDT")
 _CRYPTO_QUOTES = ("USDT", "USDC", "USD", "BTC", "ETH", "BNB", "INR")
-# india aliases (index names yfinance writes with a caret)
-_INDIA_ALIASES = {"NIFTY": "^NSEI", "NIFTY50": "^NSEI", "NIFTY 50": "^NSEI",
-                  "BANKNIFTY": "^NSEBANK", "NIFTYBANK": "^NSEBANK"}
 
 
 class LabError(ValueError):
@@ -71,8 +66,6 @@ def normalize_symbol(kind: str, raw: str) -> str:
             from the known list; ambiguous glueless input is refused, never
             guessed)
     forex:  'eurusd'/'EUR/USD'/'EURUSD=X' -> 'EURUSD=X'
-    india:  'reliance' -> 'RELIANCE.NS'; 'RELIANCE.NS' kept; 'nifty' ->
-            '^NSEI'; '^NSEI'/'^NSEBANK' kept verbatim
     """
     if not raw or not raw.strip():
         raise LabError("symbol is required")
@@ -96,17 +89,6 @@ def normalize_symbol(kind: str, raw: str) -> str:
         if not re.fullmatch(r"[A-Z]{6}", s):
             raise LabError(f"'{raw}' is not a valid forex pair (6 letters, e.g. EURUSD)")
         return f"{s}=X"
-    if kind == "india":
-        if s in _INDIA_ALIASES:
-            return _INDIA_ALIASES[s]
-        if s.startswith("^"):
-            return s
-        s = s.replace("-", "")
-        if s.endswith(".NS"):
-            return s
-        if re.fullmatch(r"[A-Z0-9]{2,15}", s):
-            return f"{s}.NS"
-        raise LabError(f"'{raw}' is not a valid NSE symbol (e.g. RELIANCE, RELIANCE.NS, ^NSEI)")
     raise LabError(f"unknown kind '{kind}'")
 
 
@@ -114,7 +96,7 @@ def normalize_symbol(kind: str, raw: str) -> str:
 # per-timeframe LAB compute caps (days of history the lab will run in one
 # request) — 1m x 2 years would be a million-bar backtest, not a UI response
 _LAB_DAYS_CAP = {"1m": 14, "5m": 60, "15m": 180, "1h": 730, "4h": 1825, "1d": 3650}
-# Yahoo's own history caps per interval (forex + india ride yfinance)
+# Yahoo's own history caps per interval (forex rides yfinance)
 _YAHOO_DAYS_CAP = {"1m": 7, "5m": 60, "15m": 60, "1h": 730, "4h": 730, "1d": 1825}
 _HFT_TFS = ("5m",)   # the fast-book strategies register 5m only — offering 1m
                      # produced an empty strategy menu in the Lab
@@ -127,10 +109,6 @@ def timeframes_for(book: str, kind: str) -> list[str]:
         tfs = list(_HFT_TFS)
     else:
         tfs = list(_STANDARD_TFS)
-    if kind == "india" and book == "standard":
-        # 15m india excluded (config.py: yfinance 60d cap vs the 220-bar
-        # warmup — the acceptance window needs the history)
-        tfs = [tf for tf in tfs if tf != "15m"]
     return tfs
 
 
@@ -151,7 +129,7 @@ def strategies_for(book: str, timeframe: str) -> list[str]:
 
 def days_cap(kind: str, timeframe: str) -> int:
     cap = _LAB_DAYS_CAP.get(timeframe, 365)
-    if kind in ("forex", "india"):
+    if kind == "forex":
         cap = min(cap, _YAHOO_DAYS_CAP.get(timeframe, cap))
     return cap
 
@@ -159,8 +137,6 @@ def days_cap(kind: str, timeframe: str) -> int:
 def default_days(kind: str, timeframe: str) -> int:
     cap = days_cap(kind, timeframe)
     default = {"1m": 3, "5m": 30, "15m": 60, "1h": 180, "4h": 365, "1d": 730}.get(timeframe, 180)
-    if kind == "india" and timeframe == "1h":
-        default = 90          # ~630 NSE 1h bars: clears the 220-bar warmup
     return min(default, cap)
 
 
@@ -173,7 +149,7 @@ def warmup_for(book: str, timeframe: str) -> int:
 @dataclass
 class LabSpec:
     book: str                 # 'standard' | 'hft'
-    kind: str                 # 'crypto' | 'forex' | 'india'
+    kind: str                 # 'crypto' | 'forex'
     symbol: str               # normalized (normalize_symbol)
     timeframe: str
     strategy: str             # a strategy name or 'all'
@@ -189,8 +165,8 @@ class LabSpec:
 def _validate(spec: LabSpec) -> LabSpec:
     if spec.book not in ("standard", "hft"):
         raise LabError("book must be 'standard' or 'hft'")
-    if spec.kind not in ("crypto", "forex", "india"):
-        raise LabError("kind must be crypto, forex or india")
+    if spec.kind not in ("crypto", "forex"):
+        raise LabError("kind must be crypto or forex")
     spec.symbol = normalize_symbol(spec.kind, spec.symbol)
     if spec.timeframe not in timeframes_for(spec.book, spec.kind):
         raise LabError(
@@ -220,7 +196,7 @@ def _validate(spec: LabSpec) -> LabSpec:
 
 def timeframe_cap_note(kind: str, timeframe: str, cap: int) -> str:
     why = "lab compute cap"
-    if kind in ("forex", "india") and timeframe in _YAHOO_DAYS_CAP and \
+    if kind == "forex" and timeframe in _YAHOO_DAYS_CAP and \
             _YAHOO_DAYS_CAP[timeframe] <= _LAB_DAYS_CAP.get(timeframe, 10**9):
         why = "yfinance history cap"
     return f"{cap}d cap for {timeframe} ({why})"

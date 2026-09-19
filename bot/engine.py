@@ -25,7 +25,6 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from bot.broker import PaperBroker, limit_fill_price
-from bot.calendar import is_nse_session_open
 from bot.data import MarketData
 from bot.indicators import add_all_indicators
 from bot.journal import BookOwnedError, Journal
@@ -33,7 +32,6 @@ from bot.llm import LLMClient
 from bot.orchestrator import Orchestrator
 from bot.pause import is_paused
 from bot.risk import RiskManager
-from bot.sentiment import SentimentOverlay
 from bot.strategies import get_strategy
 from config import (CONFIG, TIMEFRAME_SECONDS, MarketSpec, infer_kind, utc_now)
 
@@ -75,9 +73,10 @@ class TradingEngine:
         self.last_error: str | None = None
         self.risk = RiskManager(self.cfg, state_db_path=self.journal.db_path, mode=self.mode)
         self.llm = LLMClient(self.cfg.llm)
-        self.sentiment = SentimentOverlay(self.llm if self.llm.enabled else None)
-        self.orchestrator = Orchestrator(llm_client=self.llm, sentiment_overlay=self.sentiment,
-                                          cfg=self.cfg,
+        # the decision path is deterministic: no LLM, no news overlay (both
+        # were removed on 2026-09-19 — see bot/orchestrator.py). self.llm
+        # stays for the chatbot, which explains the book but never trades it.
+        self.orchestrator = Orchestrator(cfg=self.cfg,
                                           book="fast" if mode == "hft" else "standard")
         self.market_data = self._build_market_data()
         self.cycles = 0
@@ -655,14 +654,6 @@ class TradingEngine:
                 if self._replay_missed_bars(spec, pos, df, summary):
                     return
             self._manage_position(spec, pos, df, i, summary, bar_epoch=bar_epoch)
-            return
-        # NSE session gate (india only, NEW entries only): positions are
-        # FULLY managed above — the gate sits after management, so hard
-        # stops/targets/strategy exits/replays always run on closed bars
-        # regardless of the clock. Entries only: deterministic backtests are
-        # unaffected (they never call this wall-clock path; NSE bars only
-        # exist for open sessions anyway — a bar in the frame IS a session).
-        if spec.kind == "india" and not is_nse_session_open():
             return
         if self.broker.has_position(spec.symbol):
             # one position per symbol across timeframes (risk rule): the 15m

@@ -49,14 +49,17 @@
   "timeframe": "4h"
  },
  "crypto:BTC/USDT:5m": {
-  "bars": 8639,
-  "cache_file": "BTCUSDT_5m_30d_20260913.parquet",
+  "bars": 4031,
+  "cache_file": "crypto_BTCUSDT_5m_14d_20260919.parquet",
   "caliber": "raw",
-  "fetched_at": "2026-09-13T16:21:10+00:00",
-  "first_ts": "2026-08-14 16:25:00+00:00",
-  "last_ts": "2026-09-13 16:15:00+00:00",
-  "sha256": "52129625bf5539bbcbe3daf8ee18206072c364836360f2047eaf9ef797238adf",
-  "source": "binance"
+  "fetched_at": "2026-09-19T06:23:25+00:00",
+  "first_ts": "2026-09-05 06:25:00+00:00",
+  "kind": "crypto",
+  "last_ts": "2026-09-19 06:15:00+00:00",
+  "sha256": "7ce054e1545657d5c1a04bbd5065bfef5b745a11997ce5e4377083c365e4e4f5",
+  "source": "binance",
+  "symbol": "BTC/USDT",
+  "timeframe": "5m"
  },
  "crypto:ETH/BTC:1m": {
   "bars": 4319,
@@ -67,6 +70,19 @@
   "last_ts": "2026-09-13 10:34:00+00:00",
   "sha256": "dcd700b6eb396275157515ecb6ad641c21332eb470bdde6c708a95cb111f7e74",
   "source": "binance"
+ },
+ "crypto:ETH/BTC:5m": {
+  "bars": 4031,
+  "cache_file": "crypto_ETHBTC_5m_14d_20260919.parquet",
+  "caliber": "raw",
+  "fetched_at": "2026-09-19T06:23:41+00:00",
+  "first_ts": "2026-09-05 06:25:00+00:00",
+  "kind": "crypto",
+  "last_ts": "2026-09-19 06:15:00+00:00",
+  "sha256": "97b50144706719405d94acecda8556dd76f335fc0f8a8f46d89c0638b82e1aa5",
+  "source": "binance",
+  "symbol": "ETH/BTC",
+  "timeframe": "5m"
  },
  "crypto:ETH/USDT:15m": {
   "bars": 5759,
@@ -117,6 +133,19 @@
   "symbol": "ETH/USDT",
   "timeframe": "4h"
  },
+ "crypto:ETH/USDT:5m": {
+  "bars": 4031,
+  "cache_file": "crypto_ETHUSDT_5m_14d_20260919.parquet",
+  "caliber": "raw",
+  "fetched_at": "2026-09-19T06:23:33+00:00",
+  "first_ts": "2026-09-05 06:25:00+00:00",
+  "kind": "crypto",
+  "last_ts": "2026-09-19 06:15:00+00:00",
+  "sha256": "2dcf06c948c12b0829c704e40dea673a67d1c9fe7bfceafc583f806e1d7ca615",
+  "source": "binance",
+  "symbol": "ETH/USDT",
+  "timeframe": "5m"
+ },
  "crypto:SOL/USDT:1h": {
   "bars": 8759,
   "cache_file": "crypto_SOLUSDT_1h_365d_20260919.parquet",
@@ -162,6 +191,19 @@
   "last_ts": "2026-09-11 21:29:00+00:00",
   "sha256": "0a714e79232f5ac82d3848870426c26a91ccb3263e3847511f1739da95fb4828",
   "source": "yahoo"
+ },
+ "forex:EURUSD=X:5m": {
+  "bars": 17064,
+  "cache_file": "forex_EURUSD_5m_14d_20260919.parquet",
+  "caliber": "spot-fx",
+  "fetched_at": "2026-09-19T06:23:49+00:00",
+  "first_ts": "2026-06-28 23:00:00+00:00",
+  "kind": "forex",
+  "last_ts": "2026-09-18 21:25:00+00:00",
+  "sha256": "79a7bbbf5d68319d7867b09f9a289f045b8bb954f7aac26fc012ebaa2c3e1d7b",
+  "source": "yahoo",
+  "symbol": "EURUSD=X",
+  "timeframe": "5m"
  },
  "forex:GBPUSD=X:1h": {
   "bars": 17269,

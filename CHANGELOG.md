@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] — promotion evidence moves out of sample
+
+The gate used one full battery window — the same window strategies were
+developed and described on — so it measured fit, not persistence. Both
+batteries now retain their full-window headline runs but derive verdicts only
+from four disjoint, independently warmed walk-forward folds per symbol. A
+full-window cell has no fold id and is rejected by the verdict function. Any
+failed requested fold prevents the battery from replacing the last complete
+gate with partial evidence.
+
+Measured on 2026-09-19, two verdicts changed: `hft_market_maker` **probation →
+demoted** (full-window PF 0.93; median OOS PF 0.68 over 434 trades / 15 folds)
+and `ts_momentum` **probation → demoted** (0.85; OOS 0.78 over 228 trades / 18
+folds). The complete before/after table, including unchanged strategies, is in
+HFT.md.
+
 ## [Unreleased] — both books now earn their votes
 
 The promotion gate only measured the fast book. The standard battery wrote no

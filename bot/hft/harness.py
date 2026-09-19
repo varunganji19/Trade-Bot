@@ -47,8 +47,10 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
                 out_path: str = "data/results/hft_battery.json", quiet: bool = False) -> dict:
     started = time.time()
     results = {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-               "days": days, "warmup_bars": WARMUP_BARS, "cells": []}
+               "days": days, "warmup_bars": WARMUP_BARS, "cells": [],
+               "oos_method": "4-fold walk-forward", "oos_cells": []}
     frames: dict[str, object] = {}
+    evidence_errors: list[str] = []
 
     for tier in tiers:
         cfg = build_hft_config(fee_tier=tier)
@@ -61,9 +63,15 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
                 except Exception as exc:
                     if not quiet:
                         print(f"!! {spec.symbol} {spec.timeframe}: data error {exc}")
+                    evidence_errors.append(
+                        f"{spec.symbol} {spec.timeframe}: data error {type(exc).__name__}: {exc}")
                     frames[spec.symbol] = None
             df = frames[spec.symbol]
             if df is None or len(df) < WARMUP_BARS + 10:
+                if df is not None:
+                    evidence_errors.append(
+                        f"{spec.symbol} {spec.timeframe}: only {len(df)} bars; "
+                        f"need {WARMUP_BARS + 10}")
                 continue
             for strat in HFT_STRATEGY_NAMES:
                 try:
@@ -77,6 +85,15 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
                         "taker_round_trip_bps": _round_trip_cost_bps(cfg, spec.kind),
                     })
                     results["cells"].append(s)
+                    wf = bt.run_walk_forward(
+                        spec, df, folds=4, strategy=strat, progress=False,
+                        warmup_bars=WARMUP_BARS,
+                    )
+                    for fold, fold_stats in enumerate(wf["folds"], start=1):
+                        fold_stats.update({"tier": tier, "symbol": spec.symbol,
+                                           "timeframe": spec.timeframe,
+                                           "strategy": strat, "fold": fold})
+                        results["oos_cells"].append(fold_stats)
                     if not quiet:
                         print(f"  [{tier:4s}] {spec.symbol:10s} {spec.timeframe} {strat:20s} "
                               f"ret {s['return_pct']:+7.2f}%  trades {s['trades']:4d}  "
@@ -85,24 +102,24 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
                 except Exception as exc:
                     if not quiet:
                         print(f"!! [{tier}] {spec.symbol} {strat}: {type(exc).__name__}: {exc}")
+                    evidence_errors.append(
+                        f"[{tier}] {spec.symbol} {strat}: {type(exc).__name__}: {exc}")
 
-    # PROMOTION VERDICTS from the same cells the docs quote: a strategy's
-    # vote is a measurement, not a citation (bot/promotion.py)
-    try:
-        from bot.hft import hft_fee_tier
-        from bot.promotion import save_verdicts, verdicts_from_cells
-        live_tier = hft_fee_tier()
-        verdicts = verdicts_from_cells(results["cells"], live_tier)
-        results["promotions"] = verdicts
-        vpath = save_verdicts(verdicts, live_tier, book="fast")
-        if not quiet:
-            print(f"\n[promotion] verdicts at the live tier ({live_tier}) -> {vpath}")
-            for name, v in sorted(verdicts.items()):
-                print(f"  {v['status']:9s} {name:22s} {v['why']}")
-    except Exception as exc:
-        results["promotions"] = {"error": f"{type(exc).__name__}: {exc}"}
-        if not quiet:
-            print(f"!! promotion verdicts failed: {exc}")
+    # Promotion may not publish a partial set: one failed fold would otherwise
+    # silently turn missing strategies back into permissive, unmeasured voters.
+    if evidence_errors:
+        raise RuntimeError("promotion evidence incomplete; verdicts NOT written:\n  "
+                           + "\n  ".join(evidence_errors))
+    from bot.hft import hft_fee_tier
+    from bot.promotion import save_verdicts, verdicts_from_cells
+    live_tier = hft_fee_tier()
+    verdicts = verdicts_from_cells(results["oos_cells"], live_tier)
+    results["promotions"] = verdicts
+    vpath = save_verdicts(verdicts, live_tier, book="fast")
+    if not quiet:
+        print(f"\n[promotion] OOS verdicts at the live tier ({live_tier}) -> {vpath}")
+        for name, v in sorted(verdicts.items()):
+            print(f"  {v['status']:9s} {name:22s} {v['why']}")
 
     results["runtime_s"] = round(time.time() - started, 1)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)

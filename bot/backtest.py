@@ -381,7 +381,7 @@ class Backtester:
     # -------------------------------------------------------- walk-forward
     def run_walk_forward(self, spec: MarketSpec, df: pd.DataFrame, folds: int = 4,
                          strategy: str | None = None,
-                         progress: bool = True) -> dict:
+                         progress: bool = True, warmup_bars: int = 220) -> dict:
         n = len(df)
         fold_len = n // folds
         results = []
@@ -390,7 +390,8 @@ class Backtester:
             hi = min((k + 1) * fold_len, n)
             if hi - lo < 300:
                 continue
-            res = self.run(spec, df.iloc[lo:hi], strategy=strategy, warmup_bars=220)
+            res = self.run(spec, df.iloc[lo:hi], strategy=strategy,
+                           warmup_bars=warmup_bars)
             results.append(res)
             if progress:
                 s = res.stats()

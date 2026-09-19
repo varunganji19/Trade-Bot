@@ -53,7 +53,7 @@ def main():
     # the WRITE (after a full hour of fetching/backtesting) is the worst moment
     os.makedirs("data/results", exist_ok=True)
     bt = Backtester()
-    rows = []
+    rows, oos_cells, evidence_errors = [], [], []
     t_start = time.time()
     for spec in BATTERY:
         days = DAYS[spec.timeframe]
@@ -61,6 +61,7 @@ def main():
             df = fetch_history(spec, days=days)
         except Exception as exc:
             print(f"!! {spec.symbol} {spec.timeframe}: data error {exc}")
+            evidence_errors.append(f"{spec.symbol} {spec.timeframe}: data error {exc}")
             continue
         for strat in STRATEGIES:
             if (spec.timeframe, strat) in SKIP:
@@ -77,6 +78,16 @@ def main():
                 s["runtime_s"] = round(time.time() - t0, 1)
                 s["bars"] = len(df)
                 rows.append(s)
+                wf = bt.run_walk_forward(
+                    spec, df, folds=4, strategy=None if strat == "ensemble" else strat,
+                    progress=False, warmup_bars=220,
+                )
+                if strat != "ensemble":
+                    for fold, fold_stats in enumerate(wf["folds"], start=1):
+                        fold_stats.update({"tier": "standard", "symbol": spec.symbol,
+                                           "timeframe": spec.timeframe,
+                                           "strategy": strat, "fold": fold})
+                        oos_cells.append(fold_stats)
                 with open(f"data/results/{key}.json", "w") as f:
                     json.dump({"stats": s, "trades": res.trades,
                                "equity_curve": res.equity_curve}, f, indent=1, default=str)
@@ -86,6 +97,7 @@ def main():
                       f"pf {str(s['profit_factor']):5s}  ({s['runtime_s']}s)")
             except Exception as exc:
                 print(f"!! {key}: {type(exc).__name__}: {exc}")
+                evidence_errors.append(f"{key}: {type(exc).__name__}: {exc}")
 
     print(f"\n{'='*100}\nSUMMARY ({len(rows)} runs, {time.time()-t_start:.0f}s total)\n{'='*100}")
     hdr = f"{'symbol':12s} {'tf':4s} {'strategy':16s} {'ret%':>8s} {'dd%':>7s} {'trades':>6s} {'wr%':>6s} {'pf':>6s} {'sharpe':>7s}"
@@ -96,16 +108,27 @@ def main():
               f"{s['return_pct']:+8.2f} {s['max_drawdown_pct']:7.2f} {s['trades']:6d} "
               f"{s['win_rate_pct']:6.1f} {str(s['profit_factor']):>6s} {str(s['sharpe']):>7s}")
 
-    # Do this only after every cell has run: a partial mid-battery verdict
-    # would look authoritative to the live engine. Ensemble is a consumer of
-    # strategy votes, not a strategy with an independent voting right.
+    # Do this only after every OOS fold has run: a partial verdict would look
+    # authoritative to the live engine. Ensemble consumes strategy votes; it
+    # does not own an independent voting right.
+    if evidence_errors:
+        raise RuntimeError("promotion evidence incomplete; verdicts NOT written:\n  "
+                           + "\n  ".join(evidence_errors))
     from bot.promotion import save_verdicts, verdicts_from_cells
-    cells = [s for s in rows if s["strategy"] != "ensemble"]
-    verdicts = verdicts_from_cells(cells, "standard")
+    verdicts = verdicts_from_cells(oos_cells, "standard")
     vpath = save_verdicts(verdicts, "standard", book="standard")
+    battery_path = "data/results/standard_battery.json"
+    with open(battery_path, "w") as f:
+        json.dump({
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "oos_method": "4-fold walk-forward", "cells": rows,
+            "oos_cells": oos_cells, "promotions": verdicts,
+            "runtime_s": round(time.time() - t_start, 1),
+        }, f, indent=1, default=str)
     print(f"\n[promotion] standard-book verdicts -> {vpath}")
     for name, verdict in sorted(verdicts.items()):
         print(f"  {verdict['status']:9s} {name:22s} {verdict['why']}")
+    print(f"[standard-battery] full + OOS evidence -> {battery_path}")
     return rows
 
 

@@ -2641,6 +2641,11 @@ def test_standard_battery_writes_all_standard_strategy_verdicts(tmp_path, monkey
         def run(self, spec, frame, strategy=None):
             return FakeResult(strategy)
 
+        def run_walk_forward(self, spec, frame, folds, strategy, progress,
+                             warmup_bars):
+            return {"folds": [FakeResult(strategy).stats(),
+                               FakeResult(strategy).stats()]}
+
     strategies = ["turtle_trend", "connors_meanrev", "vwap_scalper",
                   "ts_momentum", "fx_regime_meanrev"]
     monkeypatch.chdir(tmp_path)
@@ -2662,7 +2667,13 @@ def test_standard_battery_writes_all_standard_strategy_verdicts(tmp_path, monkey
     assert payload["book"] == "standard" and payload["tier"] == "standard"
     assert set(payload["strategies"]) == set(strategies)
     assert {v["status"] for v in payload["strategies"].values()} == {"promoted"}
+    assert {v["evidence"] for v in payload["strategies"].values()} == {
+        "walk_forward_oos"}
     assert not (tmp_path / "results" / "promotions.json").exists()
+    evidence = json.loads((tmp_path / "data" / "results" /
+                           "standard_battery.json").read_text())
+    assert evidence["oos_method"] == "4-fold walk-forward"
+    assert len(evidence["oos_cells"]) == 2 * 2 * len(strategies)
 
 
 def test_reset_backup_is_wal_checkpointed_and_pruned():
@@ -3085,22 +3096,34 @@ def test_promotion_gate_demotes_measured_losers_only(tmp_path, monkeypatch):
                                load_verdicts, save_verdicts, verdicts_from_cells)
     cells = [
         # measured loser: enough trades, median PF well under the line
-        {"tier": "perp", "strategy": "loser", "symbol": "BTC", "trades": 40, "profit_factor": 0.39},
-        {"tier": "perp", "strategy": "loser", "symbol": "ETH", "trades": 41, "profit_factor": 0.43},
+        {"tier": "perp", "strategy": "loser", "symbol": "BTC", "fold": 1,
+         "trades": 40, "profit_factor": 0.39},
+        {"tier": "perp", "strategy": "loser", "symbol": "ETH", "fold": 2,
+         "trades": 41, "profit_factor": 0.43},
         # measured winner
-        {"tier": "perp", "strategy": "winner", "symbol": "BTC", "trades": 40, "profit_factor": 1.4},
-        {"tier": "perp", "strategy": "winner", "symbol": "ETH", "trades": 40, "profit_factor": 1.1},
+        {"tier": "perp", "strategy": "winner", "symbol": "BTC", "fold": 1,
+         "trades": 40, "profit_factor": 1.4},
+        {"tier": "perp", "strategy": "winner", "symbol": "ETH", "fold": 2,
+         "trades": 40, "profit_factor": 1.1},
         # too few trades to judge
-        {"tier": "perp", "strategy": "unknown", "symbol": "BTC", "trades": 3, "profit_factor": 0.1},
-        {"tier": "perp", "strategy": "unknown", "symbol": "ETH", "trades": 2, "profit_factor": 0.2},
+        {"tier": "perp", "strategy": "unknown", "symbol": "BTC", "fold": 1,
+         "trades": 3, "profit_factor": 0.1},
+        {"tier": "perp", "strategy": "unknown", "symbol": "ETH", "fold": 2,
+         "trades": 2, "profit_factor": 0.2},
         # another tier must not count toward the live one
-        {"tier": "spot", "strategy": "winner", "symbol": "BTC", "trades": 99, "profit_factor": 0.05},
+        {"tier": "spot", "strategy": "winner", "symbol": "BTC", "fold": 3,
+         "trades": 99, "profit_factor": 0.05},
+        # A full-window result is in-sample and must never enter a verdict.
+        {"tier": "perp", "strategy": "in_sample_only", "symbol": "BTC",
+         "trades": 999, "profit_factor": 0.01},
     ]
     v = verdicts_from_cells(cells, "perp")
     assert v["loser"]["status"] == DEMOTED
     assert v["winner"]["status"] == PROMOTED
     assert v["unknown"]["status"] == PROBATION
     assert v["winner"]["trades"] == 80        # the spot cell was ignored
+    assert "in_sample_only" not in v
+    assert {x["evidence"] for x in v.values()} == {"walk_forward_oos"}
 
     path = str(tmp_path / "promotions.json")
     save_verdicts(v, "perp", path=path)

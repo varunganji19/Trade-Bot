@@ -137,31 +137,51 @@ a measurement, not a citation.
 
 ### The promotion gate (bot/promotion.py)
 
-The battery now writes its verdict beside its results
-(`data/results/promotions.json`), and the orchestrator reads it. Three
-states, deliberately:
+Each battery still reports the full configured window for descriptive
+headlines, but the gate now judges **four disjoint walk-forward folds per
+symbol**. Every fold starts a fresh broker/risk state and pays its own warmup;
+the full-window cells are rejected by `verdicts_from_cells` and cannot
+accidentally become voting evidence. The fast result lives at the backwards-
+compatible `data/results/promotions.json`; the standard book has
+`promotions_standard.json`. Three states, deliberately:
 
 | state | rule | effect |
 |---|---|---|
-| promoted | >= 30 trades over >= 2 cells, median PF >= 1.0 | votes |
+| promoted | >= 30 OOS trades over >= 2 active folds, median PF >= 1.0 | votes |
 | probation | too few trades, or median PF between 0.8 and 1.0 | votes, on notice |
-| demoted | >= 30 trades over >= 2 cells, median PF <= 0.8 | **does not vote** |
+| demoted | >= 30 OOS trades over >= 2 active folds, median PF <= 0.8 | **does not vote** |
 
 A missing verdicts file is the permissive state: the gate can only ever take
-a vote away on evidence, never grant one silently. Only cells at the book's
-LIVE fee tier count.
+a vote away on evidence, never grant one silently. Thirty trades is a low
+floor chosen so one outlier cannot dominate PF; the 0.8–1.0 band remains
+probation. Two active folds prevent one market episode from being the whole
+case. Only folds at the book's LIVE fee tier count. If any requested fold or
+market fails, the battery refuses to overwrite the prior verdict file.
 
-Run on the 14-day 5m battery above, at the perp tier:
+Measured 2026-09-19 on the same cached Binance/Yahoo frames and full cost
+models (standard: 34 full-window runs + OOS folds, 144.2s; fast: 32 full-window
+cells + OOS folds, 136.8s). "Before" is the prior single full-window gate;
+"after" is the walk-forward gate:
 
-```
-demoted    hft_micro_breakout   median PF 0.39 over 3 cells (81 trades)
-demoted    hft_ofi_momentum     median PF 0.49 over 3 cells (93 trades)
-probation  hft_market_maker     median PF 0.93 — between the lines
-probation  hft_exhaustion_fade  only 29 trades over 3 cells — not judgeable
-```
+| fast strategy | before: full window | after: OOS folds | changed? |
+|---|---|---|---|
+| `hft_exhaustion_fade` | probation — 29 trades / 3 cells | probation — 21 trades / 9 active folds | no |
+| `hft_market_maker` | probation — median PF 0.93 | **demoted** — median PF 0.68, 434 trades / 15 folds | **yes: probation → demoted** |
+| `hft_micro_breakout` | demoted — median PF 0.39, 81 trades / 3 cells | demoted — median PF 0.27, 60 trades / 9 folds | no |
+| `hft_ofi_momentum` | demoted — median PF 0.49, 93 trades / 3 cells | demoted — median PF 0.58, 68 trades / 9 folds | no |
 
-So the strategy that carried the largest vote weight in the fast book now
-carries none, and it lost it to its own record rather than to an opinion.
+| standard strategy | before: full window | after: OOS folds | changed? |
+|---|---|---|---|
+| `connors_meanrev` | promoted — median PF 1.25, 76 trades / 2 cells | promoted — median PF 1.56, 60 trades / 8 folds | no |
+| `fx_regime_meanrev` | demoted — median PF 0.56, 1,932 trades / 6 cells | demoted — median PF 0.54, 1,836 trades / 24 folds | no |
+| `ts_momentum` | probation — median PF 0.85, 112 trades / 5 cells | **demoted** — median PF 0.78, 228 trades / 18 folds | **yes: probation → demoted** |
+| `turtle_trend` | demoted — median PF 0.68, 1,024 trades / 6 cells | demoted — median PF 0.69, 978 trades / 24 folds | no |
+| `vwap_scalper` | promoted — median PF 1.21, 72 trades / 2 cells | promoted — median PF 1.55, 57 trades / 8 folds | no |
+
+The findings are the flips, not nuisances: `hft_market_maker` and
+`ts_momentum` lose their votes out of sample. The former's full-window near-
+breakeven result did not survive time segmentation; the latter crossed the
+explicit 0.8 demotion line.
 
 ## The 1m record (2026-09-13, real exchange data, 3 days / ~4,320 bars per cell)
 

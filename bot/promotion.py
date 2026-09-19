@@ -35,8 +35,12 @@ import os
 import statistics
 import time
 
-MIN_TRADES = 30          # total trades across cells before a verdict is possible
-MIN_CELLS = 2            # ...spread over at least this many symbol cells
+# Thirty trades is deliberately a LOW evidence floor: below it, one large win
+# can dominate profit factor; above it, the gate may reject a clear loser but
+# still labels the 0.8-1.0 uncertainty band probation. Two independent OOS
+# folds prevent one market episode from being the entire case for a verdict.
+MIN_TRADES = 30          # total OOS trades before a verdict is possible
+MIN_CELLS = 2            # ...spread over at least this many OOS fold cells
 PROMOTE_PF = 1.0         # median profit factor to earn a vote
 DEMOTE_PF = 0.8          # ...and to lose one (the band between is probation)
 
@@ -64,41 +68,49 @@ def promotions_path(book: str = "fast") -> str:
 
 
 def verdicts_from_cells(cells: list, tier: str) -> dict:
-    """Per-strategy verdict from battery cells (see the module docstring).
+    """Per-strategy verdict from OUT-OF-SAMPLE fold cells.
 
-    `cells` are the battery's own result dicts: strategy, tier, trades,
-    profit_factor. Cells from other tiers and cells with no trades are
-    ignored — a strategy that never fired on a symbol has said nothing about
-    that symbol, in either direction."""
+    `cells` are the battery's walk-forward fold dicts: strategy, tier, trades,
+    profit_factor. Full-window cells must never be passed here. Cells from
+    other tiers and cells with no trades are ignored — a strategy that never
+    fired in a fold has said nothing about that episode, in either direction.
+    """
     by_strategy: dict[str, list] = {}
     for c in cells:
         if c.get("tier") != tier:
+            continue
+        # The contract is fail-permissive: accidentally handing this function
+        # the full-window battery cells produces NO verdict, never an
+        # authoritative-looking in-sample demotion.
+        if c.get("fold") is None:
             continue
         trades = int(c.get("trades") or 0)
         pf = c.get("profit_factor")
         if trades <= 0 or pf is None:
             continue
         by_strategy.setdefault(str(c.get("strategy")), []).append(
-            {"symbol": c.get("symbol"), "trades": trades, "pf": float(pf)})
+            {"symbol": c.get("symbol"), "fold": c.get("fold"),
+             "trades": trades, "pf": float(pf)})
 
     out = {}
     for name, cs in by_strategy.items():
         trades = sum(c["trades"] for c in cs)
         pf_median = statistics.median(c["pf"] for c in cs)
         if trades < MIN_TRADES or len(cs) < MIN_CELLS:
-            status, why = PROBATION, (f"only {trades} trades over {len(cs)} cell(s) — "
+            status, why = PROBATION, (f"only {trades} OOS trades over {len(cs)} fold(s) — "
                                       f"need {MIN_TRADES} over {MIN_CELLS} to judge")
         elif pf_median >= PROMOTE_PF:
-            status, why = PROMOTED, (f"median PF {pf_median:.2f} over {len(cs)} cells "
+            status, why = PROMOTED, (f"median OOS PF {pf_median:.2f} over {len(cs)} folds "
                                      f"({trades} trades)")
         elif pf_median <= DEMOTE_PF:
-            status, why = DEMOTED, (f"median PF {pf_median:.2f} over {len(cs)} cells "
+            status, why = DEMOTED, (f"median OOS PF {pf_median:.2f} over {len(cs)} folds "
                                     f"({trades} trades) — measured loser, no vote")
         else:
-            status, why = PROBATION, (f"median PF {pf_median:.2f} is between the "
+            status, why = PROBATION, (f"median OOS PF {pf_median:.2f} is between the "
                                       f"{DEMOTE_PF} and {PROMOTE_PF} lines")
         out[name] = {"status": status, "why": why, "trades": trades,
-                     "cells": len(cs), "pf_median": round(pf_median, 3)}
+                     "cells": len(cs), "pf_median": round(pf_median, 3),
+                     "evidence": "walk_forward_oos"}
     return out
 
 

@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] — the Evidence tab went blank and stayed blank
+
+Reported as "I see nothing in evidence page". Two bugs, both the house
+failure mode — silence where an explanation belongs.
+
+- **The tab marked itself loaded BEFORE the request and swallowed the
+  failure.** One 401 (an unentered token, or one rotated out from under the
+  page) left every panel on "loading…" forever: it never retried on re-entry
+  and never said why. The flag is set only on a successful load now, and a
+  failure renders an actionable message — "not authorized — enter your
+  dashboard token" for a 401, the error text otherwise.
+- **A developer's own `.env` changed the test result.** config.py loads
+  `.env` at import, so setting DASHBOARD_TOKEN (which the security docs tell
+  you to do) silently installed the auth middleware into every TestClient in
+  the suite, and two evidence/API tests began failing with 401 the moment a
+  real `.env` existed. conftest clears the token and the API keys before the
+  first import, and `ALGO_SKIP_DOTENV` keeps the loader out of the suite
+  entirely. A test suite whose verdict depends on local secrets is not one.
+
+The empty states also now name the exact command that fills each panel, and
+say "no validation reports **in this data directory**" — the artifacts were
+never missing, the dashboard was pointed at a scratch data dir.
+
 ## [Unreleased] — `make soak`, and three breakdowns it found
 
 `make soak` drives the RUNNING dashboard in a loop the way an operator would

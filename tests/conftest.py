@@ -20,9 +20,21 @@ CONFIG.data_cache_dir keep their override.
 """
 from __future__ import annotations
 
+import os
 import tempfile
 
 import pytest
+
+# --- the operator's own .env must not change the test result ---------------
+# config.py loads .env at import, so a developer who sets DASHBOARD_TOKEN (as
+# the security docs tell them to) silently installs the auth middleware into
+# every TestClient in this suite — and two evidence/API tests started failing
+# with 401 the moment a real .env existed. A test suite whose verdict depends
+# on the developer's local secrets is not a test suite. Clear it BEFORE the
+# first import of config/bot.*, where the middleware decision is made.
+for _var in ("DASHBOARD_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+    os.environ.pop(_var, None)
+os.environ["ALGO_SKIP_DOTENV"] = "1"
 
 # --- session scope: redirect ALL persistent state away from the real data/ --
 # Must happen before the first import of bot.* / config: bot.dashboard runs

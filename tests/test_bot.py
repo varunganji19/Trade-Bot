@@ -3123,6 +3123,35 @@ def test_config_command_reports_every_setting_and_its_source(capsys, monkeypatch
     assert {"HFT_INTERVAL", "PAPER_CAPITAL", "HFT_FEE_TIER"} <= set(cfg_mod.ENV_PROVENANCE)
 
 
+def test_evidence_tab_retries_and_explains_a_failed_load():
+    """REPORTED AS "I see nothing in evidence page". The tab marked itself
+    loaded BEFORE the request and swallowed the failure, so ONE 401 (an
+    unentered token, or a rotated one) left every panel on "loading…"
+    forever: it never retried on re-entry and never said why. The same shape
+    as every other silent failure in this repo."""
+    import bot.dashboard as dash
+    js = open(dash.static_path("app.js")).read()
+
+    body = js[js.index("async function refreshEvidence()"):]
+    body = body[:body.index("\n}\n")]
+    # the loaded flag must be set AFTER the await, never before it
+    assert body.index("await jget('/api/evidence')") < body.index("evLoaded.v = true")
+    # and a failure must render something the operator can act on
+    assert "evidenceFailed(e)" in body
+    assert "not authorized — enter your dashboard token" in js
+    # the shipped empty-state copy is restorable after a failure render
+    assert "KR_EMPTY_HTML" in js and "CV_EMPTY_HTML" in js
+
+    # the endpoint itself must answer even with nothing generated yet
+    from fastapi.testclient import TestClient
+    client = TestClient(dash.app, base_url="http://127.0.0.1")
+    payload = client.get("/api/evidence").json()
+    assert set(payload) == {"kronos", "validations", "shadow", "manifest"}
+    # an empty machine reports empty sections, never an error
+    assert isinstance(payload["validations"], list)
+    assert "error" not in (payload["kronos"] or {})
+
+
 def test_dashboard_page_is_served_from_static_files():
     """The page was a 2,700-line triple-quoted string inside dashboard.py:
     HTML, CSS and JavaScript with no highlighting, no linting and no way to

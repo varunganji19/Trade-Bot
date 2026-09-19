@@ -53,7 +53,10 @@ def _strip_inline_comment(s: str) -> str:
     return s
 
 
-_load_dotenv()
+# ALGO_SKIP_DOTENV: the test suite sets it so a developer's local .env (an
+# API key, a dashboard token) cannot change a test result — see tests/conftest
+if os.environ.get("ALGO_SKIP_DOTENV") != "1":
+    _load_dotenv()
 
 
 # WHERE EVERY SETTING CAME FROM. The env vars that steer this bot are read

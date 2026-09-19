@@ -1151,11 +1151,39 @@ $('#tradeNext').addEventListener('click', () => { tradePage++; renderTradeHistor
    computes nothing from trade data, it presents what the CLI wrote */
 let kronosChart = null, cvChart = null;
 let EV_REPORTS = [];
+/* the shipped empty-state copy, kept so a failure render can be undone */
+const KR_EMPTY_HTML = 'no resolved forecasts yet — the ledger fills as ' +
+  '<code>main.py kronos</code> forecasts and their horizons resolve';
+const CV_EMPTY_HTML = 'no validation reports in this data directory — run ' +
+  '<code>make validate</code>';
+
+function evidenceFailed(err) {
+  /* the tab used to mark itself loaded BEFORE the request and swallow the
+     failure, so one 401 (an unentered token, a rotated one) left every panel
+     on "loading…" FOREVER — the tab never retried and never said why. */
+  const msg = /401/.test(String(err && err.message))
+    ? 'not authorized — enter your dashboard token (the lock in the top bar), then reopen this tab'
+    : 'could not load the evidence artifacts: ' + esc(String(err && err.message || err));
+  const box = '<div class="empty">' + msg + '</div>';
+  $('#evShadow').innerHTML = box;
+  $('#evManifest').innerHTML = box;
+  $('#krMeta').textContent = '';
+  $('#krEmpty').hidden = false;
+  $('#krEmpty').innerHTML = msg;
+  $('#cvEmpty').hidden = false;
+  $('#cvEmpty').innerHTML = msg;
+  $('#evCards').innerHTML = '';
+}
 
 async function refreshEvidence() {
-  evLoaded.v = true;
   let ev;
-  try { ev = await jget('/api/evidence'); } catch (e) { return; }
+  try {
+    ev = await jget('/api/evidence');
+  } catch (e) {
+    evidenceFailed(e);        // NOT marked loaded: the next tab entry retries
+    return;
+  }
+  evLoaded.v = true;          // only a SUCCESSFUL load counts as loaded
 
   /* --- Kronos rolling IC vs its own hurdle --- */
   const k = ev.kronos || {};
@@ -1165,6 +1193,7 @@ async function refreshEvidence() {
   $('#krMeta').textContent = k.error ? ('ledger unavailable: ' + k.error)
     : (k.n ? k.n + ' resolved forecasts · pending ' + (k.pending ?? 0) +
         ' · rolling IC ' + (k.ic ?? '—') : '');
+  $('#krEmpty').innerHTML = KR_EMPTY_HTML;      // restore after a failure render
   $('#krEmpty').hidden = labels.length > 0;
   if (labels.length) {
     kronosChart = new Chart($('#kronosChart'), {
@@ -1279,6 +1308,7 @@ function renderEvidencePaths() {
   if (cvChart) { cvChart.destroy(); cvChart = null; }
   const r = EV_REPORTS[$('#evReportSel').value] || null;
   const paths = r && r.purged_cv ? (r.purged_cv.paths || []) : [];
+  $('#cvEmpty').innerHTML = CV_EMPTY_HTML;      // restore after a failure render
   $('#cvEmpty').hidden = paths.some(p => p.trades);
   if (!paths.length) return;
   cvChart = new Chart($('#cvChart'), {

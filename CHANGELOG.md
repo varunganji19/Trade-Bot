@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] — review of the OOS gate: in-sample verdicts now say so
+
+Reviewing the walk-forward change: a verdicts file written BEFORE it carries
+no `evidence` key, and `gate_state` reported it as plain "active — 4
+strategies measured". The live book was honouring exactly such a file. The
+gate's entire claim is the quality of its evidence, so a weaker basis has to
+be visible rather than inferred: the state now carries `evidence` and
+`stale`, the Strategies panel shows "promotion gate: STALE EVIDENCE" in red,
+and `main.py config` prints the basis under each book's gate.
+
+Legacy verdicts are still HONOURED — evidence is evidence, and a demotion
+earned in-sample is better than no gate at all. It just no longer claims to
+be what it is not.
+
+
 ## [Unreleased] — Kronos fails its offline promotion gate
 
 `python3 main.py kronos --days 60` completed on 2026-09-19 with 128 resolved

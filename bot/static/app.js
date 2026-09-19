@@ -293,8 +293,10 @@ function renderStrategies(boxSel, listSel, st) {
     ? '<div class="veto-row top"><span class="r">promotion gate: UNMEASURED</span>' +
       '<span class="n" style="font-weight:400">' + esc(g.why || '') + '</span></div>'
     : (g.state === 'active'
-        ? '<div class="veto-row"><span class="r" style="color:var(--color-muted-foreground)">' +
-          'promotion gate: active</span><span class="n" style="font-weight:400;' +
+        ? '<div class="veto-row' + (g.stale ? ' top' : '') + '"><span class="r"' +
+          (g.stale ? '' : ' style="color:var(--color-muted-foreground)"') + '>' +
+          'promotion gate: ' + (g.stale ? 'STALE EVIDENCE' : 'active') +
+          '</span><span class="n" style="font-weight:400;' +
           'color:var(--color-muted-foreground)">' + esc(g.why || '') +
           ' · ' + esc(g.generated_at || '') + '</span></div>'
         : '');

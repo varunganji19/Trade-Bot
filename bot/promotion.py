@@ -178,10 +178,22 @@ def gate_state(path: str | None = None, *, book: str = "fast") -> dict:
                        f"votes UNMEASURED; run `{command}` to gather them"}
     verdicts = load_verdicts(path, book=book)
     demoted = [n for n, v in verdicts.items() if v.get("status") == DEMOTED]
+    # WHICH EVIDENCE this verdict set rests on. Verdicts written before the
+    # walk-forward change carry no `evidence` key: they came from the SAME
+    # full-window cells used to develop the strategies, which measures fit,
+    # not persistence. An in-sample verdict file must not present itself as
+    # an out-of-sample one — the gate's whole claim is the quality of its
+    # evidence, so a weaker basis has to be visible, not inferred.
+    bases = {v.get("evidence", "in_sample") for v in verdicts.values()}
+    oos = bases == {"walk_forward_oos"}
+    evidence = "walk_forward_oos" if oos else "in_sample"
+    why = f"{len(verdicts)} strategies measured, {len(demoted)} demoted"
+    if not oos:
+        why += " — IN-SAMPLE evidence, predates walk-forward; regenerate it"
     return {"state": "active", "book": book, "path": path,
             "generated_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)),
             "measured": len(verdicts), "demoted": demoted,
-            "why": f"{len(verdicts)} strategies measured, {len(demoted)} demoted"}
+            "evidence": evidence, "stale": not oos, "why": why}
 
 
 def voting_strategies(book: str) -> dict:

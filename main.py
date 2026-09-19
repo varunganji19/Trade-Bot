@@ -584,8 +584,10 @@ def cmd_config(args):
             print("             state  UNMEASURED — every registered strategy votes")
             print(f"                    run `{command}` to gather verdicts here")
         else:
-            print(f"             state  active ({gate['why']}, "
+            label = "STALE (in-sample)" if gate.get("stale") else "active"
+            print(f"             state  {label} ({gate['why']}, "
                   f"generated {gate['generated_at']})")
+            print(f"             basis  {gate.get('evidence', 'unknown')}")
         for name in sorted(verdicts):
             v = verdicts[name]
             print(f"             {v['status']:9s} {name:22s} {v.get('why', '')}")

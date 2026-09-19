@@ -645,6 +645,7 @@ def api_stats():
                              else "stopping" if _engine_thread is not None
                              and _engine_thread.is_alive() else "stopped")
     stats["entries_halted"] = bool(eng is not None and eng.risk.halted)
+    stats["vetoes"] = _veto_payload(eng)
     stats["cycles"] = eng.cycles if eng is not None else 0
     # the chosen cadence rides the SAME poll the Interval select follows
     # (/api/stats, not /api/engine/status — the UI polls this one), so a
@@ -754,6 +755,23 @@ def _ic_of(records: list, cfg) -> float | None:
     tr = KronosICTracker.__new__(KronosICTracker)
     tr.records, tr.half_life = list(records), cfg.ic_half_life
     return tr.ic()
+
+
+def _veto_payload(eng) -> dict:
+    """Why the book is not entering, as counts rather than log lines.
+
+    This is the telemetry whose absence let the fast book refuse 100% of its
+    entries for a week while the UI showed a healthy engine (see
+    TradingEngine.veto_counts)."""
+    if eng is None:
+        return {"attempts": 0, "approved": 0, "by_reason": []}
+    counts = dict(getattr(eng, "veto_counts", {}) or {})
+    return {
+        "attempts": getattr(eng, "entry_attempts", 0),
+        "approved": getattr(eng, "entries_approved", 0),
+        "by_reason": [{"reason": k, "count": v} for k, v in
+                      sorted(counts.items(), key=lambda kv: -kv[1])],
+    }
 
 
 def _evidence_kronos() -> dict:
@@ -1387,6 +1405,7 @@ def api_hft_stats():
         stats["cycles"] = 0
         stats["last_error"] = _last_hft_error
     stats["positions"] = [_position_dict(p, marks) for p in positions]
+    stats["vetoes"] = _veto_payload(eng)
     stats["capital"] = h.paper_capital
     from bot.hft import hft_fee_tier
     stats["fee_tier"] = hft_fee_tier()
@@ -2108,6 +2127,13 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
 .engine-card .row { display:flex; gap:var(--space-md); flex-wrap:wrap; align-items:end; }
 .engine-card .row > div { min-width:120px; }
 .engine-card select { max-width:180px; }
+.veto-box { margin-top:12px; border:1px solid var(--color-border); border-radius:10px; padding:10px 12px; background:var(--color-muted); }
+.veto-head { display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:13px; }
+.veto-head span { color:var(--color-muted-foreground); font:12px/1.4 var(--font-mono); }
+.veto-list { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+.veto-row { display:flex; justify-content:space-between; gap:10px; font:12px/1.5 var(--font-mono); }
+.veto-row .n { color:var(--color-foreground); font-weight:600; }
+.veto-row.top .r { color:var(--color-red); }
 .engine-state { display:flex; flex-direction:column; gap:2px; margin-left:auto; text-align:right; }
 .engine-state .st { font:600 13px/1.2 var(--font-mono); }
 .engine-state .sub { font-size:11px; color:var(--color-muted-foreground); }
@@ -2421,6 +2447,13 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
         <span class="st" id="engineStateText">stopped</span>
         <span class="sub" id="engineStateSub">0 cycles · watchlist 0 specs</span>
       </div>
+      <!-- WHY IT IS NOT TRADING: entry attempts vs approvals, by blocker.
+           Without this a book can refuse every entry for a week and the page
+           still looks healthy — which is exactly what happened. -->
+      <div id="vetoBox" class="veto-box" hidden>
+        <div class="veto-head"><b>Entry attempts</b><span id="vetoSummary"></span></div>
+        <div id="vetoList" class="veto-list"></div>
+      </div>
       <details class="risk-controls risk-details">
         <summary>How risk controls work</summary>
         <div class="rc-row"><b>Daily kill switch (automatic):</b> after a −3% day it blocks new entries for the rest of the UTC day. It resets by itself at the next UTC day. It never force-closes positions — their stops, targets and strategy exits keep running.</div>
@@ -2515,6 +2548,10 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       <span class="engine-pill"><span class="dot" id="hftEngineDot"></span><span id="hftPillText">hft: checking…</span></span>
     </div>
     <p class="hint" id="hftEngineNote" style="margin:8px 0 0" hidden></p>
+    <div id="hftVetoBox" class="veto-box" hidden>
+      <div class="veto-head"><b>Entry attempts</b><span id="hftVetoSummary"></span></div>
+      <div id="hftVetoList" class="veto-list"></div>
+    </div>
   </div>
   <div class="card">
     <div class="card-head">
@@ -3153,6 +3190,26 @@ function syncStrategyFilter(sel, strategies) {
     sel.value = current;
   }
 }
+function renderVetoes(boxSel, sumSel, listSel, v) {
+  /* "the engine is running" and "the engine is trading" are different
+     claims; this box is the second one. */
+  const box = $(boxSel);
+  if (!v || !v.attempts) { box.hidden = true; return; }
+  box.hidden = false;
+  const blocked = v.attempts - v.approved;
+  $(sumSel).textContent = v.approved + ' approved / ' + v.attempts + ' attempted';
+  const rows = (v.by_reason || []).slice(0, 6);
+  $(listSel).innerHTML = rows.length
+    ? rows.map((r, i) => '<div class="veto-row' + (i === 0 && !v.approved ? ' top' : '') +
+        '"><span class="r">' + esc(r.reason.replace(/_/g, ' ')) + '</span>' +
+        '<span class="n">' + r.count + '</span></div>').join('')
+    : '<div class="veto-row"><span class="r">no entries blocked</span><span class="n">0</span></div>';
+  if (blocked && !v.approved) {
+    $(listSel).innerHTML += '<div class="veto-row" style="margin-top:6px"><span class="r" ' +
+      'style="color:var(--color-muted-foreground)">every entry so far was refused — ' +
+      'the top blocker above is why</span><span class="n"></span></div>';
+  }
+}
 function renderStatCards(el, cards) {
   el.innerHTML = cards.map(c =>
     '<div class="stat"><div class="label">' + STAT_ICON + esc(c[0]) + '</div>' +
@@ -3308,6 +3365,7 @@ async function refreshStats() {
   $('#engineStateText').className = 'st ' + (s.engine_running && !s.paused && !s.entries_halted ? 'pos' : '');
   $('#engineStateSub').textContent = (s.cycles ?? 0) + ' cycles · watchlist ' +
     (s.watchlist_count ?? 0) + ' specs';
+  renderVetoes('#vetoBox', '#vetoSummary', '#vetoList', s.vetoes);
   const transitioning = lifecycle === 'starting' || lifecycle === 'stopping';
   $('#btnStart').disabled = engineActionBusy || !!s.engine_running || transitioning;
   $('#btnStop').disabled = engineActionBusy || !s.engine_running || transitioning;
@@ -3562,6 +3620,7 @@ async function refreshHft() {
   if (s.last_error) { note.hidden = false; note.textContent = 'last error: ' + s.last_error; }
   else if (s.health_note) { note.hidden = false; note.textContent = s.health_note; }
   else note.hidden = true;
+  renderVetoes('#hftVetoBox', '#hftVetoSummary', '#hftVetoList', s.vetoes);
   if (s.auto_resumed && !hftAutoResumeToasted) {
     hftAutoResumeToasted = true;
     toast('HFT book auto-resumed', 'the last session left it running (stop it from the top bar)');

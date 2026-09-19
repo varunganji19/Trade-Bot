@@ -42,6 +42,8 @@ class TradingEngine:
     # force-close at the last known good mark at N2
     FETCH_FAIL_WARN = 3
     FETCH_FAIL_CLOSE = 10
+    # entry attempts with zero approvals before the health note calls it out
+    VETO_ALERT_ATTEMPTS = 10
 
     def _build_market_data(self) -> MarketData:
         """Latency profile per book. The fast book polls 5m bars every ~10s,
@@ -86,6 +88,17 @@ class TradingEngine:
         self._fetch_fails: dict[tuple[str, str], int] = {}
         self._last_good_price: dict[tuple[str, str], float] = {}
         self.health_note: str | None = None
+        # VETO TELEMETRY — the fix for the failure mode that cost a week:
+        # RiskManager.approve refused 100% of this book's entries ("tiny stop
+        # (dust)") and the only trace was a log line per cycle. Nothing
+        # counted them, so the dashboard showed a healthy engine with an
+        # empty trade table. Now every refusal is counted by category, the
+        # counts are served with the stats, and a book that keeps trying to
+        # enter and never does says so in its health note.
+        self.veto_counts: dict[str, int] = {}
+        self.entry_attempts = 0        # decisions that reached risk.approve
+        self.entries_approved = 0
+        self._cycles_since_entry = 0   # cycles since the last approval
         # restart recovery work, keyed by (symbol, timeframe)
         self._replay_pending: set[tuple[str, str]] = set()     # bars missed while offline
         self._unguarded_pending: set[tuple[str, str]] = set()  # restored rows with no stop
@@ -484,6 +497,14 @@ class TradingEngine:
             if self.broker.positions.get(self.broker.position_key(*key)):
                 notes.append(f"{key[0]} {key[1]}: {n} consecutive fetch failures "
                              f"(position unguarded)")
+        # "running but never entering" is a silent failure unless someone
+        # names it: an engine that has asked the risk manager for an entry
+        # many times and never got one is broken, not idle
+        if self.entry_attempts >= self.VETO_ALERT_ATTEMPTS and self.entries_approved == 0:
+            top = max(self.veto_counts.items(), key=lambda kv: kv[1], default=None)
+            if top is not None:
+                notes.append(f"{self.entry_attempts} entry attempts, 0 approved — "
+                             f"top blocker: {top[0]} ({top[1]}x)")
         self.health_note = "; ".join(notes) or None
 
     def run_forever(self, interval: int | None = None):
@@ -712,10 +733,17 @@ class TradingEngine:
                                      bar_epoch=bar_epoch,
                                      open_gross_notional=(self._open_gross_notional()
                                                           + self._cross_book_gross_notional(summary)))
+        self.entry_attempts += 1
         if not approval.approved:
+            cat = approval.category or "other"
+            self.veto_counts[cat] = self.veto_counts.get(cat, 0) + 1
+            summary.setdefault("vetoes", {})
+            summary["vetoes"][cat] = summary["vetoes"].get(cat, 0) + 1
             if not self.quiet:
                 print(f"[engine] {spec.symbol} {spec.timeframe}: {decision.action} blocked by risk: {approval.reason}")
             return
+        self.entries_approved += 1
+        self._cycles_since_entry = 0
 
         # maker entry (HFT book): the order RESTS at the quoted level instead
         # of crossing the spread — filled against later closed bars (maker
@@ -951,8 +979,13 @@ class TradingEngine:
 
     def _print_summary(self, summary: dict):
         holds = summary.get("holds", 0)
+        vetoes = summary.get("vetoes") or {}
+        veto_s = ""
+        if vetoes:
+            veto_s = " | vetoed " + ", ".join(f"{k} x{v}" for k, v in
+                                              sorted(vetoes.items(), key=lambda kv: -kv[1]))
         print(f"[cycle {summary['cycle']}] equity {summary.get('equity')} | "
               f"opened {len(summary['opened'])} | closed {len(summary['closed'])} | "
-              f"holds {holds} | errors {len(summary['errors'])}")
+              f"holds {holds} | errors {len(summary['errors'])}{veto_s}")
         for err in summary["errors"][-3:]:
             print(f"    ! {err[:160]}")

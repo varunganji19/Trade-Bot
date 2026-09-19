@@ -2954,6 +2954,85 @@ def test_kronos_ledger_quarantines_torn_file_and_survives_restart():
         assert tr2.n() == 1 and tr2.records == tr.records
 
 
+def test_every_risk_veto_carries_a_machine_readable_category():
+    """THE LESSON OF THE SILENT WEEK: RiskManager.approve refused 100% of the
+    fast book's entries and the only trace was a formatted log line, so
+    nothing counted them and the dashboard showed a healthy engine with an
+    empty trade table. Every refusal must carry a stable category, or it
+    cannot be aggregated and the same blindness comes back."""
+    import ast
+    import inspect
+
+    import bot.risk as risk_mod
+    src = inspect.getsource(risk_mod.RiskManager.approve)
+    tree = ast.parse(src.lstrip())
+    refusals, categorized = 0, 0
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "RiskDecision"):
+            continue
+        approved = node.args[0].value if node.args else None
+        kw = {k.arg: k.value for k in node.keywords}
+        if approved is False or (isinstance(kw.get("approved"), ast.Constant)
+                                 and kw["approved"].value is False):
+            refusals += 1
+            cat = kw.get("category")
+            if isinstance(cat, ast.Constant) and cat.value:
+                categorized += 1
+    assert refusals >= 15, refusals
+    assert categorized == refusals, f"{refusals - categorized} uncategorized vetoes"
+
+
+def test_engine_counts_vetoes_and_says_when_it_never_enters():
+    """The engine aggregates refusals by category and, once it has asked and
+    been refused enough times, says so in its health note — 'running' and
+    'trading' are different claims."""
+    import bot.engine as engine_mod
+    from bot.risk import RiskDecision
+
+    eng = engine_mod.TradingEngine.__new__(engine_mod.TradingEngine)
+    eng.veto_counts, eng.entry_attempts, eng.entries_approved = {}, 0, 0
+    eng._fetch_fails, eng._cycles_since_entry = {}, 0
+    eng.health_note = None
+    eng.risk = type("R", (), {"persistence_error": None})()
+    eng.broker = type("B", (), {"positions": {},
+                                "position_key": staticmethod(lambda s, t: (s, t))})()
+    # simulate the exact failure: every attempt refused as dust
+    summary = {}
+    for _ in range(engine_mod.TradingEngine.VETO_ALERT_ATTEMPTS):
+        approval = RiskDecision(False, category="tiny_stop_dust", reason="tiny stop (dust): ...")
+        eng.entry_attempts += 1
+        cat = approval.category or "other"
+        eng.veto_counts[cat] = eng.veto_counts.get(cat, 0) + 1
+        summary.setdefault("vetoes", {})
+        summary["vetoes"][cat] = summary["vetoes"].get(cat, 0) + 1
+    engine_mod.TradingEngine._refresh_health_note(eng)
+    assert eng.veto_counts == {"tiny_stop_dust": 10}
+    assert "0 approved" in eng.health_note
+    assert "tiny_stop_dust" in eng.health_note
+    # one approval clears the alarm
+    eng.entries_approved = 1
+    engine_mod.TradingEngine._refresh_health_note(eng)
+    assert eng.health_note is None
+
+
+def test_veto_counts_are_served_to_the_dashboard():
+    """The counts have to reach the UI — an aggregate nobody can see is the
+    same as no aggregate."""
+    import bot.dashboard as dash
+    eng = type("E", (), {"veto_counts": {"tiny_stop_dust": 7, "cooldown": 2},
+                         "entry_attempts": 9, "entries_approved": 0})()
+    payload = dash._veto_payload(eng)
+    assert payload["attempts"] == 9 and payload["approved"] == 0
+    # ordered by count, so the UI's first row IS the top blocker
+    assert payload["by_reason"][0] == {"reason": "tiny_stop_dust", "count": 7}
+    assert dash._veto_payload(None)["attempts"] == 0
+    with open(dash.__file__) as f:
+        code = f.read()
+    assert 'stats["vetoes"] = _veto_payload(eng)' in code       # both books
+    assert code.count('stats["vetoes"] = _veto_payload(eng)') == 2
+    assert "renderVetoes('#vetoBox'" in code and "renderVetoes('#hftVetoBox'" in code
+
+
 def test_kronos_is_not_wired_into_the_live_trading_loop():
     """Kronos moved OFFLINE on 2026-09-19 and must stay there until its IC
     ledger earns it back. Three measurements put it there: it never earned a

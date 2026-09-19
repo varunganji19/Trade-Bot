@@ -38,6 +38,12 @@ class RiskDecision:
     approved: bool
     qty: float = 0.0
     reason: str = ""
+    # STABLE machine-readable veto category, beside the human `reason`.
+    # WHY: the tiny-stop veto fired on 100% of the fast book's entries for a
+    # week and nobody could see it — the reason was a formatted string in a
+    # log line, so nothing counted it. Categories are what the engine
+    # aggregates and the dashboard shows (bot/engine.py veto_counts).
+    category: str = ""
 
 
 class RiskManager:
@@ -309,68 +315,68 @@ class RiskManager:
         """
         r = self.cfg.risk
         if self.persistence_error:
-            return RiskDecision(False, reason=self.persistence_error)
+            return RiskDecision(False, category="persistence_error", reason=self.persistence_error)
         # manual pause FIRST — it outranks every other consideration because
         # the operator set it deliberately; the automatic kill switch below is
         # a separate, equity-triggered mechanism
         if self.paused:
-            return RiskDecision(False, reason="manual pause active — blocks NEW entries "
+            return RiskDecision(False, category="paused", reason="manual pause active — blocks NEW entries "
                                              "only; open positions are still managed "
                                              "(stops, targets, exits)")
         if self.halted:
-            return RiskDecision(False, reason=f"daily kill switch active (limit {r.daily_loss_kill_switch:.0%})")
+            return RiskDecision(False, category="daily_kill_switch", reason=f"daily kill switch active (limit {r.daily_loss_kill_switch:.0%})")
         if decision.action not in ("LONG", "SHORT"):
-            return RiskDecision(False, reason="no entry signal")
+            return RiskDecision(False, category="no_signal", reason="no entry signal")
         if has_position_on_symbol:
-            return RiskDecision(False, reason="already in a position on this symbol")
+            return RiskDecision(False, category="symbol_already_held", reason="already in a position on this symbol")
         if open_positions >= r.max_open_positions:
-            return RiskDecision(False, reason=f"max concurrent positions ({r.max_open_positions}) reached")
+            return RiskDecision(False, category="max_positions", reason=f"max concurrent positions ({r.max_open_positions}) reached")
         if not math.isfinite(equity) or equity <= 0:
-            return RiskDecision(False, reason="invalid account equity")
+            return RiskDecision(False, category="invalid_equity", reason="invalid account equity")
         if not math.isfinite(open_gross_notional) or open_gross_notional < 0:
-            return RiskDecision(False, reason="invalid open gross notional")
+            return RiskDecision(False, category="invalid_gross", reason="invalid open gross notional")
         if not math.isfinite(decision.confidence) or not 0 <= decision.confidence <= 1:
-            return RiskDecision(False, reason="invalid confidence")
+            return RiskDecision(False, category="invalid_confidence", reason="invalid confidence")
         if decision.target_rr is not None and not math.isfinite(decision.target_rr):
-            return RiskDecision(False, reason="non-finite reward target")
+            return RiskDecision(False, category="invalid_target", reason="non-finite reward target")
         if decision.confidence < r.min_confidence:
-            return RiskDecision(False, reason=f"confidence {decision.confidence:.2f} < floor {r.min_confidence:.2f}")
+            return RiskDecision(False, category="confidence_floor", reason=f"confidence {decision.confidence:.2f} < floor {r.min_confidence:.2f}")
         if decision.stop_distance is None or decision.stop_distance <= 0:
-            return RiskDecision(False, reason="no valid stop distance")
+            return RiskDecision(False, category="no_stop", reason="no valid stop distance")
         # NaN slips past every <= comparison: a NaN price or stop would size a
         # NaN qty and poison cash/equity permanently (defense-in-depth — the
         # strategies NaN-guard ATR today, but this must not depend on that)
         if not (math.isfinite(decision.price) and math.isfinite(decision.stop_distance)):
-            return RiskDecision(False, reason="non-finite price or stop distance")
+            return RiskDecision(False, category="non_finite", reason="non-finite price or stop distance")
         # tiny-stop dust: the stop must cover the modeled round-trip cost
         # (taker entry + taker exit, fee + slippage per kind). A stop tighter
         # than the round trip loses money even when "right" — the win can't
         # pay its own fees, so sizing it is manufacturing dust.
         rt = self.round_trip_rate(spec.kind)
         if decision.price > 0 and decision.stop_distance < rt * decision.price:
-            return RiskDecision(False, reason=f"tiny stop (dust): stop distance "
+            return RiskDecision(False, category="tiny_stop_dust", reason=f"tiny stop (dust): stop distance "
                                              f"{decision.stop_distance:.6g} < round-trip cost "
                                              f"{rt * decision.price:.6g} "
                                              f"({rt * 1e4:.1f}bps of price {decision.price:.6g})")
         # R-distance sanity: a stop far beyond the norm means ATR exploded; the
         # trade would be sized to a vol regime the exit rules can't manage
         if decision.price > 0 and decision.stop_distance > decision.price * r.max_r_per_trade:
-            return RiskDecision(False, reason=f"stop distance {decision.stop_distance/decision.price:.1%} of price "
+            return RiskDecision(False, category="vol_explosion", reason=f"stop distance {decision.stop_distance/decision.price:.1%} of price "
                                              f"exceeds cap {r.max_r_per_trade:.0%} (vol-explosion guard)")
         # reward floor: only when the strategy declares a fixed target —
         # signal-exit strategies (turtle/connors) pass target_rr=None
         if decision.target_rr is not None and decision.target_rr < r.min_rr_per_trade:
-            return RiskDecision(False, reason=f"declared reward {decision.target_rr:.2f}R < floor {r.min_rr_per_trade:.2f}R")
+            return RiskDecision(False, category="reward_floor", reason=f"declared reward {decision.target_rr:.2f}R < floor {r.min_rr_per_trade:.2f}R")
         # cooldowns are epoch seconds; the (retired) legacy bar-index clock was
         # positional per bar and not comparable across timeframes — epoch time
         # reads coherently from every timeframe's clock
         if bar_epoch is not None and bar_epoch < self.cooldowns.get(spec.symbol, 0.0):
-            return RiskDecision(False, reason="cooldown after recent stop-out")
+            return RiskDecision(False, category="cooldown", reason="cooldown after recent stop-out")
 
         qty = self.size_position(equity, decision.price, decision.stop_distance, spec.kind,
                                  risk_fraction=self.risk_fraction(spec.symbol))
         if qty <= 0:
-            return RiskDecision(False, reason="position size rounds to zero (min notional)")
+            return RiskDecision(False, category="min_notional", reason="position size rounds to zero (min notional)")
         # gross leverage gate (audit Fix 2.2-lite): total open notional + this
         # entry must stay under max_gross_leverage x equity. The bound used to
         # be only implicit (25% per position x max 4 positions); explicit, it
@@ -380,7 +386,7 @@ class RiskManager:
         # divide by zero (an engine with zero equity has bigger problems).
         total_gross = open_gross_notional + qty * decision.price
         if equity > 0 and total_gross > r.max_gross_leverage * equity:
-            return RiskDecision(False, reason=f"gross notional {total_gross:.0f} "
+            return RiskDecision(False, category="gross_leverage", reason=f"gross notional {total_gross:.0f} "
                                              f"({total_gross / equity:.1f}x equity) > "
                                              f"cap {r.max_gross_leverage:.0f}x equity "
                                              f"{equity:.0f} (gross leverage gate)")

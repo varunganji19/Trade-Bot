@@ -176,6 +176,10 @@ document.documentElement.setAttribute('data-theme',t);})();
       <!-- WHY IT IS NOT TRADING: entry attempts vs approvals, by blocker.
            Without this a book can refuse every entry for a week and the page
            still looks healthy — which is exactly what happened. -->
+      <div id="stratBox" class="veto-box" hidden>
+        <div class="veto-head"><b>Strategies</b><span>who can trade this book</span></div>
+        <div id="stratList" class="veto-list"></div>
+      </div>
       <div id="vetoBox" class="veto-box" hidden>
         <div class="veto-head"><b>Entry attempts</b><span id="vetoSummary"></span></div>
         <div id="vetoList" class="veto-list"></div>
@@ -274,6 +278,10 @@ document.documentElement.setAttribute('data-theme',t);})();
       <span class="engine-pill"><span class="dot" id="hftEngineDot"></span><span id="hftPillText">hft: checking…</span></span>
     </div>
     <p class="hint" id="hftEngineNote" style="margin:8px 0 0" hidden></p>
+    <div id="hftStratBox" class="veto-box" hidden>
+      <div class="veto-head"><b>Strategies</b><span>who can trade this book</span></div>
+      <div id="hftStratList" class="veto-list"></div>
+    </div>
     <div id="hftVetoBox" class="veto-box" hidden>
       <div class="veto-head"><b>Entry attempts</b><span id="hftVetoSummary"></span></div>
       <div id="hftVetoList" class="veto-list"></div>

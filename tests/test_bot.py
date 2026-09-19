@@ -2888,6 +2888,53 @@ def test_kronos_ledger_quarantines_torn_file_and_survives_restart():
         assert tr2.n() == 1 and tr2.records == tr.records
 
 
+def test_a_book_with_no_voting_strategy_says_so(tmp_path, monkeypatch):
+    """A book that CANNOT trade must not look identical to a quiet market.
+    The first promotion run left the fast book with one voter (two demoted on
+    their record, one a candidate) and nothing said so — exactly the shape of
+    every silent failure in this repo's history."""
+    import bot.dashboard as dash
+    import bot.promotion as promo
+
+    payload = dash._voting_payload("fast")
+    assert payload["registered"] >= 3
+    assert set(payload["voting"]) | {x["name"] for x in payload["silent"]}
+    for entry in payload["silent"]:
+        assert entry["why"], entry          # never silent without a reason
+
+    # every silenced strategy is accounted for, and a fully-silenced book is
+    # reported as such rather than as an empty one
+    monkeypatch.setattr(promo, "load_verdicts", lambda path=None: {
+        n: {"status": promo.DEMOTED, "why": "test"} for n in
+        __import__("bot.strategies", fromlist=["x"]).HFT_STRATEGY_NAMES})
+    dead = promo.voting_strategies("fast")
+    assert dead["voting"] == []
+    assert len(dead["silent"]) == dead["registered"]
+
+    js = open(dash.static_path("app.js")).read()
+    assert "NO strategy can trade this book" in js
+    html = open(dash.static_path("index.html")).read()
+    assert 'id="hftStratBox"' in html and 'id="stratBox"' in html
+
+
+def test_promotion_verdicts_reload_without_a_restart(tmp_path, monkeypatch):
+    """A long-running engine read the verdicts ONCE at construction, so a
+    battery run mid-session changed nothing until a restart — a stale gate
+    looks exactly like a working one."""
+    import bot.promotion as promo
+    path = str(tmp_path / "promotions.json")
+    promo._CACHE.update(path=None, mtime=None, verdicts={})
+    assert promo.load_verdicts(path) == {}          # no file: permissive
+    promo.save_verdicts({"x": {"status": promo.DEMOTED, "why": "m"}}, "perp", path=path)
+    assert promo.load_verdicts(path)["x"]["status"] == promo.DEMOTED
+    # a rewrite is picked up (mtime moves), without any restart
+    time.sleep(0.01)
+    promo.save_verdicts({"x": {"status": promo.PROMOTED, "why": "m"}}, "perp", path=path)
+    os.utime(path, (time.time() + 1, time.time() + 1))
+    assert promo.load_verdicts(path)["x"]["status"] == promo.PROMOTED
+    promo._CACHE.update(path=None, mtime=None, verdicts={})
+
+
 def test_promotion_gate_demotes_measured_losers_only(tmp_path, monkeypatch):
     """A strategy's vote must be a measurement, not a citation.
     `hft_micro_breakout` carried the fast book's LARGEST vote weight because

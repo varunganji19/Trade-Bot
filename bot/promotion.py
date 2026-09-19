@@ -98,15 +98,59 @@ def save_verdicts(verdicts: dict, tier: str, path: str | None = None) -> str:
     return path
 
 
+_CACHE: dict = {"path": None, "mtime": None, "verdicts": {}}
+
+
 def load_verdicts(path: str | None = None) -> dict:
     """Never raises: an unreadable file means 'no evidence', which is the
-    permissive state (see the module docstring)."""
+    permissive state (see the module docstring).
+
+    Cached on the file's mtime. A long-running engine used to read the
+    verdicts once at construction, so a battery run mid-session changed
+    nothing until a restart — a stale gate that looks exactly like a working
+    one. The stat is one syscall per call; the caller is about to compute
+    indicators over hundreds of bars."""
+    path = path or promotions_path()
     try:
-        with open(path or promotions_path()) as fh:
-            payload = json.load(fh)
-        return dict(payload.get("strategies") or {})
-    except Exception:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        _CACHE.update(path=path, mtime=None, verdicts={})
         return {}
+    if _CACHE["path"] == path and _CACHE["mtime"] == mtime:
+        return _CACHE["verdicts"]
+    try:
+        with open(path) as fh:
+            verdicts = dict(json.load(fh).get("strategies") or {})
+    except Exception:
+        verdicts = {}
+    _CACHE.update(path=path, mtime=mtime, verdicts=verdicts)
+    return verdicts
+
+
+def voting_strategies(book: str) -> dict:
+    """Which strategies actually vote on `book`, and why the others do not.
+
+    "The engine is running" and "the engine has anything to trade with" are
+    different claims. After the first promotion run the fast book had ONE
+    voter left (two strategies demoted on their record, one a candidate) and
+    nothing in the UI said so — a book that cannot trade would have looked
+    identical to a quiet market."""
+    from bot.strategies import CANDIDATE_STRATEGIES, STRATEGY_CLASSES
+    want = "fast" if book in ("fast", "hft") else "standard"
+    verdicts = load_verdicts()
+    voting, silent = [], []
+    for name, cls in sorted(STRATEGY_CLASSES.items()):
+        if getattr(cls, "book", "standard") != want:
+            continue
+        if name in CANDIDATE_STRATEGIES:
+            silent.append({"name": name, "why": "candidate — not voting until measured"})
+        elif is_demoted(name, verdicts):
+            silent.append({"name": name,
+                           "why": verdicts.get(name, {}).get("why", "demoted")})
+        else:
+            voting.append(name)
+    return {"voting": voting, "silent": silent,
+            "registered": len(voting) + len(silent)}
 
 
 def is_demoted(name: str, verdicts: dict | None = None) -> bool:

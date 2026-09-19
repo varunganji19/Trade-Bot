@@ -278,6 +278,24 @@ function syncStrategyFilter(sel, strategies) {
     sel.value = current;
   }
 }
+function renderStrategies(boxSel, listSel, st) {
+  /* a book with no voting strategy cannot trade, and that must not look
+     like a quiet market */
+  if (!st || !st.registered) return;
+  const box = $(boxSel);
+  box.hidden = false;
+  const voting = st.voting || [], silent = st.silent || [];
+  const head = voting.length
+    ? '<div class="veto-row"><span class="r">voting</span><span class="n">' +
+      esc(voting.join(', ')) + '</span></div>'
+    : '<div class="veto-row top"><span class="r">NO strategy can trade this book</span>' +
+      '<span class="n">0 / ' + st.registered + '</span></div>';
+  const rest = silent.map(x =>
+    '<div class="veto-row"><span class="r" style="color:var(--color-muted-foreground)">' +
+    esc(x.name) + '</span><span class="n" style="font-weight:400;color:var(--color-muted-foreground)">' +
+    esc(x.why) + '</span></div>').join('');
+  $(listSel).innerHTML = head + rest;
+}
 function renderVetoes(boxSel, sumSel, listSel, v) {
   /* "the engine is running" and "the engine is trading" are different
      claims; this box is the second one. */
@@ -454,6 +472,7 @@ async function refreshStats() {
   $('#engineStateSub').textContent = (s.cycles ?? 0) + ' cycles · watchlist ' +
     (s.watchlist_count ?? 0) + ' specs';
   renderVetoes('#vetoBox', '#vetoSummary', '#vetoList', s.vetoes);
+  renderStrategies('#stratBox', '#stratList', s.strategies);
   const transitioning = lifecycle === 'starting' || lifecycle === 'stopping';
   $('#btnStart').disabled = engineActionBusy || !!s.engine_running || transitioning;
   $('#btnStop').disabled = engineActionBusy || !s.engine_running || transitioning;
@@ -709,6 +728,7 @@ async function refreshHft() {
   else if (s.health_note) { note.hidden = false; note.textContent = s.health_note; }
   else note.hidden = true;
   renderVetoes('#hftVetoBox', '#hftVetoSummary', '#hftVetoList', s.vetoes);
+  renderStrategies('#hftStratBox', '#hftStratList', s.strategies);
   if (s.auto_resumed && !hftAutoResumeToasted) {
     hftAutoResumeToasted = true;
     toast('HFT book auto-resumed', 'the last session left it running (stop it from the top bar)');

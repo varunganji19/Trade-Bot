@@ -662,6 +662,7 @@ def api_stats():
                              and _engine_thread.is_alive() else "stopped")
     stats["entries_halted"] = bool(eng is not None and eng.risk.halted)
     stats["vetoes"] = _veto_payload(eng)
+    stats["strategies"] = _voting_payload("standard")
     stats["cycles"] = eng.cycles if eng is not None else 0
     # the chosen cadence rides the SAME poll the Interval select follows
     # (/api/stats, not /api/engine/status — the UI polls this one), so a
@@ -788,6 +789,21 @@ def _veto_payload(eng) -> dict:
         "by_reason": [{"reason": k, "count": v} for k, v in
                       sorted(counts.items(), key=lambda kv: -kv[1])],
     }
+
+
+def _voting_payload(book: str) -> dict:
+    """Which strategies can actually trade this book, and why the rest cannot.
+
+    "The engine is running" and "the engine has anything to trade with" are
+    different claims. The first promotion run left the fast book with ONE
+    voter (two demoted on their record, one a candidate) — a book that cannot
+    trade must not look identical to a quiet market."""
+    try:
+        from bot.promotion import voting_strategies
+        return voting_strategies(book)
+    except Exception as exc:
+        return {"voting": [], "silent": [], "registered": 0,
+                "error": f"{type(exc).__name__}: {exc}"}
 
 
 def _evidence_kronos() -> dict:
@@ -1422,6 +1438,7 @@ def api_hft_stats():
         stats["last_error"] = _last_hft_error
     stats["positions"] = [_position_dict(p, marks) for p in positions]
     stats["vetoes"] = _veto_payload(eng)
+    stats["strategies"] = _voting_payload("fast")
     stats["capital"] = h.paper_capital
     from bot.hft import hft_fee_tier
     stats["fee_tier"] = hft_fee_tier()

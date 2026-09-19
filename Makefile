@@ -1,4 +1,4 @@
-.PHONY: setup setup-locked setup-kronos test lint verify config lock backtest validate battery run dashboard clean-cache ui hft-battery hft-status pinned shadow kronos
+.PHONY: setup setup-locked setup-kronos test lint verify config soak lock backtest validate battery run dashboard clean-cache ui hft-battery hft-status pinned shadow kronos
 
 setup:
 	python3 -m pip install -r requirements.txt
@@ -72,6 +72,12 @@ hft-battery:
 
 hft-status:
 	python3 main.py hft-status
+
+# drive the RUNNING dashboard in a loop and flag breakdowns (start it first).
+# Every serious bug in this repo was invisible to the tests and to a glance
+# at the UI — this is the "someone actually ran it and looked" step.
+soak:
+	python3 scripts/soak.py --rounds 6 --sleep 30
 
 # what the process actually believes: effective settings + where each came
 # from (env vs default), plus the current promotion verdicts

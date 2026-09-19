@@ -100,7 +100,6 @@ class TradingEngine:
         self.slow_cycles = 0           # cycles that outran their own interval
         self.entry_attempts = 0        # decisions that reached risk.approve
         self.entries_approved = 0
-        self._cycles_since_entry = 0   # cycles since the last approval
         # restart recovery work, keyed by (symbol, timeframe)
         self._replay_pending: set[tuple[str, str]] = set()     # bars missed while offline
         self._unguarded_pending: set[tuple[str, str]] = set()  # restored rows with no stop
@@ -798,7 +797,6 @@ class TradingEngine:
                 print(f"[engine] {spec.symbol} {spec.timeframe}: {decision.action} blocked by risk: {approval.reason}")
             return
         self.entries_approved += 1
-        self._cycles_since_entry = 0
 
         # maker entry (HFT book): the order RESTS at the quoted level instead
         # of crossing the spread — filled against later closed bars (maker

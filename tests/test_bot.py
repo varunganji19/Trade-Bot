@@ -3065,6 +3065,8 @@ def test_engine_counts_vetoes_and_says_when_it_never_enters():
     eng.veto_counts, eng.entry_attempts, eng.entries_approved = {}, 0, 0
     eng._fetch_fails, eng._cycles_since_entry = {}, 0
     eng.health_note = None
+    eng.last_cycle_seconds, eng.slow_cycles = 0.0, 0
+    eng.cfg = type("C", (), {"live_interval_seconds": 60})()
     eng.risk = type("R", (), {"persistence_error": None})()
     eng.broker = type("B", (), {"positions": {},
                                 "position_key": staticmethod(lambda s, t: (s, t))})()
@@ -3085,6 +3087,26 @@ def test_engine_counts_vetoes_and_says_when_it_never_enters():
     eng.entries_approved = 1
     engine_mod.TradingEngine._refresh_health_note(eng)
     assert eng.health_note is None
+
+
+def test_cycle_budget_is_measured_and_surfaced():
+    """A cycle that outruns its own interval is a latency bug that only shows
+    up in production: the inline forecast model made a 2s cycle take minutes
+    and nothing in the process said so until the machine stopped responding."""
+    import bot.engine as engine_mod
+    eng = engine_mod.TradingEngine.__new__(engine_mod.TradingEngine)
+    eng.veto_counts, eng.entry_attempts, eng.entries_approved = {}, 0, 0
+    eng._fetch_fails, eng.health_note = {}, None
+    eng.risk = type("R", (), {"persistence_error": None})()
+    eng.broker = type("B", (), {"positions": {}})()
+    eng.cfg = type("C", (), {"live_interval_seconds": 10})()
+    eng.last_cycle_seconds, eng.slow_cycles = 3.0, 0
+    engine_mod.TradingEngine._refresh_health_note(eng)
+    assert eng.health_note is None                 # inside budget: silent
+    eng.last_cycle_seconds, eng.slow_cycles = 41.0, 4
+    engine_mod.TradingEngine._refresh_health_note(eng)
+    assert "41.0s against a 10s interval" in eng.health_note
+    assert "4 slow so far" in eng.health_note
 
 
 def test_veto_counts_are_served_to_the_dashboard():

@@ -96,6 +96,8 @@ class TradingEngine:
         # counts are served with the stats, and a book that keeps trying to
         # enter and never does says so in its health note.
         self.veto_counts: dict[str, int] = {}
+        self.last_cycle_seconds: float = 0.0
+        self.slow_cycles = 0           # cycles that outran their own interval
         self.entry_attempts = 0        # decisions that reached risk.approve
         self.entries_approved = 0
         self._cycles_since_entry = 0   # cycles since the last approval
@@ -279,6 +281,7 @@ class TradingEngine:
 
     def _run_cycle_locked(self) -> dict:
         summary = {"cycle": self.cycles + 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+        cycle_started = time.monotonic()
         price_map: dict[str, float] = {}
         # keyed by (symbol, timeframe): one symbol has several books and a
         # position must be marked with its OWN book's close, never a sibling
@@ -443,6 +446,16 @@ class TradingEngine:
             if not self.quiet:
                 traceback.print_exc()
         finally:
+            # CYCLE BUDGET: a cycle that outruns its own interval is a
+            # latency bug that only shows up in production — the inline
+            # forecast model made a 2s cycle take minutes and nothing in the
+            # process said so until the machine stopped responding. Measure
+            # it here (both loops call run_cycle) and let the health note
+            # carry it; the sleep maths already absorbs a slow cycle.
+            self.last_cycle_seconds = round(time.monotonic() - cycle_started, 3)
+            summary["seconds"] = self.last_cycle_seconds
+            budget = float(self.cfg.live_interval_seconds or 0)
+            self.slow_cycles += int(bool(budget and self.last_cycle_seconds > budget))
             self.cycles += 1
             self._refresh_health_note()
             if not self.quiet:
@@ -500,6 +513,11 @@ class TradingEngine:
         # "running but never entering" is a silent failure unless someone
         # names it: an engine that has asked the risk manager for an entry
         # many times and never got one is broken, not idle
+        budget = float(self.cfg.live_interval_seconds or 0)
+        if budget and self.last_cycle_seconds > budget:
+            notes.append(f"cycle took {self.last_cycle_seconds:.1f}s against a "
+                         f"{budget:.0f}s interval ({self.slow_cycles} slow so far) — "
+                         f"decisions are landing late")
         if self.entry_attempts >= self.VETO_ALERT_ATTEMPTS and self.entries_approved == 0:
             top = max(self.veto_counts.items(), key=lambda kv: kv[1], default=None)
             if top is not None:
@@ -986,6 +1004,7 @@ class TradingEngine:
                                               sorted(vetoes.items(), key=lambda kv: -kv[1]))
         print(f"[cycle {summary['cycle']}] equity {summary.get('equity')} | "
               f"opened {len(summary['opened'])} | closed {len(summary['closed'])} | "
-              f"holds {holds} | errors {len(summary['errors'])}{veto_s}")
+              f"holds {holds} | errors {len(summary['errors'])}{veto_s} | "
+              f"{summary.get('seconds', 0):.1f}s")
         for err in summary["errors"][-3:]:
             print(f"    ! {err[:160]}")

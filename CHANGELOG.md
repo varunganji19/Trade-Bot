@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] — v1 adds: telemetry, the promotion gate, a cycle budget
+
+The instrumentation half of the post-v1 pass. Every item here exists because
+something failed silently this week.
+
+- **Veto telemetry.** RiskManager.approve refused 100% of the fast book's
+  entries for a week and the only trace was a log line, so nothing counted
+  them and the dashboard showed a healthy engine with an empty trade table.
+  RiskDecision now carries a machine-readable `category` (all 19 refusal
+  sites, AST-pinned), the engine aggregates them, the cycle line prints them,
+  and both pages render "N approved / M attempted" with the blockers ranked.
+  A book that has attempted 10 entries and approved none says so in its
+  health note, naming the top blocker.
+- **The promotion gate** (bot/promotion.py). `hft_micro_breakout` carried the
+  largest vote weight in the fast book because it descends from a published
+  result; measured, it is the worst cell on the board (median PF 0.39 over 81
+  trades). The battery now writes a verdict the orchestrator reads — promoted
+  / probation / demoted — and a demoted strategy is skipped before
+  evaluation. A missing verdicts file is permissive: the gate can only take a
+  vote away on evidence.
+- **Cycle budget.** A cycle that outruns its own interval is a latency bug
+  that only appears in production (the inline forecast model made a 2s cycle
+  take minutes). Every cycle is timed, slow ones are counted, and the health
+  note says "cycle took 41.0s against a 10s interval".
+- 268 tests.
+
 ## [Unreleased] — v1 cut: the fast book moves to 5m, three features retired
 
 The post-v1 cut, decided on measurement rather than taste.

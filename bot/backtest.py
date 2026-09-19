@@ -51,8 +51,8 @@ import pandas as pd
 from bot.broker import PaperBroker, limit_fill_price
 from bot.indicators import add_all_indicators
 from bot.orchestrator import Orchestrator
-from bot.risk import RiskManager
-from config import CONFIG, MarketSpec, bars_per_year
+from bot.risk import RiskManager, correlation_cluster
+from config import CONFIG, MarketSpec, bars_per_year, infer_kind
 from bot.strategies import get_strategy
 
 
@@ -317,6 +317,15 @@ class Backtester:
                     p.qty * (float(cur_bar["close"]) if p.symbol == spec.symbol
                              else p.entry_price)
                     for p in broker.positions_snapshot()),
+                # the correlated-family cap must see the SAME number the
+                # engine computes, or the two approve different trades on the
+                # same bar (see scripts/parity_smoke.py)
+                cluster_gross_notional=sum(
+                    p.qty * (float(cur_bar["close"]) if p.symbol == spec.symbol
+                             else p.entry_price)
+                    for p in broker.positions_snapshot()
+                    if correlation_cluster(p.symbol, infer_kind(p.symbol))
+                    == correlation_cluster(spec.symbol, spec.kind)),
                 bar_epoch=bar_epoch)
             if not approval.approved:
                 continue

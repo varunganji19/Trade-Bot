@@ -656,6 +656,21 @@ class TradingEngine:
                 continue
         return total
 
+    def _cluster_gross_notional(self, spec: MarketSpec) -> float:
+        """Mark-priced gross notional already held in THIS spec's correlated
+        family (bot.risk.correlation_cluster). The whole-book leverage cap
+        cannot see that BTC, ETH and SOL are one bet."""
+        from bot.risk import correlation_cluster
+        want = correlation_cluster(spec.symbol, spec.kind)
+        gross = 0.0
+        for pos in self.broker.positions_snapshot():
+            kind = infer_kind(pos.symbol)
+            if correlation_cluster(pos.symbol, kind) != want:
+                continue
+            mark = self._last_good_price.get((pos.symbol, pos.timeframe), pos.entry_price)
+            gross += pos.qty * mark
+        return gross
+
     def _open_gross_notional(self) -> float:
         """Mark-priced gross notional of every open position — the risk
         manager's gross-leverage gate input. Each book is marked at its OWN
@@ -771,7 +786,8 @@ class TradingEngine:
                                      has_position_on_symbol=self.broker.has_position(spec.symbol),
                                      bar_epoch=bar_epoch,
                                      open_gross_notional=(self._open_gross_notional()
-                                                          + self._cross_book_gross_notional(summary)))
+                                                          + self._cross_book_gross_notional(summary)),
+                                     cluster_gross_notional=self._cluster_gross_notional(spec))
         self.entry_attempts += 1
         if not approval.approved:
             cat = approval.category or "other"

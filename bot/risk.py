@@ -46,6 +46,30 @@ class RiskDecision:
     category: str = ""
 
 
+# Correlated families. A STATIC map on purpose: a measured correlation would
+# have to be computed identically by the live engine and the backtester or
+# the two would approve different trades on the same bar, and live/backtest
+# parity is the property this repo is built on. The families below are the
+# ones an operator would name out loud — USD-quoted crypto majors move
+# together, crypto crosses do not, and USD forex pairs share the dollar leg.
+_CRYPTO_USD_QUOTES = ("USDT", "USDC", "USD", "BUSD", "DAI")
+
+
+def correlation_cluster(symbol: str, kind: str) -> str:
+    """The correlated family a symbol belongs to, for the cluster cap."""
+    sym = (symbol or "").upper()
+    if kind == "forex":
+        # every major carries a USD leg; EURUSD and GBPUSD are largely the
+        # same dollar bet, so they share a family
+        return "fx-usd" if "USD" in sym.replace("=X", "") else f"fx-{sym}"
+    if "/" in sym:
+        base, _, quote = sym.partition("/")
+        if quote in _CRYPTO_USD_QUOTES:
+            return "crypto-usd"       # BTC/USDT, ETH/USDT, SOL/USDT: one bet
+        return f"crypto-cross-{base}"  # ETH/BTC is a ratio, not a beta
+    return f"{kind}-{sym}"
+
+
 class RiskManager:
     """The final veto before any order.
 
@@ -296,7 +320,8 @@ class RiskManager:
     def approve(self, decision, spec: MarketSpec, equity: float, open_positions: int,
                 has_position_on_symbol: bool,
                 bar_epoch: float | None = None,
-                open_gross_notional: float = 0.0) -> RiskDecision:
+                open_gross_notional: float = 0.0,
+                cluster_gross_notional: float = 0.0) -> RiskDecision:
         """Final entry veto. `open_gross_notional` is the book's CURRENT open
         notional (every open position, marked at its own timeframe's last
         good close) — pre-computed by the caller so the gate sees the WHOLE
@@ -390,6 +415,19 @@ class RiskManager:
                                              f"({total_gross / equity:.1f}x equity) > "
                                              f"cap {r.max_gross_leverage:.0f}x equity "
                                              f"{equity:.0f} (gross leverage gate)")
+        # correlated-cluster gate: the whole-book leverage cap cannot see that
+        # BTC, ETH and SOL are one bet wearing three hats.
+        # `cluster_gross_notional` is the open notional already held in THIS
+        # entry's family (the engine computes it; 0.0 keeps old call sites).
+        cluster = correlation_cluster(spec.symbol, spec.kind)
+        cluster_total = cluster_gross_notional + qty * decision.price
+        cap = r.max_cluster_leverage * equity
+        if equity > 0 and cluster_total > cap:
+            return RiskDecision(False, category="cluster_concentration",
+                                reason=f"{cluster} exposure {cluster_total:.0f} "
+                                       f"({cluster_total / equity:.2f}x equity) > cap "
+                                       f"{r.max_cluster_leverage:.2f}x — this family is "
+                                       f"already the book's bet")
         return RiskDecision(True, qty=qty, reason=f"{decision.action} {qty:.6g} @ {decision.price:.6g}")
 
     def round_trip_rate(self, kind: str) -> float:

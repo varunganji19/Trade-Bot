@@ -96,6 +96,15 @@ class RiskConfig:
     # 2.2-lite: 4 books x 25% can stack to 1x in the live engine, and nothing
     # bounded the total if the per-position cap was ever raised).
     max_gross_leverage: float = 1.0
+    # CORRELATED-CLUSTER CAP. max_gross_leverage bounds the WHOLE book, and
+    # max_position_pct bounds one position — but four "independent" positions
+    # in BTC, ETH, SOL and their crosses are one bet wearing four hats, and
+    # nothing above noticed that. This caps the gross notional of any single
+    # correlated family (see bot.risk.correlation_cluster).
+    # NOTE FOR THE OPERATOR: 0.6 x equity allows roughly two full-size
+    # positions in one family. It is a RISK POLICY number, not a measurement
+    # — raise it to trade a family harder, lower it to force diversification.
+    max_cluster_leverage: float = 0.6
     daily_loss_kill_switch: float = 0.03  # stop opening trades after -3% day
     min_confidence: float = 0.55        # orchestrator confidence floor for entries
     # R-distance sanity gate (the old dead max_r_per_trade knob promised it):

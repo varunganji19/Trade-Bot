@@ -3023,6 +3023,51 @@ def test_engine_counts_vetoes_and_says_when_it_never_enters():
     assert eng.health_note is None
 
 
+def test_correlated_cluster_cap_sees_one_bet_in_four_hats():
+    """max_gross_leverage bounds the whole book and max_position_pct bounds
+    one position — but BTC, ETH and SOL held at once are ONE bet wearing
+    three hats, and nothing saw that. The cluster cap does.
+
+    The family map is deliberately STATIC: a measured correlation would have
+    to be computed identically by the engine and the backtester, or the two
+    would approve different trades on the same bar."""
+    from bot.hft import build_hft_config
+    from bot.orchestrator import Decision
+    from bot.risk import RiskManager, correlation_cluster
+
+    assert correlation_cluster("BTC/USDT", "crypto") == "crypto-usd"
+    assert correlation_cluster("ETH/USDT", "crypto") == "crypto-usd"
+    assert correlation_cluster("SOL/USDT", "crypto") == "crypto-usd"
+    # a cross is a ratio, not a beta on the same dollar move
+    assert correlation_cluster("ETH/BTC", "crypto") != "crypto-usd"
+    # majors share the dollar leg; a cross does not
+    assert correlation_cluster("EURUSD=X", "forex") == correlation_cluster("GBPUSD=X", "forex")
+    assert correlation_cluster("EURGBP=X", "forex") != "fx-usd"
+
+    cfg = build_hft_config(fee_tier="perp")
+    risk = RiskManager(cfg)
+    equity = 10_000.0
+    spec = MarketSpec("crypto", "SOL/USDT", "5m")
+    d = Decision(action="LONG", confidence=0.7, stop_distance=1.2,
+                 target_rr=2.0, price=100.0)
+    # nothing else held: approved
+    ok = risk.approve(d, spec, equity, 0, has_position_on_symbol=False,
+                      open_gross_notional=0.0, cluster_gross_notional=0.0)
+    assert ok.approved, ok.reason
+    # the same family already carries more than the cap: refused, and the
+    # refusal is CATEGORIZED so the telemetry counts it
+    held = cfg.risk.max_cluster_leverage * equity
+    blocked = risk.approve(d, spec, equity, 1, has_position_on_symbol=False,
+                           open_gross_notional=held, cluster_gross_notional=held)
+    assert not blocked.approved
+    assert blocked.category == "cluster_concentration"
+    assert "crypto-usd" in blocked.reason
+    # ...while the SAME exposure in a different family does not block it
+    other = risk.approve(d, spec, equity, 1, has_position_on_symbol=False,
+                         open_gross_notional=held, cluster_gross_notional=0.0)
+    assert other.approved, other.reason
+
+
 def test_forex_gap_guard_measures_trading_time_not_wall_clock():
     """FOUND BY THE LIVE SOAK: the frozen-feed guard compared a WALL-CLOCK
     gap against a flat 72h forex allowance. Yahoo routinely drops the bars on

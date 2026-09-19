@@ -19,6 +19,7 @@ Usage:
   python3 main.py resume                       # clear the manual pause (new entries allowed)
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
   python3 main.py status                       # journal summary
+  python3 main.py config                       # effective settings + where each came from
   python3 main.py chat "question"              # chatbot from the terminal
 """
 from __future__ import annotations
@@ -524,6 +525,62 @@ def cmd_chat(args):
     print(ChatBot().answer(args.question))
 
 
+def cmd_config(args):
+    """Print the EFFECTIVE configuration and where each value came from.
+
+    A wrong env var fails silently in this system: the documented `.env`
+    workflow never loaded the file for months, so DASHBOARD_TOKEN never
+    reached the process and the dashboard ran with auth OFF while every
+    document said it was on. Nothing surfaced it because nothing ever printed
+    what the process actually believed. This does."""
+    import config as cfg_mod
+    from bot.hft import build_hft_config, hft_fee_tier
+    from bot.promotion import load_verdicts
+
+    c = cfg_mod.CONFIG
+    print("=== effective configuration ===")
+    print(f"journal        {os.path.abspath(c.db_path)}")
+    print(f"cache          {cfg_mod.cache_dir()}")
+    print(f"watchlist      {len(c.watchlist)} specs "
+          f"({', '.join(sorted({s.timeframe for s in c.watchlist}))})")
+    for spec in c.watchlist:
+        print(f"    {spec.kind:6s} {spec.symbol:12s} {spec.timeframe}")
+    hft = build_hft_config()
+    print(f"fast book      {len(hft.watchlist)} specs @ "
+          f"{ {s.timeframe for s in hft.watchlist} } · tier {hft_fee_tier()} · "
+          f"{hft.live_interval_seconds}s cadence · capital ${hft.paper_capital:,.0f}")
+    rt = (hft.costs.fee('crypto') + hft.costs.slippage('crypto')) * 2 * 1e4
+    print(f"cost floors    taker round trip {rt:.1f}bp "
+          f"(stop floor {hft.params.hft_cost_floor_bps * hft.params.hft_cost_buffer:.1f}bp)")
+    print(f"risk           risk/trade {c.risk.risk_per_trade:.2%} · "
+          f"gross {c.risk.max_gross_leverage:.2f}x · "
+          f"cluster {c.risk.max_cluster_leverage:.2f}x · "
+          f"max positions {c.risk.max_open_positions}")
+    llm_on = c.llm.provider not in ("", "none")
+    print(f"llm            {c.llm.provider if llm_on else 'quant mode'}"
+          f"{' (chatbot only — it does not vote)' if llm_on else ''}")
+    auth = os.environ.get("DASHBOARD_TOKEN")
+    print(f"dashboard auth {'ON' if auth else 'OFF — anyone on this host can drive the bot'}")
+
+    print("\n=== environment (value <- source) ===")
+    if not cfg_mod.ENV_PROVENANCE:
+        print("  (nothing read yet)")
+    for name in sorted(cfg_mod.ENV_PROVENANCE):
+        p_ = cfg_mod.ENV_PROVENANCE[name]
+        mark = "  " if p_["source"] == "default" else "->"
+        bad = "" if p_["ok"] else "   !! UNREADABLE, fell back to the default"
+        print(f" {mark} {name:24s} {str(p_['value']):22s} <- {p_['source']}"
+              f" (default {p_['default']}){bad}")
+
+    verdicts = load_verdicts()
+    print("\n=== promotion verdicts ===")
+    if not verdicts:
+        print("  none yet — run `make hft-battery`; every registered strategy votes")
+    for name in sorted(verdicts):
+        v = verdicts[name]
+        print(f"  {v['status']:9s} {name:22s} {v.get('why', '')}")
+
+
 def cmd_kronos(args):
     """Offline Kronos evaluation: walk history bar-by-bar, resolve IC, report
     whether the model has EARNED an orchestrator vote on this data."""
@@ -778,6 +835,10 @@ def main():
     ch = sub.add_parser("chat", help="ask the journal-aware chatbot")
     ch.add_argument("question")
     ch.set_defaults(fn=cmd_chat)
+
+    sub.add_parser("config",
+                   help="print the effective configuration and where each "
+                        "value came from (env vs default)").set_defaults(fn=cmd_config)
 
     kr = sub.add_parser("kronos", help="offline Kronos IC evaluation on history")
     kr.add_argument("--symbol", default="BTC/USDT")

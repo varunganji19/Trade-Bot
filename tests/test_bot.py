@@ -11,6 +11,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+import warnings
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -3020,6 +3021,43 @@ def test_engine_counts_vetoes_and_says_when_it_never_enters():
     eng.entries_approved = 1
     engine_mod.TradingEngine._refresh_health_note(eng)
     assert eng.health_note is None
+
+
+def test_config_command_reports_every_setting_and_its_source(capsys, monkeypatch):
+    """A wrong env var fails SILENTLY here: the documented .env workflow never
+    loaded the file for months, so DASHBOARD_TOKEN never reached the process
+    and the dashboard ran with auth OFF while every document said it was on.
+    Nothing surfaced it because nothing printed what the process believed."""
+    import config as cfg_mod
+    # exercise the recording helpers directly — reloading the config MODULE
+    # would hand every already-imported module a stale CONFIG singleton
+    monkeypatch.setenv("PROVENANCE_PROBE", "42")
+    assert cfg_mod._env_int("PROVENANCE_PROBE", 7) == 42
+    rec = cfg_mod.ENV_PROVENANCE["PROVENANCE_PROBE"]
+    assert rec["source"] == "env" and rec["value"] == 42 and rec["default"] == 7
+    assert cfg_mod._env_int("PROVENANCE_ABSENT", 7) == 7
+    assert cfg_mod.ENV_PROVENANCE["PROVENANCE_ABSENT"]["source"] == "default"
+    # an unreadable value is RECORDED as such, not silently defaulted
+    monkeypatch.setenv("PROVENANCE_PROBE", "not-a-number")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert cfg_mod._env_int("PROVENANCE_PROBE", 7) == 7
+    bad = cfg_mod.ENV_PROVENANCE["PROVENANCE_PROBE"]
+    assert bad["ok"] is False and bad["value"] == bad["default"]
+
+    import main
+    main.cmd_config(type("A", (), {})())
+    out = capsys.readouterr().out
+    for section in ("effective configuration", "environment (value <- source)",
+                    "promotion verdicts"):
+        assert section in out
+    for key in ("journal", "fast book", "cost floors", "risk", "dashboard auth"):
+        assert key in out
+    # the auth line must be unambiguous when there is no token
+    assert ("auth OFF" in out) or ("auth ON" in out)
+    # every setting the bot steers on is recorded by the time it has printed
+    # (HFT_FEE_TIER decides whether any fast strategy can clear its costs)
+    assert {"HFT_INTERVAL", "PAPER_CAPITAL", "HFT_FEE_TIER"} <= set(cfg_mod.ENV_PROVENANCE)
 
 
 def test_dashboard_page_is_served_from_static_files():

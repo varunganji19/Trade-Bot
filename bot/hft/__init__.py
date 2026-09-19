@@ -16,7 +16,6 @@ HFT_FEE_TIER=spot to run the same strategies on the spot tier and see it.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import replace
 
 from config import CONFIG, HFT_WATCHLIST, Config
@@ -30,7 +29,11 @@ _PERP_FEE_OVERRIDES = {"fee_crypto": 0.0005, "maker_fee_crypto": 0.0002,
 
 
 def hft_fee_tier() -> str:
-    tier = (os.environ.get("HFT_FEE_TIER") or "perp").strip().lower()
+    # read through config's helper so `main.py config` can report it with a
+    # source — the tier silently decides whether any 1m/5m strategy can clear
+    # its own costs, which makes it the last setting that should be invisible
+    from config import _env_str
+    tier = (_env_str("HFT_FEE_TIER", "perp") or "perp").strip().lower()
     return tier if tier in ("perp", "spot") else "perp"
 
 

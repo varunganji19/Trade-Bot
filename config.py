@@ -56,24 +56,48 @@ def _strip_inline_comment(s: str) -> str:
 _load_dotenv()
 
 
+# WHERE EVERY SETTING CAME FROM. The env vars that steer this bot are read
+# in a dozen places and a wrong one fails SILENTLY — the .env loader bug
+# (auth was off because DASHBOARD_TOKEN never reached the process) and the
+# fee-tier default are both in HISTORY.md. Each read is recorded here so
+# `python3 main.py config` can print the effective value AND its source.
+ENV_PROVENANCE: dict[str, dict] = {}
+
+
+def _record(name: str, default, value, ok: bool = True) -> None:
+    ENV_PROVENANCE[name] = {
+        "value": value, "default": default,
+        "source": "env" if name in os.environ else "default",
+        "raw": os.environ.get(name), "ok": ok,
+    }
+
+
 def _env_float(name: str, default: float) -> float:
     try:
-        return float(os.environ.get(name, default))
+        value = float(os.environ.get(name, default))
     except (TypeError, ValueError):
         warnings.warn(f"[config] {name} unreadable — using default {default}")
+        _record(name, default, default, ok=False)
         return default
+    _record(name, default, value)
+    return value
 
 
 def _env_int(name: str, default: int) -> int:
     try:
-        return int(os.environ.get(name, default))
+        value = int(os.environ.get(name, default))
     except (TypeError, ValueError):
         warnings.warn(f"[config] {name} unreadable — using default {default}")
+        _record(name, default, default, ok=False)
         return default
+    _record(name, default, value)
+    return value
 
 
 def _env_str(name: str, default: str) -> str:
-    return os.environ.get(name, default)
+    value = os.environ.get(name, default)
+    _record(name, default, value)
+    return value
 
 
 def utc_now() -> str:

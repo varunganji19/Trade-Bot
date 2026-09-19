@@ -1,4 +1,4 @@
-.PHONY: setup setup-locked setup-kronos test lint verify lock backtest validate battery run dashboard clean-cache ui hft-battery hft-status pinned shadow kronos
+.PHONY: setup setup-locked setup-kronos test lint verify config lock backtest validate battery run dashboard clean-cache ui hft-battery hft-status pinned shadow kronos
 
 setup:
 	python3 -m pip install -r requirements.txt
@@ -72,6 +72,11 @@ hft-battery:
 
 hft-status:
 	python3 main.py hft-status
+
+# what the process actually believes: effective settings + where each came
+# from (env vs default), plus the current promotion verdicts
+config:
+	python3 main.py config
 
 # pinned Milestone-A windows (byte-identical reruns incl. forex+india legs)
 pinned:

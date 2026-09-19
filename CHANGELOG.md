@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — `main.py config`: what the process actually believes
+
+A wrong environment variable fails SILENTLY in this system. The documented
+`.env` workflow never loaded the file for months, so DASHBOARD_TOKEN never
+reached the process and the dashboard ran with auth OFF while every document
+said it was on. Nothing surfaced it because nothing ever printed what the
+process believed.
+
+`python3 main.py config` (or `make config`) prints the effective journal,
+watchlist, fast-book universe and cadence, the derived cost floors, the risk
+caps, whether dashboard auth is ON, **every environment variable with its
+value AND its source (env vs default)** — including ones that were
+unreadable and silently fell back — and the current promotion verdicts.
+`_env_*` records each read, so a new setting is covered automatically.
+
+Running it here immediately reported `dashboard auth OFF — anyone on this
+host can drive the bot`, which is true and was nowhere visible before.
+
+NOT DONE, and it needs your call: named profiles (research / paper / live).
+There is no broker integration, so a "live" profile would be fiction — tell
+me what live should mean and it becomes a real thing to build.
+
 ## [Unreleased] — the page leaves the Python file; correlated risk
 
 - **dashboard.py: 4,461 -> 1,750 lines.** The page was a 2,700-line

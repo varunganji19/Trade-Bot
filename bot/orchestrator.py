@@ -40,6 +40,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from bot.promotion import is_demoted, load_verdicts
 from bot.strategies import CANDIDATE_STRATEGIES, get_strategies, Signal
 
 REGIME_WEIGHTS = {
@@ -96,6 +97,10 @@ class Orchestrator:
         # alone stopped separating the books when the fast one moved to 5m.
         self.book = book
         self.strategies = get_strategies(params)
+        # the promotion gate, read ONCE per orchestrator (a decision loop must
+        # not stat a file per bar). A strategy the harness measured as a loser
+        # does not vote; see bot/promotion.py for why it is three states.
+        self._verdicts = load_verdicts()
         self.llm = llm_client
         self.sentiment = sentiment_overlay
 
@@ -122,6 +127,10 @@ class Orchestrator:
             # the conflict guard counts any strong directional signal — a
             # zero-weight strategy would still steer live decisions.
             if name in CANDIDATE_STRATEGIES:
+                continue
+            # measured losers do not vote (promotion gate). Unmeasured ones
+            # do — the gate can only take a vote away on evidence.
+            if is_demoted(name, self._verdicts):
                 continue
             raw_signals[name] = strat.evaluate(df, i)
 

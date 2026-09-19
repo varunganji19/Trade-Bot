@@ -86,6 +86,24 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
                     if not quiet:
                         print(f"!! [{tier}] {spec.symbol} {strat}: {type(exc).__name__}: {exc}")
 
+    # PROMOTION VERDICTS from the same cells the docs quote: a strategy's
+    # vote is a measurement, not a citation (bot/promotion.py)
+    try:
+        from bot.hft import hft_fee_tier
+        from bot.promotion import save_verdicts, verdicts_from_cells
+        live_tier = hft_fee_tier()
+        verdicts = verdicts_from_cells(results["cells"], live_tier)
+        results["promotions"] = verdicts
+        vpath = save_verdicts(verdicts, live_tier)
+        if not quiet:
+            print(f"\n[promotion] verdicts at the live tier ({live_tier}) -> {vpath}")
+            for name, v in sorted(verdicts.items()):
+                print(f"  {v['status']:9s} {name:22s} {v['why']}")
+    except Exception as exc:
+        results["promotions"] = {"error": f"{type(exc).__name__}: {exc}"}
+        if not quiet:
+            print(f"!! promotion verdicts failed: {exc}")
+
     results["runtime_s"] = round(time.time() - started, 1)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as f:

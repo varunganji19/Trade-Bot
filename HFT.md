@@ -135,6 +135,34 @@ sensitivity that has held since the first battery.
 Point 3 is the argument for the promotion gate: a strategy's weight should be
 a measurement, not a citation.
 
+### The promotion gate (bot/promotion.py)
+
+The battery now writes its verdict beside its results
+(`data/results/promotions.json`), and the orchestrator reads it. Three
+states, deliberately:
+
+| state | rule | effect |
+|---|---|---|
+| promoted | >= 30 trades over >= 2 cells, median PF >= 1.0 | votes |
+| probation | too few trades, or median PF between 0.8 and 1.0 | votes, on notice |
+| demoted | >= 30 trades over >= 2 cells, median PF <= 0.8 | **does not vote** |
+
+A missing verdicts file is the permissive state: the gate can only ever take
+a vote away on evidence, never grant one silently. Only cells at the book's
+LIVE fee tier count.
+
+Run on the 14-day 5m battery above, at the perp tier:
+
+```
+demoted    hft_micro_breakout   median PF 0.39 over 3 cells (81 trades)
+demoted    hft_ofi_momentum     median PF 0.49 over 3 cells (93 trades)
+probation  hft_market_maker     median PF 0.93 — between the lines
+probation  hft_exhaustion_fade  only 29 trades over 3 cells — not judgeable
+```
+
+So the strategy that carried the largest vote weight in the fast book now
+carries none, and it lost it to its own record rather than to an opinion.
+
 ## The 1m record (2026-09-13, real exchange data, 3 days / ~4,320 bars per cell)
 
 **Full battery (24 cells, `hft-battery`): every cell is net-negative after

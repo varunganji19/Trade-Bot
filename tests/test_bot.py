@@ -2954,6 +2954,78 @@ def test_kronos_ledger_quarantines_torn_file_and_survives_restart():
         assert tr2.n() == 1 and tr2.records == tr.records
 
 
+def test_promotion_gate_demotes_measured_losers_only(tmp_path, monkeypatch):
+    """A strategy's vote must be a measurement, not a citation.
+    `hft_micro_breakout` carried the fast book's LARGEST vote weight because
+    it descends from a published result — and measured at 5m over 14 days it
+    was the worst cell on the board (PF 0.39 on 81 trades). The gate is three
+    states on purpose: a measured loser loses its vote, an unmeasured one
+    keeps it (a book with every strategy silenced produces no evidence
+    either)."""
+    from bot.promotion import (DEMOTED, PROBATION, PROMOTED, is_demoted,
+                               load_verdicts, save_verdicts, verdicts_from_cells)
+    cells = [
+        # measured loser: enough trades, median PF well under the line
+        {"tier": "perp", "strategy": "loser", "symbol": "BTC", "trades": 40, "profit_factor": 0.39},
+        {"tier": "perp", "strategy": "loser", "symbol": "ETH", "trades": 41, "profit_factor": 0.43},
+        # measured winner
+        {"tier": "perp", "strategy": "winner", "symbol": "BTC", "trades": 40, "profit_factor": 1.4},
+        {"tier": "perp", "strategy": "winner", "symbol": "ETH", "trades": 40, "profit_factor": 1.1},
+        # too few trades to judge
+        {"tier": "perp", "strategy": "unknown", "symbol": "BTC", "trades": 3, "profit_factor": 0.1},
+        {"tier": "perp", "strategy": "unknown", "symbol": "ETH", "trades": 2, "profit_factor": 0.2},
+        # another tier must not count toward the live one
+        {"tier": "spot", "strategy": "winner", "symbol": "BTC", "trades": 99, "profit_factor": 0.05},
+    ]
+    v = verdicts_from_cells(cells, "perp")
+    assert v["loser"]["status"] == DEMOTED
+    assert v["winner"]["status"] == PROMOTED
+    assert v["unknown"]["status"] == PROBATION
+    assert v["winner"]["trades"] == 80        # the spot cell was ignored
+
+    path = str(tmp_path / "promotions.json")
+    save_verdicts(v, "perp", path=path)
+    loaded = load_verdicts(path)
+    assert loaded["loser"]["status"] == DEMOTED
+    assert is_demoted("loser", loaded)
+    assert not is_demoted("winner", loaded)
+    assert not is_demoted("unknown", loaded)
+    assert not is_demoted("never_measured", loaded)     # unknown != demoted
+    # an unreadable/missing file is the PERMISSIVE state: the gate can only
+    # ever take a vote away on evidence
+    assert load_verdicts(str(tmp_path / "nope.json")) == {}
+    assert not is_demoted("loser", load_verdicts(str(tmp_path / "nope.json")))
+
+
+def test_demoted_strategies_do_not_reach_the_vote(tmp_path, monkeypatch):
+    """Same invariant as the candidates: a strategy that must not vote is not
+    EVALUATED, because `best` picks the stop and the maker limit by
+    confidence irrespective of weight."""
+    import bot.promotion as promo
+    from bot.orchestrator import Orchestrator
+    from config import MarketSpec
+
+    monkeypatch.setattr(promo, "load_verdicts",
+                        lambda path=None: {"hft_micro_breakout":
+                                           {"status": promo.DEMOTED, "why": "test"}})
+    import bot.orchestrator as orch_mod
+    monkeypatch.setattr(orch_mod, "load_verdicts", promo.load_verdicts)
+    orch = Orchestrator(book="fast")
+    seen = {}
+    for name, strat in orch.strategies.items():
+        orig, seen[name] = strat.evaluate, 0
+
+        def counted(df, i, _n=name, _o=orig):
+            seen[_n] += 1
+            return _o(df, i)
+        strat.evaluate = counted
+    df = add_all_indicators(make_df(50_000 * np.cumprod(
+        1 + np.random.default_rng(8).normal(0, 0.003, 700)), freq="5min"))
+    orch.decide(df, 650, MarketSpec("crypto", "BTC/USDT", "5m"))
+    assert seen["hft_micro_breakout"] == 0          # demoted: never consulted
+    assert seen["hft_exhaustion_fade"] > 0          # unmeasured: still votes
+
+
 def test_every_risk_veto_carries_a_machine_readable_category():
     """THE LESSON OF THE SILENT WEEK: RiskManager.approve refused 100% of the
     fast book's entries and the only trace was a formatted log line, so

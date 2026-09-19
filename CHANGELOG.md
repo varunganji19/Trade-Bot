@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — both books now earn their votes
+
+The promotion gate only measured the fast book. The standard battery wrote no
+verdicts, so `turtle_trend`, `connors_meanrev`, `vwap_scalper`, `ts_momentum`
+and `fx_regime_meanrev` kept voting on research lineage alone. The standard
+battery now evaluates all five, writes `promotions_standard.json`, and the
+orchestrator selects verdicts by `BaseStrategy.book`. The fast book retains
+the original `promotions.json` filename so existing evidence survives the
+upgrade. The Overview Strategies panel and `main.py config` expose each
+book's file, gate state, and demotions separately.
+
+Measured 2026-09-19 on the standard battery's full configured windows (34
+runs, 110 seconds, real Binance/Yahoo data, full costs):
+
+| strategy | verdict | evidence |
+|---|---|---|
+| `connors_meanrev` | promoted | median PF 1.25, 76 trades / 2 cells |
+| `fx_regime_meanrev` | demoted | median PF 0.56, 1,932 trades / 6 cells |
+| `ts_momentum` | probation | median PF 0.85, 112 trades / 5 firing cells |
+| `turtle_trend` | demoted | median PF 0.68, 1,024 trades / 6 cells |
+| `vwap_scalper` | promoted | median PF 1.21, 72 trades / 2 cells |
+
 ## [Unreleased] — the Evidence tab went blank and stayed blank
 
 Reported as "I see nothing in evidence page". Two bugs, both the house

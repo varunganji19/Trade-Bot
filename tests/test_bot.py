@@ -2617,6 +2617,54 @@ def test_cli_writers_create_results_dir_on_fresh_machine():
     assert 'os.makedirs(os.path.dirname(out) or ".", exist_ok=True)' in src_m
 
 
+def test_standard_battery_writes_all_standard_strategy_verdicts(tmp_path, monkeypatch):
+    """The standard battery used to finish with no promotion artifact at all."""
+    import config as config_mod
+    import run_battery as battery
+    from config import MarketSpec
+
+    class FakeResult:
+        trades = []
+        equity_curve = []
+
+        def __init__(self, strategy):
+            self.strategy = strategy
+
+        def stats(self):
+            return {"symbol": "ignored", "timeframe": "ignored",
+                    "strategy": self.strategy, "return_pct": 1.0,
+                    "max_drawdown_pct": -0.5, "trades": 20,
+                    "win_rate_pct": 55.0, "profit_factor": 1.2,
+                    "sharpe": 0.4}
+
+    class FakeBacktester:
+        def run(self, spec, frame, strategy=None):
+            return FakeResult(strategy)
+
+    strategies = ["turtle_trend", "connors_meanrev", "vwap_scalper",
+                  "ts_momentum", "fx_regime_meanrev"]
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config_mod.CONFIG, "db_path", str(tmp_path / "trading.db"))
+    monkeypatch.setattr(battery, "Backtester", FakeBacktester)
+    monkeypatch.setattr(battery, "fetch_history", lambda spec, days: list(range(500)))
+    monkeypatch.setattr(battery, "BATTERY", [
+        MarketSpec("crypto", "BTC/USDT", "1h"),
+        MarketSpec("crypto", "ETH/USDT", "1h"),
+    ])
+    monkeypatch.setattr(battery, "STRATEGIES", strategies)
+    monkeypatch.setattr(battery, "SKIP", set())
+
+    battery.main()
+
+    path = tmp_path / "results" / "promotions_standard.json"
+    assert path.exists()
+    payload = json.loads(path.read_text())
+    assert payload["book"] == "standard" and payload["tier"] == "standard"
+    assert set(payload["strategies"]) == set(strategies)
+    assert {v["status"] for v in payload["strategies"].values()} == {"promoted"}
+    assert not (tmp_path / "results" / "promotions.json").exists()
+
+
 def test_reset_backup_is_wal_checkpointed_and_pruned():
     """The reset backup used to be copy2 of the main db file only — rows still
     living in the -wal (mid-session writes) were missing from the 'verified'
@@ -2942,7 +2990,7 @@ def test_promotion_gate_announces_when_it_has_no_evidence(tmp_path, monkeypatch)
     assert "gateRow + head + rest" in js
     with open("main.py") as f:
         cli = f.read()
-    assert 'print(f"  file   {gate[\'path\']}")' in cli
+    assert 'print(f"  [{book}] file   {gate[\'path\']}")' in cli
 
 
 def test_a_book_with_no_voting_strategy_says_so(tmp_path, monkeypatch):
@@ -2961,7 +3009,7 @@ def test_a_book_with_no_voting_strategy_says_so(tmp_path, monkeypatch):
 
     # every silenced strategy is accounted for, and a fully-silenced book is
     # reported as such rather than as an empty one
-    monkeypatch.setattr(promo, "load_verdicts", lambda path=None: {
+    monkeypatch.setattr(promo, "load_verdicts", lambda path=None, **kwargs: {
         n: {"status": promo.DEMOTED, "why": "test"} for n in
         __import__("bot.strategies", fromlist=["x"]).HFT_STRATEGY_NAMES})
     dead = promo.voting_strategies("fast")
@@ -2990,6 +3038,39 @@ def test_promotion_verdicts_reload_without_a_restart(tmp_path, monkeypatch):
     os.utime(path, (time.time() + 1, time.time() + 1))
     assert promo.load_verdicts(path)["x"]["status"] == promo.PROMOTED
     promo._CACHE.update(path=None, mtime=None, verdicts={})
+
+
+def test_promotion_verdicts_are_isolated_by_book_and_keep_legacy_fast_path(
+        tmp_path, monkeypatch):
+    """Both books contain 5m strategies, so timeframe cannot isolate gates.
+
+    Fast keeps promotions.json so an upgrade does not silently discard its
+    evidence; standard gets a separate file and cannot inherit fast demotions.
+    """
+    import config as config_mod
+    import bot.promotion as promo
+
+    monkeypatch.setattr(config_mod.CONFIG, "db_path", str(tmp_path / "t.db"))
+    promo._CACHE.update(path=None, mtime=None, verdicts={})
+    fast_path = promo.promotions_path("fast")
+    standard_path = promo.promotions_path("standard")
+    assert fast_path.endswith("results/promotions.json")
+    assert standard_path.endswith("results/promotions_standard.json")
+    assert fast_path != standard_path
+
+    promo.save_verdicts({"turtle_trend": {"status": promo.DEMOTED, "why": "fast only"}},
+                        "perp", book="fast")
+    promo.save_verdicts({"turtle_trend": {"status": promo.PROMOTED,
+                                           "why": "standard only"}},
+                        "standard", book="standard")
+    assert promo.load_verdicts(book="fast")["turtle_trend"]["status"] == promo.DEMOTED
+    assert (promo.load_verdicts(book="standard")["turtle_trend"]["status"]
+            == promo.PROMOTED)
+    assert promo.voting_strategies("standard")["gate"]["path"] == standard_path
+    assert promo.voting_strategies("fast")["gate"]["path"] == fast_path
+    import pytest
+    with pytest.raises(ValueError, match="unknown promotion book"):
+        promo.promotions_path("typo")
 
 
 def test_promotion_gate_demotes_measured_losers_only(tmp_path, monkeypatch):
@@ -3044,7 +3125,7 @@ def test_demoted_strategies_do_not_reach_the_vote(tmp_path, monkeypatch):
     from config import MarketSpec
 
     monkeypatch.setattr(promo, "load_verdicts",
-                        lambda path=None: {"hft_micro_breakout":
+                        lambda path=None, **kwargs: {"hft_micro_breakout":
                                            {"status": promo.DEMOTED, "why": "test"}})
     import bot.orchestrator as orch_mod
     monkeypatch.setattr(orch_mod, "load_verdicts", promo.load_verdicts)
@@ -3153,7 +3234,7 @@ def test_config_command_reports_every_setting_and_its_source(capsys, monkeypatch
     main.cmd_config(type("A", (), {})())
     out = capsys.readouterr().out
     for section in ("effective configuration", "environment (value <- source)",
-                    "promotion gate"):
+                    "promotion gates"):
         assert section in out
     for key in ("journal", "fast book", "cost floors", "risk", "dashboard auth"):
         assert key in out
@@ -3161,7 +3242,8 @@ def test_config_command_reports_every_setting_and_its_source(capsys, monkeypatch
     assert ("auth OFF" in out) or ("auth ON" in out)
     # the gate section must name the FILE it consulted: a data-dir switch
     # silently turning the gate off is what this whole section exists for
-    assert "promotions.json" in out
+    assert "promotions.json" in out and "promotions_standard.json" in out
+    assert "[standard]" in out and "[fast]" in out
     assert ("state  UNMEASURED" in out) or ("state  active" in out)
     # every setting the bot steers on is recorded by the time it has printed
     # (HFT_FEE_TIER decides whether any fast strategy can clear its costs)

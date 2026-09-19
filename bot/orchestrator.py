@@ -131,7 +131,7 @@ class Orchestrator:
                 continue
             # measured losers do not vote (promotion gate). Unmeasured ones
             # do — the gate can only take a vote away on evidence.
-            if is_demoted(name, load_verdicts()):
+            if is_demoted(name, load_verdicts(book=self.book)):
                 continue
             raw_signals[name] = strat.evaluate(df, i)
 

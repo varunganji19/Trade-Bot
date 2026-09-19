@@ -94,7 +94,7 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
         live_tier = hft_fee_tier()
         verdicts = verdicts_from_cells(results["cells"], live_tier)
         results["promotions"] = verdicts
-        vpath = save_verdicts(verdicts, live_tier)
+        vpath = save_verdicts(verdicts, live_tier, book="fast")
         if not quiet:
             print(f"\n[promotion] verdicts at the live tier ({live_tier}) -> {vpath}")
             for name, v in sorted(verdicts.items()):

@@ -18,10 +18,12 @@ THE RULE (deliberately three states, not two):
   demoted    enough trades AND median profit factor <= DEMOTE_PF
              -> does NOT vote. This is a measured loser, not an unknown.
 
-The gate reads `data/results/promotions.json`, written by the battery
-(bot/hft/harness.py) from the SAME backtests the docs quote. No file means no
-evidence has been gathered yet, and every registered strategy votes — the
-gate can only ever take a vote away on evidence, never grant one silently.
+Each book reads its own verdicts, written by that book's battery from the SAME
+backtests the docs quote. The fast book keeps the original
+`data/results/promotions.json` path for backwards compatibility; the standard
+book uses `promotions_standard.json`. No file means no evidence has been
+gathered yet, and every registered strategy votes — the gate can only ever
+take a vote away on evidence, never grant one silently.
 
 Only cells at the book's LIVE fee tier count: a strategy that clears costs on
 a perp tier and drowns on spot has not earned a vote on spot.
@@ -41,10 +43,24 @@ DEMOTE_PF = 0.8          # ...and to lose one (the band between is probation)
 PROMOTED, PROBATION, DEMOTED = "promoted", "probation", "demoted"
 
 
-def promotions_path() -> str:
-    """Beside the battery's own output, under the ACTIVE journal dir."""
+def _book_name(book: str) -> str:
+    """Canonical promotion-book name; reject typos instead of sharing a gate."""
+    if book in ("fast", "hft"):
+        return "fast"
+    if book in ("standard", "paper"):
+        return "standard"
+    raise ValueError(f"unknown promotion book {book!r}; expected standard or fast")
+
+
+def promotions_path(book: str = "fast") -> str:
+    """Book-specific verdict path under the ACTIVE journal directory.
+
+    Fast deliberately retains the original filename: existing measured
+    verdicts must not disappear merely because book isolation was added.
+    """
     from config import db_dir
-    return os.path.join(db_dir(), "results", "promotions.json")
+    name = "promotions.json" if _book_name(book) == "fast" else "promotions_standard.json"
+    return os.path.join(db_dir(), "results", name)
 
 
 def verdicts_from_cells(cells: list, tier: str) -> dict:
@@ -86,11 +102,14 @@ def verdicts_from_cells(cells: list, tier: str) -> dict:
     return out
 
 
-def save_verdicts(verdicts: dict, tier: str, path: str | None = None) -> str:
-    path = path or promotions_path()
+def save_verdicts(verdicts: dict, tier: str, path: str | None = None, *,
+                  book: str = "fast") -> str:
+    book = _book_name(book)
+    path = path or promotions_path(book)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = f"{path}.tmp.{os.getpid()}"
-    payload = {"tier": tier, "rule": {"min_trades": MIN_TRADES, "min_cells": MIN_CELLS,
+    payload = {"book": book, "tier": tier,
+               "rule": {"min_trades": MIN_TRADES, "min_cells": MIN_CELLS,
                                       "promote_pf": PROMOTE_PF, "demote_pf": DEMOTE_PF},
                "strategies": verdicts}
     with open(tmp, "w") as fh:
@@ -102,7 +121,7 @@ def save_verdicts(verdicts: dict, tier: str, path: str | None = None) -> str:
 _CACHE: dict = {"path": None, "mtime": None, "verdicts": {}}
 
 
-def load_verdicts(path: str | None = None) -> dict:
+def load_verdicts(path: str | None = None, *, book: str = "fast") -> dict:
     """Never raises: an unreadable file means 'no evidence', which is the
     permissive state (see the module docstring).
 
@@ -111,7 +130,7 @@ def load_verdicts(path: str | None = None) -> dict:
     nothing until a restart — a stale gate that looks exactly like a working
     one. The stat is one syscall per call; the caller is about to compute
     indicators over hundreds of bars."""
-    path = path or promotions_path()
+    path = path or promotions_path(book)
     try:
         mtime = os.path.getmtime(path)
     except OSError:
@@ -128,7 +147,7 @@ def load_verdicts(path: str | None = None) -> dict:
     return verdicts
 
 
-def gate_state(path: str | None = None) -> dict:
+def gate_state(path: str | None = None, *, book: str = "fast") -> dict:
     """Is the gate ACTUALLY on, and where is it looking?
 
     The verdicts file resolves under db_dir(), so pointing the app at a
@@ -136,16 +155,18 @@ def gate_state(path: str | None = None) -> dict:
     state — which is how a strategy measured at PF 0.39 went back to voting
     on the live book without a single line of output. "No evidence" is a
     state the operator has to be able to SEE, not infer."""
-    path = path or promotions_path()
+    book = _book_name(book)
+    path = path or promotions_path(book)
     try:
         mtime = os.path.getmtime(path)
     except OSError:
-        return {"state": "no_evidence", "path": path,
+        command = "python3 run_battery.py" if book == "standard" else "make hft-battery"
+        return {"state": "no_evidence", "book": book, "path": path,
                 "why": f"no verdicts at {path} — every registered strategy "
-                       f"votes UNMEASURED; run `make hft-battery` to gather them"}
-    verdicts = load_verdicts(path)
+                       f"votes UNMEASURED; run `{command}` to gather them"}
+    verdicts = load_verdicts(path, book=book)
     demoted = [n for n, v in verdicts.items() if v.get("status") == DEMOTED]
-    return {"state": "active", "path": path,
+    return {"state": "active", "book": book, "path": path,
             "generated_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)),
             "measured": len(verdicts), "demoted": demoted,
             "why": f"{len(verdicts)} strategies measured, {len(demoted)} demoted"}
@@ -160,8 +181,8 @@ def voting_strategies(book: str) -> dict:
     nothing in the UI said so — a book that cannot trade would have looked
     identical to a quiet market."""
     from bot.strategies import CANDIDATE_STRATEGIES, STRATEGY_CLASSES
-    want = "fast" if book in ("fast", "hft") else "standard"
-    verdicts = load_verdicts()
+    want = _book_name(book)
+    verdicts = load_verdicts(book=want)
     voting, silent = [], []
     for name, cls in sorted(STRATEGY_CLASSES.items()):
         if getattr(cls, "book", "standard") != want:
@@ -175,7 +196,7 @@ def voting_strategies(book: str) -> dict:
             voting.append(name)
     return {"voting": voting, "silent": silent,
             "registered": len(voting) + len(silent),
-            "gate": gate_state()}
+            "gate": gate_state(book=want)}
 
 
 def is_demoted(name: str, verdicts: dict | None = None) -> bool:

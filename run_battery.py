@@ -34,7 +34,8 @@ BATTERY = [
 ]
 
 DAYS = {"1h": 365, "5m": 30, "15m": 60, "4h": 730, "1d": 1825}
-STRATEGIES = ["turtle_trend", "connors_meanrev", "vwap_scalper", "ensemble"]
+STRATEGIES = ["turtle_trend", "connors_meanrev", "vwap_scalper",
+              "ts_momentum", "fx_regime_meanrev", "ensemble"]
 # run each strategy only on its own timeframe (as shipped in the watchlist).
 # Derived from the strategies' own registered preferred_timeframes instead of
 # a hand-written set: the hardcoded SKIP used to silently drift when a
@@ -69,6 +70,10 @@ def main():
                 t0 = time.time()
                 res = bt.run(spec, df, strategy=None if strat == "ensemble" else strat)
                 s = res.stats()
+                # The promotion module consumes one common cell shape across
+                # both books. "standard" is a cost model, not an HFT fee tier.
+                s.update({"tier": "standard", "symbol": spec.symbol,
+                          "timeframe": spec.timeframe, "strategy": strat})
                 s["runtime_s"] = round(time.time() - t0, 1)
                 s["bars"] = len(df)
                 rows.append(s)
@@ -90,6 +95,18 @@ def main():
         print(f"{s['symbol']:12s} {s['timeframe']:4s} {s['strategy']:16s} "
               f"{s['return_pct']:+8.2f} {s['max_drawdown_pct']:7.2f} {s['trades']:6d} "
               f"{s['win_rate_pct']:6.1f} {str(s['profit_factor']):>6s} {str(s['sharpe']):>7s}")
+
+    # Do this only after every cell has run: a partial mid-battery verdict
+    # would look authoritative to the live engine. Ensemble is a consumer of
+    # strategy votes, not a strategy with an independent voting right.
+    from bot.promotion import save_verdicts, verdicts_from_cells
+    cells = [s for s in rows if s["strategy"] != "ensemble"]
+    verdicts = verdicts_from_cells(cells, "standard")
+    vpath = save_verdicts(verdicts, "standard", book="standard")
+    print(f"\n[promotion] standard-book verdicts -> {vpath}")
+    for name, verdict in sorted(verdicts.items()):
+        print(f"  {verdict['status']:9s} {name:22s} {verdict['why']}")
+    return rows
 
 
 if __name__ == "__main__":

@@ -32,7 +32,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from bot.strategies import get_strategies, Signal
+from bot.strategies import CANDIDATE_STRATEGIES, get_strategies, Signal
 
 REGIME_WEIGHTS = {
     "trending": {"turtle_trend": 0.55, "vwap_scalper": 0.30, "connors_meanrev": 0.15,
@@ -100,6 +100,14 @@ class Orchestrator:
         raw_signals: dict[str, Signal] = {}
         for name, strat in self.strategies.items():
             if tf not in strat.preferred_timeframes:
+                continue
+            # candidates are registered for the Lab and the battery but do not
+            # vote until the harness says they beat the incumbents. Skipping
+            # the EVALUATION (not just the weight) is deliberate: `best` below
+            # picks the stop/limit by confidence irrespective of weight, and
+            # the conflict guard counts any strong directional signal — a
+            # zero-weight strategy would still steer live decisions.
+            if name in CANDIDATE_STRATEGIES:
                 continue
             raw_signals[name] = strat.evaluate(df, i)
 

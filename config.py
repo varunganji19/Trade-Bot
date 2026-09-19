@@ -311,6 +311,27 @@ class StrategyParams:
     hft_mm_target_rr: float = 0.34     # target ~ one half-width against a 3-half-width stop (MM brackets INVERT the swing ratio)
     hft_mm_stop_widths: float = 3.0    # hard stop at 3 half-widths (inventory blowup guard)
     hft_mm_time_stop: int = 60         # bars
+    # ---- cost floors (bp of price), DERIVED from the book's fee tier by
+    # bot/hft.build_hft_config — never hand-set per strategy.
+    # WHY THIS EXISTS: RiskManager.approve refuses any stop tighter than the
+    # modeled taker round trip ("tiny stop (dust)"), and it is right to: a
+    # win that cannot pay its own fees is dust. The 1m strategies used to
+    # size stops off raw ATR with no reference to that number, so on a quiet
+    # 1m tape (BTC ATR ~5-8bp vs a 16bp perp round trip) EVERY entry decision
+    # was journaled and then vetoed — the HFT book produced 15 entry
+    # decisions and 0 trades. A strategy that cannot clear costs must say so
+    # itself instead of emitting a signal the risk manager has to kill.
+    hft_cost_floor_bps: float = 16.0        # taker in + taker out (perp tier default)
+    hft_maker_cost_floor_bps: float = 10.0  # maker in + taker out (resting-entry strategies)
+    hft_cost_buffer: float = 1.25           # required edge over the floor (x)
+    # order-flow imbalance momentum (Cont, Kukanov & Stoikov 2014: OFI is
+    # near-linearly related to short-horizon price change). OHLCV proxy:
+    # signed volume = CLV x volume, summed over a short window, z-scored.
+    hft_ofi_window: int = 5            # bars of signed volume in the imbalance sum
+    hft_ofi_z_entry: float = 1.5       # |z| of the imbalance to act on
+    hft_ofi_stop_atr: float = 1.0
+    hft_ofi_target_rr: float = 1.5
+    hft_ofi_time_stop: int = 10        # bars (the documented OFI horizon is minutes)
 
 
 @dataclass

@@ -7,7 +7,8 @@ from .meanrev import ConnorsMeanReversion
 from .scalper import VWAPScalper
 from .fx_regime_meanrev import FXRegimeMeanRev
 from .ts_momentum import TimeSeriesMomentum
-from .hft import HFTMicroBreakout, HFTExhaustionFade, HFTMarketMaker
+from .hft import (HFTMicroBreakout, HFTExhaustionFade, HFTMarketMaker,
+                  HFTOFIMomentum)
 
 STRATEGY_CLASSES = {
     TurtleTrend.name: TurtleTrend,
@@ -18,9 +19,21 @@ STRATEGY_CLASSES = {
     HFTMicroBreakout.name: HFTMicroBreakout,
     HFTExhaustionFade.name: HFTExhaustionFade,
     HFTMarketMaker.name: HFTMarketMaker,
+    HFTOFIMomentum.name: HFTOFIMomentum,
 }
 
-HFT_STRATEGY_NAMES = ("hft_micro_breakout", "hft_exhaustion_fade", "hft_market_maker")
+HFT_STRATEGY_NAMES = ("hft_micro_breakout", "hft_exhaustion_fade",
+                      "hft_market_maker", "hft_ofi_momentum")
+
+# CANDIDATES: registered, backtestable and available in the Lab and the
+# battery, but NOT voting in the live ensemble — the same evidence standard
+# the bot applies to Kronos (earn the vote, never vote on faith). A candidate
+# graduates by beating the incumbents in the harness, which is a measurement,
+# not an opinion.
+#   hft_ofi_momentum — measured 2026-09-19 (3d, perp tier): PF 0.32 (BTC) /
+#   0.68 (ETH), 7-12 trades, negative return on both. It does not beat the
+#   incumbents it was written to replace, so it does not get a vote.
+CANDIDATE_STRATEGIES = ("hft_ofi_momentum",)
 
 _INSTANCE_CACHE: dict = {}   # id(params) -> (params_ref, {name: instance})
 
@@ -51,5 +64,6 @@ def get_strategy(name: str, params=None) -> BaseStrategy:
 __all__ = ["BaseStrategy", "Signal", "TurtleTrend", "ConnorsMeanReversion",
            "VWAPScalper", "FXRegimeMeanRev", "TimeSeriesMomentum",
            "HFTMicroBreakout", "HFTExhaustionFade", "HFTMarketMaker",
-           "HFT_STRATEGY_NAMES",
+           "HFTOFIMomentum",
+           "HFT_STRATEGY_NAMES", "CANDIDATE_STRATEGIES",
            "STRATEGY_CLASSES", "get_strategies", "get_strategy"]

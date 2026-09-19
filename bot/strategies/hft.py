@@ -35,6 +35,26 @@ import numpy as np
 from .base import BaseStrategy, Signal
 
 
+def _stop_floor(p, price: float) -> float:
+    """Minimum stop distance (price units) a 1m entry may carry.
+
+    RiskManager.approve refuses any stop below the modeled taker round trip
+    ("tiny stop (dust)") — a win that cannot pay its own fees is dust. The
+    floors are derived from the live fee tier in bot/hft.build_hft_config, so
+    a strategy that checks this refuses the trade ITSELF, with a readable
+    rationale, instead of emitting a signal the risk manager silently kills
+    (which is exactly how the 1m book ran 15 entry decisions to 0 trades)."""
+    return price * (p.hft_cost_floor_bps * p.hft_cost_buffer) / 1e4
+
+
+def _maker_width_floor_bps(p) -> float:
+    """Minimum MAKER quote half-width (bp). A maker entry pays maker-in +
+    taker-out, and the MM's take-profit is ~one half-width — so a half-width
+    below that round trip is a guaranteed loser even when the quote fills and
+    the target hits."""
+    return p.hft_maker_cost_floor_bps * p.hft_cost_buffer
+
+
 def _clv(df, i: int) -> float:
     """Close Location Value in [-1, +1]: where the bar closed inside its
     range (+1 = at the high). The OHLCV proxy for order-flow direction."""
@@ -60,11 +80,18 @@ class HFTMicroBreakout(BaseStrategy):
         if not all(self._ok(v) for v in (close, atr, ema50)) or atr <= 0:
             return Signal(self.name, "FLAT", 0.0, rationale="warmup")
         # regime gate: in dead-flat minutes the 2R target cannot clear the
-        # taker round trip — this gate IS the fee defense (HFT.md §costs)
-        if close <= 0 or atr / close < p.hft_bo_atr_min_pct:
+        # taker round trip — this gate IS the fee defense (HFT.md §costs).
+        # The floor is the LARGER of the configured regime floor and the one
+        # the fee tier forces: stop = stop_atr x ATR must clear the round
+        # trip, or the risk manager would (rightly) veto the entry as dust.
+        stop = p.hft_bo_stop_atr * atr
+        cost_atr_min = _stop_floor(p, close) / max(1e-12, p.hft_bo_stop_atr)
+        atr_floor = max(p.hft_bo_atr_min_pct * close, cost_atr_min)
+        if close <= 0 or atr < atr_floor:
             return Signal(self.name, "FLAT", 0.0,
                           rationale=f"ATR {atr / close * 1e4:.1f}bp below "
-                                    f"{p.hft_bo_atr_min_pct * 1e4:.1f}bp floor")
+                                    f"{atr_floor / close * 1e4:.1f}bp floor "
+                                    f"(cost floor {p.hft_cost_floor_bps:.1f}bp round trip)")
         hi = float(df["high"].rolling(p.hft_bo_range).max().shift(1).iloc[i])
         lo = float(df["low"].rolling(p.hft_bo_range).min().shift(1).iloc[i])
         vol_ok = (not self._ok(vol)) or vol >= p.hft_bo_vol_ratio_min
@@ -72,7 +99,7 @@ class HFTMicroBreakout(BaseStrategy):
             strength = min(1.0, (close - hi) / atr)
             conf = self._clip_conf(0.55 + 0.25 * strength + 0.10)
             return Signal(self.name, "LONG", conf,
-                          stop_distance=p.hft_bo_stop_atr * atr,
+                          stop_distance=stop,
                           target_rr=p.hft_bo_target_rr,
                           rationale=f"1m breakout over {p.hft_bo_range}-bar high "
                                     f"{hi:.6g} (ATR {atr / close * 1e4:.1f}bp, vol {vol:.2f}x)")
@@ -80,7 +107,7 @@ class HFTMicroBreakout(BaseStrategy):
             strength = min(1.0, (lo - close) / atr)
             conf = self._clip_conf(0.55 + 0.25 * strength + 0.10)
             return Signal(self.name, "SHORT", conf,
-                          stop_distance=p.hft_bo_stop_atr * atr,
+                          stop_distance=stop,
                           target_rr=p.hft_bo_target_rr,
                           rationale=f"1m breakdown under {p.hft_bo_range}-bar low "
                                     f"{lo:.6g} (ATR {atr / close * 1e4:.1f}bp, vol {vol:.2f}x)")
@@ -121,11 +148,19 @@ class HFTExhaustionFade(BaseStrategy):
         if not all(self._ok(v) for v in (close, atr, ema50, vol, z)) or atr <= 0:
             return Signal(self.name, "FLAT", 0.0, rationale="warmup")
         clv = _clv(df, i)
+        # the fade's stop is 2 x ATR; on a quiet tape that is under the round
+        # trip, so the entry would be vetoed as dust — refuse it here, loudly
+        stop = p.hft_fade_stop_atr * atr
+        if stop < _stop_floor(p, close):
+            return Signal(self.name, "FLAT", 0.0,
+                          rationale=f"stop {stop / close * 1e4:.1f}bp under the "
+                                    f"{p.hft_cost_floor_bps * p.hft_cost_buffer:.1f}bp "
+                                    f"cost floor — no tradable edge in this vol")
         vol_ok = vol >= p.hft_fade_vol_spike
         if z <= -p.hft_fade_z_entry and clv <= p.hft_fade_clv_max and vol_ok and close < ema50:
             conf = self._clip_conf(0.60 + 0.10 * min(1.0, abs(z) - p.hft_fade_z_entry))
             return Signal(self.name, "LONG", conf,
-                          stop_distance=p.hft_fade_stop_atr * atr,
+                          stop_distance=stop,
                           target_rr=None,
                           limit_price=close,
                           rationale=f"exhaustion fade LONG: z {z:.2f}, CLV {clv:.2f}, "
@@ -133,7 +168,7 @@ class HFTExhaustionFade(BaseStrategy):
         if z >= p.hft_fade_z_entry and clv >= -p.hft_fade_clv_max and vol_ok and close > ema50:
             conf = self._clip_conf(0.60 + 0.10 * min(1.0, abs(z) - p.hft_fade_z_entry))
             return Signal(self.name, "SHORT", conf,
-                          stop_distance=p.hft_fade_stop_atr * atr,
+                          stop_distance=stop,
                           target_rr=None,
                           limit_price=close,
                           rationale=f"exhaustion fade SHORT: z {z:.2f}, CLV {clv:.2f}, "
@@ -175,7 +210,13 @@ class HFTMarketMaker(BaseStrategy):
         # gamma*sigma^2 widening is monotone in sigma — the ATR multiple
         # already scales with realized vol, so gamma scales the slope
         width_bps *= (1.0 + p.hft_mm_gamma)
-        width_bps = min(p.hft_mm_max_width_bps, max(p.hft_mm_min_width_bps, width_bps))
+        # the floor is the LARGER of the configured one and the maker round
+        # trip: quoting 2bp wide when the round trip is 10bp books a loss on
+        # every filled quote, and its 3-half-width stop (6bp) is below the
+        # dust floor, so the risk manager vetoed 100% of those entries
+        floor = max(p.hft_mm_min_width_bps, _maker_width_floor_bps(p))
+        cap = max(p.hft_mm_max_width_bps, floor * 2.0)
+        width_bps = min(cap, max(floor, width_bps))
         return close * width_bps / 1e4
 
     def evaluate(self, df, i: int) -> Signal:
@@ -217,5 +258,85 @@ class HFTMarketMaker(BaseStrategy):
 
     def check_exit(self, df, i: int, position) -> tuple[str | None, float | None]:
         if position.bars_held >= self.p.hft_mm_time_stop:
+            return "time stop", None
+        return None, None
+
+
+class HFTOFIMomentum(BaseStrategy):
+    """Order-flow-imbalance continuation on 1m bars (taker).
+
+    Cont, Kukanov & Stoikov (2014) show order-flow imbalance — signed volume
+    over a short window — is near-linearly related to the next interval's
+    price change, and that it explains short-horizon moves far better than
+    trade imbalance or volume alone. A bar feed has no book, so OFI is
+    proxied by SIGNED VOLUME: CLV (where the bar closed in its range, the
+    OHLCV order-flow direction proxy) x volume, summed over `hft_ofi_window`
+    bars and z-scored over 100. Extreme imbalance ALIGNED with the local
+    trend (EMA20 side) is traded as continuation with a 1.5R target and a
+    short time stop inside the documented horizon.
+
+    Why this one is the frequent trader of the book: it is a TAKER entry
+    (fills the cycle it fires — no resting quote to be adversely selected)
+    and its trigger is a 1.5-sigma flow event, not a 2.5-sigma dislocation
+    or a 3x volume capitulation. It still refuses any setup whose stop
+    cannot clear the round trip — frequency is never worth paying for."""
+    name = "hft_ofi_momentum"
+    preferred_timeframes = ("1m",)
+
+    def _imbalance_z(self, df, i: int) -> float:
+        p = self.p
+        rng = (df["high"] - df["low"]).replace(0.0, np.nan)
+        clv = (2.0 * df["close"] - df["high"] - df["low"]) / rng
+        signed = clv.fillna(0.0) * df["volume"]
+        imb = signed.rolling(p.hft_ofi_window).sum()
+        sigma = imb.rolling(100, min_periods=60).std()
+        mu = imb.rolling(100, min_periods=60).mean()
+        z = (imb - mu) / sigma
+        return float(z.iloc[i])
+
+    def evaluate(self, df, i: int) -> Signal:
+        p = self.p
+        close = self._at(df, "close", i)
+        atr = self._at(df, "atr", i)
+        ema20 = self._at(df, "ema20", i)
+        if not all(self._ok(v) for v in (close, atr, ema20)) or atr <= 0 or close <= 0:
+            return Signal(self.name, "FLAT", 0.0, rationale="warmup")
+        z = self._imbalance_z(df, i)
+        if not self._ok(z):
+            return Signal(self.name, "FLAT", 0.0, rationale="warmup")
+        stop = p.hft_ofi_stop_atr * atr
+        floor = _stop_floor(p, close)
+        if stop < floor:
+            return Signal(self.name, "FLAT", 0.0,
+                          rationale=f"stop {stop / close * 1e4:.1f}bp under the "
+                                    f"{floor / close * 1e4:.1f}bp cost floor — "
+                                    f"this minute cannot pay for a round trip")
+        strength = min(1.0, (abs(z) - p.hft_ofi_z_entry) / max(1e-9, p.hft_ofi_z_entry))
+        conf = self._clip_conf(0.55 + 0.20 * strength)
+        if z >= p.hft_ofi_z_entry and close > ema20:
+            return Signal(self.name, "LONG", conf, stop_distance=stop,
+                          target_rr=p.hft_ofi_target_rr,
+                          rationale=f"buy-side flow imbalance z {z:+.2f} over "
+                                    f"{p.hft_ofi_window} bars, price over EMA20 "
+                                    f"(ATR {atr / close * 1e4:.1f}bp)")
+        if z <= -p.hft_ofi_z_entry and close < ema20:
+            return Signal(self.name, "SHORT", conf, stop_distance=stop,
+                          target_rr=p.hft_ofi_target_rr,
+                          rationale=f"sell-side flow imbalance z {z:+.2f} over "
+                                    f"{p.hft_ofi_window} bars, price under EMA20 "
+                                    f"(ATR {atr / close * 1e4:.1f}bp)")
+        return Signal(self.name, "FLAT", 0.0,
+                      rationale=f"flow imbalance z {z:+.2f} inside "
+                                f"+/-{p.hft_ofi_z_entry:.1f}")
+
+    def check_exit(self, df, i: int, position) -> tuple[str | None, float | None]:
+        """Exit when the flow that caused the entry reverses, or on time."""
+        z = self._imbalance_z(df, i)
+        if self._ok(z):
+            if position.side == "long" and z <= -self.p.hft_ofi_z_entry:
+                return "flow reversed", None
+            if position.side == "short" and z >= self.p.hft_ofi_z_entry:
+                return "flow reversed", None
+        if position.bars_held >= self.p.hft_ofi_time_stop:
             return "time stop", None
         return None, None

@@ -52,6 +52,47 @@ fee tiers so the fee sensitivity is a measured number, never a claim.**
 | `hft_micro_breakout` | **taker** at next open | Zarattini & Aziz 2023 (SSRN 4416622) ORB: rolling micro-range break with 2R target, volume confirmation, and a volatility floor (0.08% 1m ATR) because the 2R target must clear the round trip | The only family with net-of-cost academic validation — on 5m US equities, not 1m crypto; the floor gate refuses most minutes |
 | `hft_triangular_arb` | atomic 3-leg round trip, cash-settled | Muck & Schmidl 2025 (FRL 73, 106508): single-venue triangular mispricings are 1–5bp and last seconds | **Implemented as a monitor that is expected to fire ~never** — see the first measured result below |
 
+### Candidates (registered, backtestable, NOT voting)
+
+| Strategy | Execution | Lineage | Status |
+|---|---|---|---|
+| `hft_ofi_momentum` | **taker** at next open | Cont, Kukanov & Stoikov 2014: order-flow imbalance is near-linearly related to the next interval's price change. OHLCV proxy: signed volume (CLV × volume) summed over 5 bars, z-scored over 100, traded as continuation when aligned with EMA20 | **Not shipped into the vote.** Measured 2026-09-19 (3d, perp): PF 0.32 (BTC, 7 trades) / 0.68 (ETH, 12) / no signal on ETH/BTC and EUR/USD — it does not beat the incumbents it was written to replace |
+
+`CANDIDATE_STRATEGIES` (bot/strategies/__init__.py) is the same evidence
+standard Kronos lives under: a candidate is registered, runs in the Lab and
+in the battery, and is **skipped entirely** by the live orchestrator — not
+merely given zero weight, because the orchestrator picks the stop and the
+maker limit from the highest-confidence signal irrespective of weight, and
+the conflict guard counts any strong directional signal.
+
+## The cost floor (why the book traded ZERO times for a week)
+
+Measured 2026-09-19 on the live 1m book: **15 entry decisions, 0 trades, no
+error anywhere.** The cause was not one bug but a missing link between two
+correct pieces:
+
+- `RiskManager.approve` refuses any entry whose stop is tighter than the
+  modeled taker round trip — "tiny stop (dust)". A win that cannot pay its
+  own fees is dust; the gate is right.
+- The 1m strategies sized stops off raw ATR with **no reference to that
+  number**. On a quiet 1m tape (BTC ATR ≈ 5–8bp against a 16bp perp round
+  trip) the market maker quoted 2bp half-widths → a 6bp stop → vetoed. Every
+  time. The decision was journaled, the veto was a log line, and the
+  dashboard showed a healthy engine with an empty trade table.
+
+The floors are now DERIVED from the book's fee tier in `build_hft_config`
+and carried in `StrategyParams` (`hft_cost_floor_bps` = taker in + taker
+out; `hft_maker_cost_floor_bps` = maker in + taker out), so the live engine
+and the backtester read the same numbers, and `HFT_FEE_TIER=spot` moves
+every floor together (16 → 30bp). Each strategy refuses a setup it cannot
+pay for **itself**, with a readable rationale, instead of emitting a signal
+the risk manager kills silently.
+
+What it did to the market maker (BTC, 3d, perp): quotes went from 2bp to
+≥12.5bp wide, trades 316 → 63, win rate 22% → 70%, PF 0.11 → 0.57. Still
+below 1.0 — the fix makes the book trade honestly, it does not manufacture
+an edge that the fee schedule does not permit.
+
 ## First measured results (2026-09-13, real exchange data, 3 days / ~4,320 bars per cell)
 
 **Full battery (24 cells, `hft-battery`): every cell is net-negative after

@@ -148,7 +148,7 @@ _wl_lock = threading.RLock()   # reentrant: endpoints hold it while calling _per
 _engine: TradingEngine | None = None
 _engine_thread: threading.Thread | None = None
 _last_engine_error: str | None = None   # survives engine teardown for /api/engine/status
-_engine_interval: int = 60              # the running engine's cycle interval (stop persists it)
+_engine_interval: int = CONFIG.live_interval_seconds   # chosen cadence (persisted across stops)
 _AUTO_RESUMED_AT_BOOT = False           # the UI's first poll toasts it once (no silent surprise)
 
 FOREX_RE = re.compile(r"^[A-Z]{6}=X$")
@@ -324,7 +324,7 @@ def _spawn_engine(interval: int) -> dict:
             _release_book(eng_ref, "paper")
 
     def _engine_cycles(eng_ref, interval):
-        global _engine, _last_engine_error
+        global _engine, _last_engine_error   # interval: start value only (see below)
         while _get_engine() is eng_ref:
             cycle_t0 = time.monotonic()
             try:
@@ -344,8 +344,11 @@ def _spawn_engine(interval: int) -> dict:
             # sleep the REMAINDER of the interval from cycle START (a 2-minute
             # Kronos cycle at interval=60 used to land one decision burst every
             # ~2.5 min), and wake the SECOND the identity check flips so a stop
-            # is near-instant instead of stranding the UI for up to interval-300s
-            remaining = max(0.0, interval - (time.monotonic() - cycle_t0))
+            # is near-instant instead of stranding the UI for up to interval-300s.
+            # The interval is re-read from the module global EVERY cycle so
+            # /api/engine/interval can retune a RUNNING engine (the captured
+            # argument made the cadence unchangeable without a stop/start).
+            remaining = max(0.0, _engine_interval - (time.monotonic() - cycle_t0))
             deadline = time.monotonic() + remaining
             while time.monotonic() < deadline:
                 if _get_engine() is not eng_ref:
@@ -381,7 +384,7 @@ _hft_lock = threading.Lock()
 _hft_engine: TradingEngine | None = None
 _hft_thread: threading.Thread | None = None
 _last_hft_error: str | None = None
-_hft_interval: int = 2
+_hft_interval: int = CONFIG.hft.live_interval_seconds
 _HFT_AUTO_RESUMED_AT_BOOT = False
 
 
@@ -462,7 +465,9 @@ def _spawn_hft_engine(interval: int) -> dict:
                     if _hft_engine is eng_ref:
                         _hft_engine = None
                 break
-            remaining = max(0.0, interval - (time.monotonic() - cycle_t0))
+            # re-read each cycle: /api/hft/engine/interval retunes a RUNNING
+            # book without a stop/start (see the standard loop)
+            remaining = max(0.0, _hft_interval - (time.monotonic() - cycle_t0))
             deadline = time.monotonic() + remaining
             while time.monotonic() < deadline:
                 if _get_hft_engine() is not eng_ref:
@@ -645,6 +650,10 @@ def api_stats():
                              and _engine_thread.is_alive() else "stopped")
     stats["entries_halted"] = bool(eng is not None and eng.risk.halted)
     stats["cycles"] = eng.cycles if eng is not None else 0
+    # the chosen cadence rides the SAME poll the Interval select follows
+    # (/api/stats, not /api/engine/status — the UI polls this one), so a
+    # change made from another tab or session shows up within a tick
+    stats["interval"] = _engine_interval
     stats["watchlist_count"] = len(CONFIG.watchlist)
     # manual pause rides the same poll as health_note (the banner + button
     # must flip within one 4s tick, without a second request). Reported for a
@@ -1287,6 +1296,34 @@ def _auto_resume_hft_engine():
         print(f"[dashboard] HFT book auto-resumed (interval {interval}s)")
 
 
+@app.post("/api/engine/interval")
+def api_engine_interval(body: EngineIn):
+    """Retune the cycle cadence — for a RUNNING engine too.
+
+    The interval used to be captured by the loop thread at start, so the
+    dashboard's Interval select was disabled while the engine ran and the
+    only way to change cadence was stop -> start (which re-probes Kronos and
+    re-claims the book lease). Both loops now re-read their module global
+    every cycle, so this takes effect on the next wake."""
+    global _engine_interval
+    _engine_interval = body.interval
+    running = _get_engine() is not None
+    # persist so auto-resume comes back on the NEW cadence (a stop writes the
+    # then-current value, so the two never disagree)
+    _write_engine_state(running, body.interval)
+    return {"status": "ok", "interval": body.interval, "running": running}
+
+
+@app.post("/api/hft/engine/interval")
+def api_hft_engine_interval(body: HftEngineIn):
+    """Retune the HFT book's cadence (1s floor), running or stopped."""
+    global _hft_interval
+    _hft_interval = body.interval
+    running = _get_hft_engine() is not None
+    _write_hft_state(running, body.interval)
+    return {"status": "ok", "interval": body.interval, "running": running}
+
+
 @app.get("/api/engine/status")
 def api_engine_status():
     # paused = the operator's manual halt. It is shown for a STOPPED engine
@@ -1312,7 +1349,10 @@ def api_engine_status():
                 "paused": paused,
                 "market_mode": config_mod.get_market_mode()}
     return {"running": False, "cycles": 0, "llm": "quant", "positions": 0,
-            "interval": CONFIG.live_interval_seconds,
+            # the operator's CHOSEN cadence, not the config default: reporting
+            # the default snapped the UI's Interval select back after every
+            # change made while the engine was stopped
+            "interval": _engine_interval,
             "alive": bool(th is not None and th.is_alive()),
             "last_error": _last_engine_error, "health_note": None,
             "paused": paused,
@@ -1345,7 +1385,7 @@ def api_hft_stats():
     stats["capital"] = h.paper_capital
     from bot.hft import hft_fee_tier
     stats["fee_tier"] = hft_fee_tier()
-    stats["interval"] = _hft_interval if eng is not None else h.live_interval_seconds
+    stats["interval"] = _hft_interval     # chosen cadence, running or not
     stats["auto_resumed"] = _HFT_AUTO_RESUMED_AT_BOOT
     stats["paused"], _ = is_paused()
     return stats
@@ -1365,6 +1405,40 @@ def api_hft_trades(limit: int = Query(default=1000, ge=1, le=1000)):
 @app.get("/api/hft/decisions")
 def api_hft_decisions(limit: int = Query(default=50, ge=1, le=200)):
     return journal.recent_decisions(limit=limit, mode="hft")
+
+
+@app.get("/api/hft/candles")
+def api_hft_candles(symbol: str = Query(default=""),
+                    limit: int = Query(default=180, ge=20, le=1000)):
+    """Recent 1m candles + EMA20 for ONE market on the HFT book.
+
+    The HFT page only ever plotted the equity curve, which is a flat line
+    until the book fills its first trade — there was no way to see whether
+    the market itself was moving. This serves the same bars the engine
+    decides on (shared MarketData cache), so the chart and the decision feed
+    can never disagree."""
+    from bot.data import MarketData
+    from bot.hft import HFT_WATCHLIST
+    specs = {sp.symbol: sp for sp in HFT_WATCHLIST}
+    sym = symbol or next(iter(specs))
+    spec = specs.get(sym)
+    if spec is None:
+        raise HTTPException(404, f"{sym} is not on the HFT watchlist")
+    eng = _get_hft_engine()
+    md = eng.market_data if eng is not None else MarketData(ttl_seconds=2.0)
+    try:
+        df = md.latest(spec)
+    except Exception as exc:
+        raise HTTPException(503, f"{sym}: {type(exc).__name__}: {exc}")
+    if df is None or not len(df):
+        return {"symbol": sym, "markets": list(specs), "bars": []}
+    df = df.tail(limit)
+    ema = df["close"].ewm(span=20, adjust=False).mean()
+    bars = [{"ts": str(ts), "close": float(c), "ema20": float(e)}
+            for ts, c, e in zip(df.index, df["close"], ema)]
+    first, last = bars[0]["close"], bars[-1]["close"]
+    return {"symbol": sym, "markets": list(specs), "bars": bars,
+            "change_pct": round((last / first - 1.0) * 100.0, 3) if first else 0.0}
 
 
 @app.post("/api/hft/engine/start")
@@ -2512,14 +2586,33 @@ td.num, th.num { font-family:var(--font-mono); font-variant-numeric:tabular-nums
       <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>High-frequency book <span class="badge">1m · paper</span></h2>
       <span class="hint" id="hftFeeHint"></span>
     </div>
-    <p class="hint" style="margin:0 0 10px">A SECOND paper account trading 1-minute bars (crypto + forex) with its own capital, risk dials and fee tier — the standard book above is untouched. HFT strategies: <b>hft_market_maker</b> (Avellaneda–Stoikov-inspired maker quotes), <b>hft_exhaustion_fade</b> (volume-spike reversion, maker entry), <b>hft_micro_breakout</b> (2R micro-range breakout, taker) + the <b>TRI-ETH</b> triangular-arb monitor. Research + fee math: <code>HFT.md</code>.</p>
+    <p class="hint" style="margin:0 0 10px">A SECOND paper account trading 1-minute bars (crypto + forex) with its own capital, risk dials and fee tier — the standard book above is untouched. HFT strategies: <b>hft_ofi_momentum</b> (order-flow-imbalance continuation, taker), <b>hft_market_maker</b> (Avellaneda–Stoikov-inspired maker quotes), <b>hft_exhaustion_fade</b> (volume-spike reversion, maker entry), <b>hft_micro_breakout</b> (2R micro-range breakout, taker) + the <b>TRI-ETH</b> triangular-arb monitor. Every one of them refuses a setup whose stop cannot clear the fee tier's round trip. Research + fee math: <code>HFT.md</code>.</p>
     <div class="stats-grid" id="hftStats"></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px" id="hftEngineControls">
       <button class="btn primary" id="hftStartBtn">Start HFT engine</button>
       <button class="btn btn-danger" id="hftStopBtn" disabled>Stop</button>
+      <label class="fld" for="hftIntervalSel" style="margin:0">Interval</label>
+      <select id="hftIntervalSel" style="min-height:36px;width:auto" aria-label="HFT cycle interval">
+        <option value="1">1 s</option>
+        <option value="2" selected>2 s</option>
+        <option value="5">5 s</option>
+        <option value="15">15 s</option>
+        <option value="60">60 s</option>
+      </select>
       <span class="engine-pill"><span class="dot" id="hftEngineDot"></span><span id="hftPillText">hft: checking…</span></span>
     </div>
     <p class="hint" id="hftEngineNote" style="margin:8px 0 0" hidden></p>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Live 1m price</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="hftMarketSel" style="min-height:36px;width:auto" aria-label="HFT market to chart"></select>
+        <span class="hint" id="hftPriceHint">the bars the engine decides on</span>
+      </div>
+    </div>
+    <div class="chart-wrap"><canvas id="hftPriceChart" aria-label="HFT 1-minute price and EMA20" role="img"></canvas></div>
+    <div class="empty" id="hftPriceEmpty" hidden>No candles yet — the feed is warming up.</div>
   </div>
   <div class="card">
     <div class="card-head">
@@ -3112,7 +3205,7 @@ function refreshVisible(name) {
 const THEME_KEY = 'algo-theme';
 const THEMES = ['light', 'dark'];   // legacy stored 'black' maps to dark at boot
 function applyChartTheme() {
-  for (const chart of [equityChart, hftChart, labChart]) {
+  for (const chart of [equityChart, hftChart, hftPriceChart, labChart]) {
     if (!chart) continue;
     const ds = chart.data.datasets[0];
     ds.borderColor = cssVar('--chart-line');
@@ -3320,7 +3413,15 @@ async function refreshStats() {
   const transitioning = lifecycle === 'starting' || lifecycle === 'stopping';
   $('#btnStart').disabled = engineActionBusy || !!s.engine_running || transitioning;
   $('#btnStop').disabled = engineActionBusy || !s.engine_running || transitioning;
-  $('#intervalSel').disabled = !!s.engine_running || transitioning;
+  /* the Interval select used to be DISABLED whenever the engine ran, so the
+     cadence could only be changed by stopping and restarting the engine (a
+     full rebuild: Kronos probe, book lease, position restore). The loop now
+     re-reads its interval every cycle, so the control stays live. */
+  $('#intervalSel').disabled = transitioning;
+  if (document.activeElement !== $('#intervalSel') && s.interval &&
+      [...$('#intervalSel').options].some(o => +o.value === s.interval)) {
+    $('#intervalSel').value = String(s.interval);
+  }
 
   /* manual pause: banner + button flip. Reported for a stopped engine too —
      the flag is a file that outlives any engine run, and a pause must never
@@ -3410,6 +3511,15 @@ async function stopEngine() {
   finally { engineActionBusy = false; }
   refreshStats();
 }
+$('#intervalSel').addEventListener('change', async () => {
+  const interval = parseInt($('#intervalSel').value, 10);
+  try {
+    const r = await jpost('/api/engine/interval', {interval: interval});
+    toast('Cycle interval ' + interval + 's', r.running
+      ? 'applies from the next cycle' : 'saved — used when the engine starts');
+    addMsg('[engine] interval -> ' + interval + 's', 'bot');
+  } catch (e) { toastErr('Could not change the interval', e); }
+});
 $('#btnStart').addEventListener('click', startEngine);
 $('#btnStop').addEventListener('click', stopEngine);
 
@@ -3440,17 +3550,93 @@ $('#btnPause').addEventListener('click', togglePause);
    The separate high-frequency paper account: its own stats poll, equity
    chart, ALL-trades history table and decision feed — mode='hft' rows only,
    so the standard book's pages above never mix in HFT records. */
-let hftChart = null;
+let hftChart = null, hftPriceChart = null;
 let hftAutoResumeToasted = false;
-let hftDefaultInterval = 20;
+let hftDefaultInterval = 2;
+let hftMarket = '';
+let hftRegisteredStrategies = [];
+async function loadHftStrategies() {
+  /* one source of truth for "what can run on the 1m book": the Lab meta
+     endpoint derives it from the strategy registry */
+  try {
+    const meta = await jget('/api/lab/meta');
+    hftRegisteredStrategies = ((meta.strategies || {}).hft || {})['1m'] || [];
+    hftRegisteredStrategies = hftRegisteredStrategies.filter(x => x !== 'all' && x !== 'ensemble');
+  } catch (e) { /* the filter falls back to strategies seen in trades */ }
+}
 function buildHftEquityChart() {
   hftChart = buildLineChart('#hftEquityChart', 'HFT equity');
 }
+/* the 1m price chart: two series (close + EMA20) and a PRICE axis — the
+   equity factory formats its axis as dollars, which is wrong for a cross
+   like ETH/BTC (0.032). Before this card the HFT page could only show a
+   flat equity line, so a running engine looked identical to a dead market. */
+function buildHftPriceChart() {
+  hftPriceChart = new Chart($('#hftPriceChart'), {
+    type: 'line',
+    data: {labels: [], datasets: [
+      {label: 'close', data: [], borderColor: cssVar('--chart-line'),
+       backgroundColor: cssVar('--chart-fill'), fill: true, tension: .15,
+       pointRadius: 0, borderWidth: 2},
+      {label: 'EMA20', data: [], borderColor: cssVar('--color-blue'),
+       fill: false, tension: .15, pointRadius: 0, borderWidth: 1,
+       borderDash: [4, 3]}]},
+    options: {responsive: true, maintainAspectRatio: false,
+      animation: reduceMotion ? false : {duration: 200},
+      plugins: {legend: {display: false}, tooltip: {backgroundColor: cssVar('--color-card'),
+        borderColor: cssVar('--color-border'), borderWidth: 1,
+        titleColor: cssVar('--color-foreground'), bodyColor: cssVar('--color-muted-foreground'),
+        titleFont: {family: 'Fira Code'}, bodyFont: {family: 'Fira Code'},
+        callbacks: {label: c => ' ' + c.dataset.label + ' ' + fmtPx(c.parsed.y, hftMarket)}}},
+      scales: {x: {ticks: {maxTicksLimit: 8, color: cssVar('--color-muted-foreground'),
+                           font: {family: 'Fira Code', size: 10}},
+                   grid: {color: cssVar('--chart-grid')}},
+               y: {ticks: {color: cssVar('--color-muted-foreground'),
+                           font: {family: 'Fira Code', size: 10},
+                           callback: v => fmtPx(v, hftMarket)},
+                   grid: {color: cssVar('--chart-grid')}}}}
+  });
+}
+async function refreshHftPrice() {
+  if (!hftPriceChart) return;
+  let d;
+  try { d = await jget('/api/hft/candles?limit=180' +
+                       (hftMarket ? '&symbol=' + encodeURIComponent(hftMarket) : '')); }
+  catch (e) { return; }
+  hftMarket = d.symbol || hftMarket;
+  const sel = $('#hftMarketSel');
+  if (sel.options.length !== (d.markets || []).length) {
+    sel.innerHTML = (d.markets || []).map(m =>
+      '<option value="' + esc(m) + '">' + esc(m) + '</option>').join('');
+  }
+  sel.value = hftMarket;
+  const bars = d.bars || [];
+  $('#hftPriceEmpty').hidden = bars.length > 0;
+  if (!bars.length) return;
+  const chg = d.change_pct || 0;
+  $('#hftPriceHint').textContent = bars.length + ' × 1m · ' +
+    (chg >= 0 ? '+' : '') + chg.toFixed(2) + '% over the window · last ' +
+    fmtPx(bars[bars.length - 1].close, hftMarket);
+  hftPriceChart.data.labels = bars.map(b => fmtTs(b.ts));
+  hftPriceChart.data.datasets[0].data = bars.map(b => b.close);
+  hftPriceChart.data.datasets[1].data = bars.map(b => b.ema20);
+  hftPriceChart.update(reduceMotion ? 'none' : undefined);
+}
+$('#hftMarketSel').addEventListener('change', () => {
+  hftMarket = $('#hftMarketSel').value; refreshHftPrice();
+});
 
 async function refreshHft() {
   let s;
   try { s = await jget('/api/hft/stats'); } catch (e) { return; }
   hftDefaultInterval = s.interval || hftDefaultInterval;
+  /* follow the ENGINE's cadence unless the operator is mid-choice */
+  if (document.activeElement !== $('#hftIntervalSel') &&
+      [...$('#hftIntervalSel').options].some(o => +o.value === hftDefaultInterval)) {
+    $('#hftIntervalSel').value = String(hftDefaultInterval);
+  }
+  if (!hftRegisteredStrategies.length) loadHftStrategies();
+  refreshHftPrice();
   $('#hftFeeHint').textContent = 'fee tier: ' + (s.fee_tier || 'perp') +
     ' · capital ' + fmt$(s.capital) + ' · 1m bars';
   const cards = [
@@ -3498,8 +3684,13 @@ async function refreshHft() {
   /* ALL HFT trades — the one place for the high-frequency history */
   let trades;
   try { trades = await jget('/api/hft/trades?limit=1000'); } catch (e) { trades = []; }
+  /* the picker lists every strategy REGISTERED for the 1m book, not just the
+     ones that happen to appear in the trade history — with an empty history
+     (which is the normal state of a fresh book) it used to render a single
+     "all strategies" option, so the control looked broken. */
   const sel = $('#hftStratFilter');
-  syncStrategyFilter(sel, [...new Set(trades.map(t => t.strategy))].sort());
+  const seen = trades.map(t => t.strategy).filter(Boolean);
+  syncStrategyFilter(sel, [...new Set([...hftRegisteredStrategies, ...seen])].sort());
   const filter = sel.value;
   const rows = filter ? trades.filter(t => t.strategy === filter) : trades;
   const tbody = $('#hftTradeTable tbody');
@@ -3523,13 +3714,27 @@ async function refreshHft() {
     d => (d.symbol === 'TRI-ETH' ? ' <span class="tag demo">arb</span>' : ''));
 }
 $('#hftStratFilter').addEventListener('change', refreshHft);
+/* cadence is changeable while the book RUNS: both engine loops re-read their
+   interval every cycle, so this lands on the next wake instead of needing a
+   stop/start (the select used to be a start-time-only value). */
+$('#hftIntervalSel').addEventListener('change', async () => {
+  const interval = parseInt($('#hftIntervalSel').value, 10);
+  hftDefaultInterval = interval;
+  try {
+    const r = await jpost('/api/hft/engine/interval', {interval: interval});
+    toast('HFT cadence ' + interval + 's', r.running
+      ? 'applies from the next cycle' : 'saved — used when the book starts');
+  } catch (e) { toastErr('Could not change the HFT interval', e); }
+});
 
 async function startHftEngine() {
   try {
-    const r = await jpost('/api/hft/engine/start', {interval: hftDefaultInterval});
+    const interval = parseInt($('#hftIntervalSel').value, 10) || hftDefaultInterval;
+    hftDefaultInterval = interval;
+    const r = await jpost('/api/hft/engine/start', {interval: interval});
     toast('HFT engine ' + (r.status === 'started' ? 'started' : r.status),
-          'cycle interval ' + hftDefaultInterval + 's · 1m bars', r.status !== 'error');
-    addMsg('[hft] engine started — interval ' + hftDefaultInterval + 's', 'bot');
+          'cycle interval ' + interval + 's · 1m bars', r.status !== 'error');
+    addMsg('[hft] engine started — interval ' + interval + 's', 'bot');
   } catch (e) { toastErr('Could not start HFT engine', e); }
   refreshHft();
 }
@@ -4379,6 +4584,7 @@ if (typeof Chart === 'undefined') {
 } else {
   buildEquityChart();
   buildHftEquityChart();
+  buildHftPriceChart();
   buildLabEquityChart();
 }
 /* sync the switcher + browser chrome with the theme <head> already applied;

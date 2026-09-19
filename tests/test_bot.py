@@ -2544,6 +2544,89 @@ def test_validation_report_renderer():
     assert "| 1 | 3 | +2.00 | 33.3 |" in md   # path table
 
 
+def test_engine_interval_is_changeable_while_running():
+    """REGRESSION: the loop captured its interval as a thread argument and the
+    UI disabled the Interval select whenever the engine ran — the cadence
+    could only be changed by stopping and restarting the engine (which
+    rebuilds it: Kronos probe, book lease, position restore). Both loops now
+    re-read the module global every cycle, and an endpoint sets it."""
+    import bot.dashboard as dash
+    from fastapi.testclient import TestClient
+    client = TestClient(dash.app, base_url="http://127.0.0.1")
+    src = dash.__file__
+    with open(src) as f:
+        code = f.read()
+    # the sleep must be computed from the GLOBAL, never the captured argument
+    assert "remaining = max(0.0, _engine_interval - (time.monotonic() - cycle_t0))" in code
+    assert "remaining = max(0.0, _hft_interval - (time.monotonic() - cycle_t0))" in code
+    # ...and the UI must not disable the control while the engine runs
+    assert "$('#intervalSel').disabled = transitioning;" in code
+
+    original, original_hft = dash._engine_interval, dash._hft_interval
+    try:
+        r = client.post("/api/engine/interval", json={"interval": 300})
+        assert r.status_code == 200 and r.json()["interval"] == 300
+        assert dash._engine_interval == 300
+        # the select follows /api/stats — the endpoint the UI actually polls
+        # (asserted on the source: /api/stats reads the journal, whose test
+        # tmp dirs are gone by the time the full suite reaches this test)
+        assert 'stats["interval"] = _engine_interval' in code
+        # ...and a STOPPED engine reports the chosen cadence, not the config
+        # default (which snapped the control back after every change)
+        assert client.get("/api/engine/status").json()["interval"] == 300
+        r = client.post("/api/hft/engine/interval", json={"interval": 5})
+        assert r.status_code == 200 and dash._hft_interval == 5
+        assert 'stats["interval"] = _hft_interval' in code
+        # the validated floors still hold (interval=0 was a hot loop)
+        assert client.post("/api/engine/interval", json={"interval": 0}).status_code == 422
+        assert client.post("/api/hft/engine/interval", json={"interval": 0}).status_code == 422
+    finally:
+        dash._engine_interval, dash._hft_interval = original, original_hft
+
+
+def test_hft_candles_endpoint_serves_the_engines_own_bars(monkeypatch):
+    """The HFT page could only plot equity — a flat line until the first fill,
+    so a running engine looked identical to a dead market. The candles
+    endpoint serves the same frames the engine decides on."""
+    import bot.dashboard as dash
+    import bot.data as data_mod
+    from fastapi.testclient import TestClient
+    idx = pd.date_range("2024-01-01", periods=120, freq="1min", tz="UTC")
+    frame = pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0,
+                          "close": np.linspace(100, 110, 120), "volume": 5.0},
+                         index=idx)
+    monkeypatch.setattr(data_mod.MarketData, "latest", lambda self, spec: frame)
+    client = TestClient(dash.app, base_url="http://127.0.0.1")
+    r = client.get("/api/hft/candles?limit=50")
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["symbol"] in payload["markets"]
+    assert "BTC/USDT" in payload["markets"]          # the 1m watchlist
+    assert len(payload["bars"]) == 50
+    assert payload["bars"][0]["ema20"] > 0 and payload["change_pct"] > 0
+    # an off-watchlist symbol is a 404, not a silent default
+    assert client.get("/api/hft/candles?symbol=DOGE/USDT").status_code == 404
+
+
+def test_hft_strategy_filter_lists_registered_strategies_not_just_traded_ones():
+    """The HFT trade filter was populated from the strategies appearing in the
+    trade history, so on an empty book (the normal state of a fresh account)
+    it rendered exactly one option and looked broken. It now seeds from the
+    registry via /api/lab/meta."""
+    import bot.dashboard as dash
+    from bot.strategies import HFT_STRATEGY_NAMES
+    from fastapi.testclient import TestClient
+    client = TestClient(dash.app, base_url="http://127.0.0.1")
+    meta = client.get("/api/lab/meta").json()
+    registered = meta["strategies"]["hft"]["1m"]
+    for name in HFT_STRATEGY_NAMES:
+        assert name in registered, name
+    with open(dash.__file__) as f:
+        code = f.read()
+    assert "hftRegisteredStrategies" in code
+    assert "syncStrategyFilter(sel, [...new Set([...hftRegisteredStrategies, ...seen])].sort());" in code
+
+
 def test_dashboard_evidence_endpoint_smoke():
     """/api/evidence serves all four payload sections and tolerates missing
     artifacts (empty dirs, no ledger file) instead of erroring."""
@@ -4991,9 +5074,11 @@ def test_hft_orchestrator_votes_on_1m():
     """HFT strategies must carry nonzero vote weight: weights.get(name, 0.0)
     would silence them forever on 1m specs."""
     from bot.orchestrator import REGIME_WEIGHTS
-    from bot.strategies import HFT_STRATEGY_NAMES
+    from bot.strategies import CANDIDATE_STRATEGIES, HFT_STRATEGY_NAMES
+    voters = [n for n in HFT_STRATEGY_NAMES if n not in CANDIDATE_STRATEGIES]
+    assert voters, "the 1m book has no voting strategy left"
     for regime, weights in REGIME_WEIGHTS.items():
-        for name in HFT_STRATEGY_NAMES:
+        for name in voters:
             assert weights.get(name, 0.0) > 0, (regime, name)
 
 
@@ -5081,10 +5166,10 @@ def test_hft_backtest_maker_entry_flow():
 
 
 def test_hft_strategies_causality_and_exits():
-    """All three HFT strategies: warmup -> FLAT, entries -> valid brackets,
+    """Every HFT strategy: warmup -> FLAT, entries -> valid brackets,
     and truncating history at bar i never changes the bar-i signal."""
-    from bot.strategies import get_strategy
-    spec_strats = ["hft_micro_breakout", "hft_exhaustion_fade", "hft_market_maker"]
+    from bot.strategies import HFT_STRATEGY_NAMES, get_strategy
+    spec_strats = list(HFT_STRATEGY_NAMES)
     df = add_all_indicators(make_df(100 * np.cumprod(
         1 + np.random.default_rng(9).normal(0, 0.002, 700)), freq="1min"))
     for name in spec_strats:
@@ -5093,7 +5178,7 @@ def test_hft_strategies_causality_and_exits():
         # three; the fade's 100-bar sigma window stays NaN past that, and the
         # breakout's 30-bar range needs 31 bars — but the MM quotes from ~bar 20)
         assert s.evaluate(df, 10).action == "FLAT", name
-        if name != "hft_market_maker":
+        if name not in ("hft_market_maker", "hft_ofi_momentum"):
             assert s.evaluate(df, 30).action == "FLAT", name
         for i in (450, 500, 600):
             sig = s.evaluate(df, i)
@@ -5105,6 +5190,150 @@ def test_hft_strategies_causality_and_exits():
                 sig2 = s.evaluate(trunc, i)
                 assert sig2.action == sig.action, (name, i)
                 assert abs((sig2.confidence or 0) - (sig.confidence or 0)) < 1e-9, (name, i)
+
+
+def test_hft_strategy_stops_clear_the_risk_managers_dust_floor():
+    """REGRESSION (the HFT book traded 0 times in a week of running): the 1m
+    strategies sized stops off raw ATR with no reference to the fee tier,
+    while RiskManager.approve refuses any stop below the modeled taker round
+    trip as dust. On a quiet 1m tape (BTC ATR ~5-8bp vs a 16bp perp round
+    trip) that vetoed EVERY entry — 15 entry decisions, 0 trades, no error
+    anywhere. Any directional signal a 1m strategy emits must now survive
+    approve() rather than being journaled and silently killed."""
+    from bot.hft import build_hft_config
+    from bot.orchestrator import Decision
+    from bot.risk import RiskManager
+    from bot.strategies import HFT_STRATEGY_NAMES, get_strategy
+    from config import MarketSpec
+
+    cfg = build_hft_config(fee_tier="perp")
+    risk = RiskManager(cfg)
+    spec = MarketSpec("crypto", "BTC/USDT", "1m")
+    rng = np.random.default_rng(5)
+    checked = 0
+    # a QUIET tape (2bp/bar) is the regime that produced the bug, plus a
+    # lively one so the strategies still trade when the vol pays for it
+    for sigma in (0.0002, 0.003):
+        df = add_all_indicators(make_df(
+            50_000 * np.cumprod(1 + rng.normal(0, sigma, 700)), freq="1min"))
+        for name in HFT_STRATEGY_NAMES:
+            s = get_strategy(name, cfg.params)
+            for i in range(450, 700, 7):
+                sig = s.evaluate(df, i)
+                if sig.action == "FLAT":
+                    continue
+                price = float(df["close"].iloc[i])
+                d = Decision(action=sig.action, confidence=sig.confidence,
+                             stop_distance=sig.stop_distance,
+                             target_rr=sig.target_rr, price=price)
+                a = risk.approve(d, spec, cfg.paper_capital, 0,
+                                 has_position_on_symbol=False,
+                                 open_gross_notional=0.0)
+                assert "dust" not in (a.reason or ""), (name, sigma, a.reason)
+                checked += 1
+    assert checked, "no directional signals produced — the test proves nothing"
+
+
+def test_hft_cost_floors_follow_the_fee_tier():
+    """The floors are DERIVED from the book's fee schedule, never hand-set:
+    switching HFT_FEE_TIER must move every 1m strategy's minimum stop and the
+    market maker's minimum quote width together."""
+    from bot.hft import build_hft_config
+    from bot.strategies.hft import _maker_width_floor_bps, _stop_floor
+
+    perp = build_hft_config(fee_tier="perp").params
+    spot = build_hft_config(fee_tier="spot").params
+    # perp: taker 5bp + slip 3bp, twice = 16bp; maker-in/taker-out = 10bp
+    assert perp.hft_cost_floor_bps == 16.0 and perp.hft_maker_cost_floor_bps == 10.0
+    # spot: taker 10bp + slip 5bp, twice = 30bp (maker fee == taker on spot)
+    assert spot.hft_cost_floor_bps == 30.0 and spot.hft_maker_cost_floor_bps == 25.0
+    assert _stop_floor(spot, 100.0) > _stop_floor(perp, 100.0)
+    assert _maker_width_floor_bps(spot) > _maker_width_floor_bps(perp)
+    # the MM's quote can never be narrower than its own maker round trip:
+    # a 2bp half-width against a 10bp round trip loses on every fill
+    from bot.strategies import get_strategy
+    mm = get_strategy("hft_market_maker", perp)
+    df = add_all_indicators(make_df(50_000 * np.cumprod(
+        1 + np.random.default_rng(3).normal(0, 0.0002, 400)), freq="1min"))
+    hw = mm._half_width(df, 350, float(df["close"].iloc[350]))
+    assert hw is not None
+    hw_bps = hw / float(df["close"].iloc[350]) * 1e4
+    assert hw_bps >= perp.hft_maker_cost_floor_bps
+
+
+def test_hft_ofi_momentum_signals_and_flow_exit():
+    """The OFI strategy trades the direction of a signed-volume imbalance
+    (Cont/Kukanov/Stoikov) and exits when that flow reverses."""
+    from bot.hft import build_hft_config
+    from bot.strategies import get_strategy
+    params = build_hft_config(fee_tier="perp").params
+    s = get_strategy("hft_ofi_momentum", params)
+    # a trending tape with enough vol to clear the cost floor
+    df = add_all_indicators(make_df(50_000 * np.cumprod(
+        1 + np.random.default_rng(4).normal(0.0006, 0.004, 700)), freq="1min"))
+    actions = [s.evaluate(df, i).action for i in range(450, 700)]
+    assert any(a in ("LONG", "SHORT") for a in actions), "never fires on a live tape"
+    for i in range(450, 700, 11):
+        sig = s.evaluate(df, i)
+        if sig.action != "FLAT":
+            assert sig.stop_distance > 0 and sig.target_rr == params.hft_ofi_target_rr
+            # causality: the same bar on a truncated frame decides the same
+            assert s.evaluate(df.iloc[: i + 1], i).action == sig.action
+
+    class _Pos:
+        side = "long"
+        bars_held = 0
+    # flow reversal exits regardless of the time stop
+    z = [s._imbalance_z(df, i) for i in range(450, 700)]
+    flipped = next((450 + k for k, v in enumerate(z)
+                    if v <= -params.hft_ofi_z_entry), None)
+    if flipped is not None:
+        assert s.check_exit(df, flipped, _Pos())[0] == "flow reversed"
+    _Pos.bars_held = params.hft_ofi_time_stop
+    assert s.check_exit(df, 690, _Pos())[0] in ("flow reversed", "time stop")
+
+
+def test_every_hft_strategy_votes_or_is_a_declared_candidate():
+    """A strategy missing from REGIME_WEIGHTS gets weights.get(name, 0.0) —
+    it would evaluate every bar and count for nothing, silently. Every
+    registered strategy must therefore either carry a weight in BOTH regimes
+    or be a declared (non-voting) candidate; nothing in between."""
+    from bot.orchestrator import REGIME_WEIGHTS
+    from bot.strategies import CANDIDATE_STRATEGIES, STRATEGY_CLASSES
+    for regime, weights in REGIME_WEIGHTS.items():
+        for name in STRATEGY_CLASSES:
+            if name in CANDIDATE_STRATEGIES:
+                assert weights.get(name, 0.0) == 0.0, (regime, name)
+            else:
+                assert weights.get(name, 0.0) > 0, (regime, name)
+
+
+def test_candidate_strategies_never_steer_a_live_decision():
+    """A candidate must not reach the vote AT ALL: `best` picks the stop and
+    the maker limit by confidence regardless of weight, and the conflict
+    guard counts any strong directional signal — so a zero-weight candidate
+    left in the evaluation loop would still change live decisions."""
+    from bot.orchestrator import Orchestrator
+    from bot.strategies import CANDIDATE_STRATEGIES
+    from config import MarketSpec
+    assert CANDIDATE_STRATEGIES, "the invariant is vacuous with no candidates"
+    orch = Orchestrator()
+    seen = {}
+    for name, strat in orch.strategies.items():
+        orig = strat.evaluate
+        seen[name] = 0
+
+        def counted(df, i, _n=name, _o=orig):
+            seen[_n] += 1
+            return _o(df, i)
+        strat.evaluate = counted
+    df = add_all_indicators(make_df(50_000 * np.cumprod(
+        1 + np.random.default_rng(6).normal(0, 0.003, 700)), freq="1min"))
+    orch.decide(df, 650, MarketSpec("crypto", "BTC/USDT", "1m"),
+                include_sentiment=False)
+    assert seen["hft_market_maker"] > 0            # the 1m incumbents ran
+    for name in CANDIDATE_STRATEGIES:
+        assert seen[name] == 0, name
 
 
 def test_hft_exhaustion_fade_maker_entry():

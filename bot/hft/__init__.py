@@ -34,6 +34,26 @@ def hft_fee_tier() -> str:
     return tier if tier in ("perp", "spot") else "perp"
 
 
+def _cost_floor_params(costs, params):
+    """Derive the 1m strategies' cost floors from the book's ACTUAL fee tier.
+
+    RiskManager.approve refuses any stop tighter than the modeled taker round
+    trip, so a strategy whose stop is below it can only ever produce vetoed
+    decisions (measured: 15 entry decisions, 0 trades on the live 1m book).
+    The floors live in StrategyParams so both the live engine and the
+    backtester read the same numbers through cfg.params — parity by
+    construction, and switching HFT_FEE_TIER moves every floor together."""
+    from dataclasses import replace as _replace
+    # crypto leg is the binding case (the widest round trip in the universe);
+    # forex 1m legs are cheaper and clear the same floor comfortably
+    taker_rt = (costs.fee("crypto") + costs.slippage("crypto")) * 2.0 * 1e4
+    maker_rt = (costs.fee("crypto", maker=True) + costs.slippage("crypto", maker=True)
+                + costs.fee("crypto") + costs.slippage("crypto")) * 1e4
+    return _replace(params,
+                    hft_cost_floor_bps=round(taker_rt, 2),
+                    hft_maker_cost_floor_bps=round(maker_rt, 2))
+
+
 def build_hft_config(fee_tier: str | None = None) -> Config:
     """A Config for the HFT book: HFT_WATCHLIST universe, HFT capital/cadence,
     tightened risk dials, and the book's own fee schedule. Built via
@@ -51,6 +71,7 @@ def build_hft_config(fee_tier: str | None = None) -> Config:
                    min_confidence=h.min_confidence,
                    min_rr_per_trade=0.3)
     return replace(CONFIG,
+                   params=_cost_floor_params(costs, CONFIG.params),
                    watchlist=list(HFT_WATCHLIST),
                    paper_capital=h.paper_capital,
                    live_interval_seconds=h.live_interval_seconds,

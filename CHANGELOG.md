@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] — the HFT book actually trades; live engine controls
+
+**The 1m book had produced 15 entry decisions and 0 trades.** Two correct
+pieces with nothing connecting them: `RiskManager.approve` refuses a stop
+tighter than the modeled round trip ("tiny stop (dust)"), and the 1m
+strategies sized stops off raw ATR with no reference to that number. On a
+quiet tape (BTC ATR ~5-8bp vs a 16bp perp round trip) the market maker
+quoted 2bp half-widths -> 6bp stop -> vetoed, every time, silently.
+
+- Cost floors are now DERIVED from the book's fee tier in `build_hft_config`
+  and carried in `StrategyParams`, so the engine and the backtester read the
+  same numbers and `HFT_FEE_TIER=spot` moves them together (16 -> 30bp).
+  Each 1m strategy refuses a setup it cannot pay for itself, with a readable
+  rationale. Market maker, BTC 3d perp: trades 316 -> 63, win rate
+  22% -> 70%, PF 0.11 -> 0.57 (still < 1 — honest trading, not a new edge).
+- `hft_ofi_momentum` (Cont/Kukanov/Stoikov order-flow imbalance) added as a
+  measured CANDIDATE: registered for the Lab and the battery, skipped by the
+  live orchestrator. It did not beat the incumbents (PF 0.32/0.68), so it
+  does not get a vote — same evidence standard Kronos lives under.
+- **Engine control: the interval is changeable while the engine runs.** Both
+  loops re-read their cadence every cycle (it was captured at thread start),
+  `POST /api/engine/interval` + `/api/hft/engine/interval` set it, and the UI
+  select is no longer disabled while running. A stopped engine now reports
+  the CHOSEN cadence instead of the config default.
+- **HFT tab:** a live 1m price chart (close + EMA20, `GET /api/hft/candles`,
+  the same frames the engine decides on) — the page could previously only
+  plot a flat equity line, so a running engine looked like a dead market.
+  The strategy filter is seeded from the registry instead of from the trade
+  history, so it is populated on an empty book. The HFT engine card gained
+  its own interval select.
+- 289 tests.
+
 ## [Unreleased] — Kronos horizon policy for sub-5m books
 
 - **Kronos was a permanent silent no-op on the whole HFT book.** The

@@ -358,7 +358,8 @@ class TradingEngine:
                 # standard book keeps its evaluate-every-cycle behavior.)
                 bar_ts = str(df.index[-1])
                 if self.mode == "hft":
-                    if self._last_bar_ts.get(key) == bar_ts:
+                    if (self._last_bar_ts.get(key) == bar_ts
+                            and key not in self._replay_pending):
                         continue
                     self._last_bar_ts[key] = bar_ts
                 due.append((spec, df))
@@ -724,8 +725,9 @@ class TradingEngine:
                             summary, bar_epoch=bar_epoch, write_equity=False)
                 return
             if key in self._replay_pending:
+                replay_closed = self._replay_missed_bars(spec, pos, df, summary)
                 self._replay_pending.discard(key)
-                if self._replay_missed_bars(spec, pos, df, summary):
+                if replay_closed:
                     return
             self._manage_position(spec, pos, df, i, summary, bar_epoch=bar_epoch)
             return

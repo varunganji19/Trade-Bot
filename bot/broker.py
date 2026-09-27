@@ -309,30 +309,28 @@ class PaperBroker:
         except (KeyError, TypeError, ValueError):
             open_ = None
 
-        def gap_fill(level: float, is_stop: bool) -> float:
-            # fill at the open when the bar gapped past the level
-            if open_ is None:
-                return level
+        # The open is the first observed price. A gap through one bracket
+        # level exits there even if the bar later reverses through the other.
+        if open_ is not None:
             if pos.side == "long":
-                gapped_through = open_ <= level if is_stop else open_ >= level
-                fill = open_ if gapped_through else level
-                if is_stop:
-                    fill = min(fill, level)  # never better than the stop
-                return fill
-            gapped_through = open_ >= level if is_stop else open_ <= level
-            fill = open_ if gapped_through else level
-            if is_stop:
-                fill = max(fill, level)  # never better than the stop
-            return fill
+                if pos.stop is not None and open_ <= pos.stop:
+                    return "stop loss", open_
+                if pos.target is not None and open_ >= pos.target:
+                    return "take profit", open_
+            else:
+                if pos.stop is not None and open_ >= pos.stop:
+                    return "stop loss", open_
+                if pos.target is not None and open_ <= pos.target:
+                    return "take profit", open_
 
         if pos.side == "long":
             if pos.stop is not None and low <= pos.stop:
-                return "stop loss", gap_fill(pos.stop, is_stop=True)
+                return "stop loss", pos.stop
             if pos.target is not None and high >= pos.target:
-                return "take profit", gap_fill(pos.target, is_stop=False)
+                return "take profit", pos.target
         else:
             if pos.stop is not None and high >= pos.stop:
-                return "stop loss", gap_fill(pos.stop, is_stop=True)
+                return "stop loss", pos.stop
             if pos.target is not None and low <= pos.target:
-                return "take profit", gap_fill(pos.target, is_stop=False)
+                return "take profit", pos.target
         return None, None

@@ -626,6 +626,27 @@ def test_broker_gap_through_target_fills_at_open():
     assert px >= pos.target - 1e-9     # limit fills are never worse than the level
 
 
+def test_broker_open_gap_exits_before_intrabar_reversal():
+    """The opening gap is observed before either extreme within the bar."""
+    for side in ("LONG", "SHORT"):
+        b = PaperBroker(10_000)
+        d = _dec(side, 0.8, stop=5.0, price=100.0)
+        d.target_rr = 2.0
+        pos = b.open_position(CRYPTO_1H, d, qty=1.0, price=100.0, trade_id=1)
+        if side == "LONG":
+            target_gap = {"open": pos.target + 5, "high": pos.target + 6,
+                          "low": pos.stop - 1}
+            stop_gap = {"open": pos.stop - 2, "high": pos.target + 1,
+                        "low": pos.stop - 3}
+        else:
+            target_gap = {"open": pos.target - 5, "high": pos.stop + 1,
+                          "low": pos.target - 6}
+            stop_gap = {"open": pos.stop + 2, "high": pos.stop + 3,
+                        "low": pos.target - 1}
+        assert b.scan_bar_exits(CRYPTO_1H, target_gap) == ("take profit", target_gap["open"])
+        assert b.scan_bar_exits(CRYPTO_1H, stop_gap) == ("stop loss", stop_gap["open"])
+
+
 # ------------------------------------------------------- maker/limit cost model
 def _open_long_with_target(b, target_rr=2.0, qty=1.0, stop=5.0):
     d = _dec("LONG", 0.8, stop=stop, price=100.0)
@@ -2138,6 +2159,91 @@ def test_engine_replays_missed_stop_breach_after_restart():
             assert summary["closed"] and summary["closed"][0]["reason"] == "stop loss"
         finally:
             CONFIG.db_path = old_db
+
+
+def test_engine_retries_failed_replay_close_on_same_hft_bar():
+    """A failed journal close must preserve replay even on an HFT re-poll."""
+    from dataclasses import replace
+    from bot.engine import TradingEngine
+    from bot.journal import Journal
+
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    df = make_df(np.linspace(100.0, 104.0, 80))
+    entry_i = len(df) - 7
+    breach_i = len(df) - 4
+    entry_px = float(df["close"].iloc[entry_i])
+    stop = entry_px - 2.0
+    df.iloc[breach_i, df.columns.get_loc("low")] = stop - 1.0
+    key = (spec.symbol, spec.timeframe)
+
+    with tempfile.TemporaryDirectory() as td:
+        db_path = os.path.join(td, "t.db")
+        journal = Journal(db_path)
+        journal.add_equity(10_000.0, 10_000.0, mode="hft")
+        trade_id = journal.open_trade(
+            spec.symbol, "long", 1.0, entry_px, stop, None,
+            "turtle_trend", "r", mode="hft", timeframe="1h",
+            opened_ts=str(df.index[entry_i]),
+            decision_bar_ts=float(df.index[entry_i].timestamp()))
+        cfg = replace(CONFIG, db_path=db_path, watchlist=[spec])
+        eng = TradingEngine(cfg=cfg, mode="hft", quiet=True, journal=journal)
+        eng.market_data.latest = lambda _spec: df
+        assert key in eng._replay_pending
+        original_close = journal.close_trade
+        attempts = 0
+
+        def fail_once(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise sqlite3.OperationalError("simulated journal failure")
+            return original_close(*args, **kwargs)
+
+        journal.close_trade = fail_once
+        cash_before = eng.broker.cash
+        first = eng.run_cycle()
+        assert first["errors"] and not first["closed"]
+        assert key in eng.broker.positions
+        assert eng.broker.cash == cash_before
+        assert key in eng._replay_pending
+        assert journal.recent_trades()[0]["status"] == "OPEN"
+
+        second = eng.run_cycle()  # exact same closed bar as the failed cycle
+        assert attempts == 2
+        assert key not in eng.broker.positions
+        assert key not in eng._replay_pending
+        assert second["closed"][0]["reason"] == "stop loss"
+        assert journal.recent_trades()[0]["id"] == trade_id
+        assert journal.recent_trades()[0]["status"] == "CLOSED"
+
+
+def test_engine_clears_replay_after_clean_scan():
+    """A successful scan with no historical breach should run only once."""
+    from bot.engine import TradingEngine
+    from bot.journal import Journal
+
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    df = make_df(np.linspace(100.0, 104.0, 80))
+    key = (spec.symbol, spec.timeframe)
+    with tempfile.TemporaryDirectory() as td:
+        db_path = os.path.join(td, "t.db")
+        journal = Journal(db_path)
+        journal.add_equity(10_000.0, 10_000.0, mode="paper")
+        journal.open_trade(
+            spec.symbol, "long", 1.0, 103.0, 90.0, None,
+            "turtle_trend", "r", mode="paper", timeframe="1h",
+            opened_ts=str(df.index[-7]),
+            decision_bar_ts=float(df.index[-7].timestamp()))
+        from dataclasses import replace
+        eng = TradingEngine(cfg=replace(CONFIG, db_path=db_path, watchlist=[spec]),
+                            mode="paper", quiet=True, journal=journal)
+        managed = []
+        eng._manage_position = lambda *args, **kwargs: managed.append(True)
+        summary = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+        eng._process_market(spec, summary, df)
+        assert key not in eng._replay_pending
+        assert managed == [True]
+        assert key in eng.broker.positions
 
 
 def test_engine_no_phantom_stop_on_entry_bar():

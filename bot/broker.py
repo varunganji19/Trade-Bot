@@ -97,6 +97,7 @@ class Position:
     entry_fee: float | None = None  # entry-leg fee, deferred into close_position pnl
     entry_bar_ts: float = 0.0   # epoch of the DECISION bar (bar-time clock for bars_held)
     initial_stop: float | None = None  # fill-time stop level, never trailed (R ground truth)
+    stop_effective_bar_ts: float | None = None  # trail active only after this closed bar
 
 
 class PaperBroker:
@@ -282,6 +283,8 @@ class PaperBroker:
                        else self._fee(row["entry_price"] * row["qty"], kind)),
             entry_bar_ts=entry_bar_ts,
             initial_stop=initial,
+            stop_effective_bar_ts=(row["stop_effective_bar_ts"]
+                                   if "stop_effective_bar_ts" in row.keys() else None),
         )
         self.positions[self.position_key(pos.symbol, pos.timeframe)] = pos
         return pos

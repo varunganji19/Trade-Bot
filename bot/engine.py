@@ -361,7 +361,6 @@ class TradingEngine:
                     if (self._last_bar_ts.get(key) == bar_ts
                             and key not in self._replay_pending):
                         continue
-                    self._last_bar_ts[key] = bar_ts
                 due.append((spec, df))
 
             # marks come from HELD positions (any book — including a spec no
@@ -383,6 +382,10 @@ class TradingEngine:
             # PASS 2 — manage + decide in watchlist order.
             for spec, df in due:
                 self._process_market(spec, summary, df)
+                if self.mode == "hft":
+                    # A failed journal write must leave this bar eligible for
+                    # the next poll, including stop updates and exits.
+                    self._last_bar_ts[(spec.symbol, spec.timeframe)] = str(df.index[-1])
 
             # progressed = this cycle actually saw a new bar. The HFT book
             # polls every 2s against 1m bars, so most cycles are idle re-polls:
@@ -877,11 +880,12 @@ class TradingEngine:
 
     def _replay_missed_bars(self, spec: MarketSpec, pos, df, summary: dict) -> bool:
         """After a restart, scan every closed bar since the position's decision
-        bar — the engine was down for some of them, and a stop breach during
+        bar or latest recorded stop activation, whichever is later. A breach during
         downtime must still exit even if the latest bar's range is back inside
         the levels. Hard stop/target only: strategy check_exit needs the
         current bar's state and cannot be replayed honestly. Returns True when
-        the replay closed the position.
+        the replay closed the position. Legacy rows without an activation
+        timestamp retain entry-based replay; their past trail timing is unknown.
 
         Clock note: pos.entry_bar_ts is the DECISION bar's epoch when the
         journal row carries decision_bar_ts (set at fill time from bar_epoch),
@@ -891,9 +895,11 @@ class TradingEngine:
         extra bar, never toward skipping a breach bar."""
         if not pos.entry_bar_ts:
             return False
+        # The trail's signal bar was already checked under the previous stop.
+        checked_through = max(pos.entry_bar_ts, pos.stop_effective_bar_ts or 0.0)
         for j in range(len(df)):
             bar_ts = float(df.index[j].timestamp())
-            if bar_ts <= pos.entry_bar_ts:
+            if bar_ts <= checked_through:
                 continue
             reason, exit_price = self.broker.scan_bar_exits(spec, df.iloc[j])
             if reason:
@@ -904,6 +910,8 @@ class TradingEngine:
 
     def _manage_position(self, spec: MarketSpec, pos, df, i: int, summary: dict,
                          bar_epoch: float | None = None):
+        if bar_epoch is None:
+            bar_epoch = float(df.index[i].timestamp())
         # bars_held counts CLOSED BARS since the decision bar (the strategy's
         # time stops are defined in bars) — not 60s engine cycles, which would
         # fire a 12-bar 4h stop in 12 minutes
@@ -922,7 +930,9 @@ class TradingEngine:
         # (live may stop out where the backtest survives, never the reverse).
         entry_bar_scan = (pos.entry_bar_ts and bar_epoch is not None
                           and bar_epoch <= pos.entry_bar_ts)
-        if not entry_bar_scan:
+        trail_signal_bar = (pos.stop_effective_bar_ts is not None
+                            and bar_epoch <= pos.stop_effective_bar_ts)
+        if not entry_bar_scan and not trail_signal_bar:
             reason, exit_price = self.broker.scan_bar_exits(spec, bar)
             if reason:
                 self._close(spec, float(exit_price), reason, summary, bar_epoch=bar_epoch,
@@ -933,8 +943,12 @@ class TradingEngine:
         strat = get_strategy(pos.strategy, self.cfg.params)
         exit_reason, new_stop = strat.check_exit(df, i, pos)
         if new_stop is not None and new_stop != pos.stop:
+            # The journal stores both the level and its activation checkpoint
+            # atomically. Keep the broker unchanged if persistence fails.
+            self.journal.update_trade_stops(
+                pos.trade_id, stop=new_stop, stop_effective_bar_ts=bar_epoch)
             pos.stop = new_stop
-            self.journal.update_trade_stops(pos.trade_id, stop=new_stop)
+            pos.stop_effective_bar_ts = bar_epoch
             if not self.quiet:
                 print(f"[engine] {spec.symbol}: stop trailed to {new_stop:.6g}")
         if exit_reason:

@@ -3985,6 +3985,200 @@ def test_scalper_breakeven_stop_is_cost_aware():
     assert -0.20 < pnl < 0.0
 
 
+def test_engine_trailing_stop_activates_after_signal_bar_and_restart():
+    """A scalper's new stop cannot trigger on the wick that caused its trail."""
+    from dataclasses import replace
+    from bot.engine import TradingEngine
+    from bot.journal import Journal
+
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    key = (spec.symbol, spec.timeframe)
+    for side in ("LONG", "SHORT"):
+        with tempfile.TemporaryDirectory() as td:
+            db_path = os.path.join(td, "t.db")
+            journal = Journal(db_path)
+            cfg = replace(CONFIG, db_path=db_path, watchlist=[spec])
+            eng = TradingEngine(cfg=cfg, mode="paper", quiet=True, journal=journal)
+            df = make_df(np.full(80, 100.0))
+            i = len(df) - 1
+            if side == "LONG":
+                df.iloc[i, df.columns.get_loc("open")] = 101.0
+                df.iloc[i, df.columns.get_loc("close")] = 104.0
+                df.iloc[i, df.columns.get_loc("high")] = 104.2
+                df.iloc[i, df.columns.get_loc("low")] = 100.1
+            else:
+                df.iloc[i, df.columns.get_loc("open")] = 99.0
+                df.iloc[i, df.columns.get_loc("close")] = 96.0
+                df.iloc[i, df.columns.get_loc("low")] = 95.8
+                df.iloc[i, df.columns.get_loc("high")] = 99.9
+            df = add_all_indicators(df, cfg.params)
+            df["vwap_roll"] = 100.0
+            df["atr"] = 1.0
+            decision = _dec(side, 0.9, stop=2.0, price=100.0)
+            decision.strategy_name = "vwap_scalper"
+            pos = eng.broker.open_position(spec, decision, qty=1.0, price=100.0,
+                                           trade_id=-1, decision_bar_ts=float(df.index[i - 1].timestamp()))
+            pos.trade_id = journal.open_trade(
+                spec.symbol, pos.side, pos.qty, pos.entry_price, pos.stop, None,
+                pos.strategy, "fixture", mode="paper", timeframe="1h",
+                decision_bar_ts=pos.entry_bar_ts)
+            initial_stop = pos.stop
+            bar_epoch = float(df.index[i].timestamp())
+            summary = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+            eng._manage_position(spec, pos, df, i, summary, bar_epoch=bar_epoch)
+            assert pos.stop != initial_stop
+            assert not summary["closed"]
+
+            eng._manage_position(spec, pos, df, i, summary, bar_epoch=bar_epoch)
+            assert key in eng.broker.positions and not summary["closed"]
+            assert journal.recent_trades()[0]["stop_effective_bar_ts"] == bar_epoch
+
+            # A fresh engine replays history using the journaled stop and must
+            # still leave this signal bar alive. The following bar can stop it.
+            restarted = TradingEngine(cfg=cfg, mode="paper", quiet=True, journal=Journal(db_path))
+            assert key in restarted._replay_pending
+            restarted._process_market(spec, summary, df)
+            assert key in restarted.broker.positions and not summary["closed"]
+            next_bar = df.iloc[[-1]].copy()
+            next_bar.index = [df.index[i] + pd.Timedelta(hours=1)]
+            if side == "LONG":
+                next_bar.iloc[-1, next_bar.columns.get_loc("open")] = 101.0
+                next_bar.iloc[-1, next_bar.columns.get_loc("low")] = 99.0
+            else:
+                next_bar.iloc[-1, next_bar.columns.get_loc("open")] = 99.0
+                next_bar.iloc[-1, next_bar.columns.get_loc("high")] = 101.0
+            later = pd.concat([df, next_bar])
+            restarted._process_market(spec, summary, later)
+            assert key not in restarted.broker.positions
+            assert summary["closed"][-1]["reason"] == "stop loss"
+
+
+def test_engine_failed_trail_persistence_retries_same_bar():
+    """A failed stop update must leave the broker level unchanged for retry."""
+    from dataclasses import replace
+    from bot.engine import TradingEngine
+    from bot.journal import Journal
+
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    df = make_df(np.full(80, 100.0))
+    i = len(df) - 1
+    df.iloc[i, df.columns.get_loc("open")] = 101.0
+    df.iloc[i, df.columns.get_loc("close")] = 104.0
+    df.iloc[i, df.columns.get_loc("high")] = 104.2
+    df.iloc[i, df.columns.get_loc("low")] = 100.1
+    df = add_all_indicators(df)
+    df["vwap_roll"] = 100.0
+    df["atr"] = 1.0
+    with tempfile.TemporaryDirectory() as td:
+        db_path = os.path.join(td, "t.db")
+        journal = Journal(db_path)
+        cfg = replace(CONFIG, db_path=db_path, watchlist=[spec])
+        eng = TradingEngine(cfg=cfg, mode="paper", quiet=True, journal=journal)
+        decision = _dec("LONG", 0.9, stop=2.0, price=100.0)
+        decision.strategy_name = "vwap_scalper"
+        pos = eng.broker.open_position(spec, decision, qty=1.0, price=100.0,
+                                       trade_id=-1, decision_bar_ts=float(df.index[i - 1].timestamp()))
+        pos.trade_id = journal.open_trade(spec.symbol, pos.side, pos.qty, pos.entry_price,
+                                          pos.stop, None, pos.strategy, "fixture",
+                                          mode="paper", timeframe="1h")
+        initial_stop = pos.stop
+        original_update = journal.update_trade_stops
+
+        def fail_update(*args, **kwargs):
+            raise sqlite3.OperationalError("simulated stop-write failure")
+
+        journal.update_trade_stops = fail_update
+        summary = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+        try:
+            eng._manage_position(spec, pos, df, i, summary)
+        except sqlite3.OperationalError:
+            pass
+        else:
+            assert False, "the simulated journal failure must surface"
+        assert pos.stop == initial_stop
+        assert journal.recent_trades()[0]["stop_price"] == initial_stop
+        journal.update_trade_stops = original_update
+        eng._manage_position(spec, pos, df, i, summary)
+        assert pos.stop > initial_stop
+        assert journal.recent_trades()[0]["stop_effective_bar_ts"] == float(df.index[i].timestamp())
+
+
+def test_engine_failed_strategy_close_retries_after_trail_on_same_bar():
+    """A failed close after a trail must retry the signal, not hit the new stop."""
+    from dataclasses import replace
+    from bot.engine import TradingEngine
+    from bot.journal import Journal
+
+    spec = MarketSpec("crypto", "TEST/USDT", "1h")
+    df = make_df(np.full(80, 100.0))
+    i = len(df) - 1
+    df.iloc[i, df.columns.get_loc("open")] = 101.0
+    df.iloc[i, df.columns.get_loc("close")] = 104.0
+    df.iloc[i, df.columns.get_loc("high")] = 104.2
+    df.iloc[i, df.columns.get_loc("low")] = 100.1
+    df = add_all_indicators(df)
+    df["vwap_roll"] = 100.0
+    df["atr"] = 1.0
+    with tempfile.TemporaryDirectory() as td:
+        db_path = os.path.join(td, "t.db")
+        journal = Journal(db_path)
+        cfg = replace(CONFIG, db_path=db_path, watchlist=[spec])
+        eng = TradingEngine(cfg=cfg, mode="paper", quiet=True, journal=journal)
+        decision = _dec("LONG", 0.9, stop=2.0, price=100.0)
+        decision.strategy_name = "vwap_scalper"
+        pos = eng.broker.open_position(spec, decision, qty=1.0, price=100.0,
+                                       trade_id=-1, decision_bar_ts=float(df.index[0].timestamp()))
+        pos.trade_id = journal.open_trade(spec.symbol, pos.side, pos.qty, pos.entry_price,
+                                          pos.stop, None, pos.strategy, "fixture", mode="paper",
+                                          timeframe="1h", decision_bar_ts=pos.entry_bar_ts)
+        original_close = journal.close_trade
+        attempts = 0
+
+        def fail_once(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise sqlite3.OperationalError("simulated close failure")
+            return original_close(*args, **kwargs)
+
+        journal.close_trade = fail_once
+        summary = {"cycle": 1, "opened": [], "closed": [], "holds": 0, "errors": []}
+        try:
+            eng._manage_position(spec, pos, df, i, summary)
+        except sqlite3.OperationalError:
+            pass
+        else:
+            assert False, "the simulated close failure must surface"
+        assert journal.recent_trades()[0]["status"] == "OPEN"
+        assert pos.stop > float(df.iloc[i]["low"])
+        assert pos.stop_effective_bar_ts == float(df.index[i].timestamp())
+
+        eng._manage_position(spec, pos, df, i, summary)
+        assert attempts == 2
+        assert summary["closed"][0]["reason"] == (
+            f"time stop ({cfg.params.scalper_time_stop_bars} bars)")
+        assert journal.recent_trades()[0]["status"] == "CLOSED"
+
+
+def test_journal_migrates_legacy_trades_without_stop_checkpoint():
+    """Older journals gain the nullable trail checkpoint without losing stops."""
+    from bot.journal import Journal
+
+    with tempfile.TemporaryDirectory() as td:
+        db_path = os.path.join(td, "t.db")
+        journal = Journal(db_path)
+        trade_id = journal.open_trade("TEST/USDT", "long", 1.0, 100.0, 95.0,
+                                      None, "vwap_scalper", "legacy")
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("ALTER TABLE trades DROP COLUMN stop_effective_bar_ts")
+        migrated = Journal(db_path)
+        row = migrated.recent_trades()[0]
+        assert row["id"] == trade_id
+        assert row["stop_price"] == 95.0
+        assert row["stop_effective_bar_ts"] is None
+        assert PaperBroker(10_000).restore_position(row).stop_effective_bar_ts is None
+
+
 def test_journal_initial_stop_survives_trailing():
     """Flaw 2.1: trailing stops overwrote stop_price in the trades table, so
     R-multiples divided by the FINAL (trailed/BE) stop — producing ±20R

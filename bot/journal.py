@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS trades (
     exit_price REAL,
     stop_price REAL,
     initial_stop_price REAL,
+    stop_effective_bar_ts REAL,
     target_price REAL,
     strategy TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'OPEN',
@@ -326,6 +327,8 @@ class Journal:
                 conn.execute("ALTER TABLE trades ADD COLUMN realized_cash_delta REAL")
             if "decision_bar_ts" not in cols:
                 conn.execute("ALTER TABLE trades ADD COLUMN decision_bar_ts REAL")
+            if "stop_effective_bar_ts" not in cols:
+                conn.execute("ALTER TABLE trades ADD COLUMN stop_effective_bar_ts REAL")
             eq_cols = {r[1] for r in conn.execute("PRAGMA table_info(equity)")}
             if "cash_event_id" not in eq_cols:
                 # NULL explicitly means a legacy timestamp anchor. New writes
@@ -658,7 +661,8 @@ class Journal:
 
     @_retry_busy
     def update_trade_stops(self, trade_id: int, stop: float | None = None, target: float | None = None,
-                           entry_price: float | None = None):
+                           entry_price: float | None = None,
+                           stop_effective_bar_ts: float | None = None):
         """Trail stop/target (and legacy entry-price correction). Only the
         LIVE levels move: initial_stop_price is never touched here — the
         initial risk must survive every trail for R-multiple math."""
@@ -669,7 +673,8 @@ class Journal:
                 conn.execute("UPDATE trades SET entry_price=? WHERE id=?",
                              (entry_price, trade_id))
             if stop is not None:
-                conn.execute("UPDATE trades SET stop_price=? WHERE id=?", (stop, trade_id))
+                conn.execute("UPDATE trades SET stop_price=?, stop_effective_bar_ts=? WHERE id=?",
+                             (stop, stop_effective_bar_ts, trade_id))
             if target is not None:
                 conn.execute("UPDATE trades SET target_price=? WHERE id=?", (target, trade_id))
 

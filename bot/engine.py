@@ -723,9 +723,9 @@ class TradingEngine:
             if key in self._unguarded_pending:
                 # restored legacy row with no stop: it cannot be managed, so
                 # cut it at the first mark instead of trading unguarded
-                self._unguarded_pending.discard(key)
                 self._close(spec, float(df["close"].iloc[-1]), "restored without stop",
                             summary, bar_epoch=bar_epoch, write_equity=False)
+                self._unguarded_pending.discard(key)
                 return
             if key in self._replay_pending:
                 replay_closed = self._replay_missed_bars(spec, pos, df, summary)
@@ -767,6 +767,12 @@ class TradingEngine:
                 self._fill_entry(spec, pend["decision"], pend["qty"], fill_price,
                                  maker_entry=True,
                                  bar_epoch=float(pend["decision_bar_ts"]), summary=summary)
+                # Match the backtest's fill-candle bracket check. A cancelled
+                # entry leaves no position and therefore no exit to process.
+                reason, exit_price = self.broker.scan_bar_exits(spec, df.iloc[i])
+                if reason:
+                    self._close(spec, float(exit_price), reason, summary,
+                                bar_epoch=bar_epoch, write_equity=False)
                 return
             if not self._age_pending(spec, summary):
                 return   # still resting — no new decisions while it waits

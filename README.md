@@ -1,6 +1,6 @@
 # AI Trading Bot — Crypto & Forex (Paper Trading)
 
-[![CI](https://github.com/Varunsai1930/Algo/actions/workflows/ci.yml/badge.svg)](https://github.com/Varunsai1930/Algo/actions/workflows/ci.yml)
+[![CI](https://github.com/varunganji19/Trade-Bot/actions/workflows/ci.yml/badge.svg)](https://github.com/varunganji19/Trade-Bot/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 An autonomous paper-trading bot for **crypto and forex** that decides

@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] — dashboard redesign, book separation, cleanup (2026-10-01)
+
+**Redesign.** The dashboard is a sidebar workspace (Trade / Research /
+Account) built on one token-based stylesheet with light and dark themes; the
+old app.css + dashboard.css override pair is gone, no web fonts are fetched,
+and the layout collapses to a scrollable tab strip on phones. Charts share one
+theme-aware factory and both books share one trade-row renderer.
+
+**Correctness, found by driving the UI:**
+- Headline stats, the trade history, the decision feed and the engine-off
+  open-positions list now read the standard paper book only. They fell back
+  to every mode, which showed demo P&L, a demo+fast-book drawdown and the
+  fast book's decisions and positions as the standard book's — most visibly
+  right after an account reset.
+- Return and drawdown net out deposits and withdrawals (a withdrawal used to
+  read as a drawdown); `stats()` reports `net_deposits`.
+- Lab: "Compare all" is offered (the API supported it, the form never did),
+  and a comparison headlines the best strategy that actually traded.
+- Watchlist cards list every strategy registered for a timeframe instead of
+  an arbitrary one; `pinned_runs` no longer crashes on a leftover NSE ticker;
+  `soak` gained `--port` and a cash check that can actually fire.
+
+**Removed:** dead code left by the sentiment, market-switch and arbitrage
+removals (ignored Orchestrator parameters, LLM news/decision helpers,
+`deposits_net`, `lab_artifacts`, `clear_allocation`, and others), the broken
+`check_dashboard_ui.cjs`, `docs/UI_PLAN.md`, and a leaked TEST fixture in
+`data/manifest.json`. Kronos stays as offline evidence (decision recorded in
+the README).
+
 ## [Unreleased] — review of the OOS gate: in-sample verdicts now say so
 
 Reviewing the walk-forward change: a verdicts file written BEFORE it carries

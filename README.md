@@ -21,9 +21,9 @@ day — zero trades, zero decisions, ever. See CHANGELOG.md and HISTORY.md.)
 **Why this is different** (each bullet is a measured result, not a claim):
 
 - **Even a foundation model has to earn its vote.** Kronos (AAAI'26) forecasts
-  are scored against reality in a rolling IC ledger; it measured **IC −0.056 →
-  denied a vote**, and the Evidence tab draws that verdict against its own 0.02
-  promotion hurdle.
+  are scored against reality in a rolling IC ledger; on BTC 1h it measured
+  **IC −0.075 → denied a vote**, and it runs offline only. The Evidence tab
+  plots the whole ledger (all markets pooled) against the 0.02 hurdle.
 - **Negative results ship as results.** The RVOL volume filter (published
   Sharpe 0.48 → 2.81 on equities) measured **neutral here → shipped OFF**
   (BACKTESTS.md Round 5); the 5m scalper's −28% cost autopsy is kept, not deleted.

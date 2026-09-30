@@ -129,7 +129,7 @@ document.documentElement.setAttribute('data-theme',t);})();
         <div><h2>Account equity</h2><p class="hint" id="eqRange">Waiting for equity history</p></div>
         <div class="segmented range-switch" role="group" aria-label="Equity history range"><button type="button" data-days="7" aria-pressed="false">7D</button><button type="button" data-days="30" aria-pressed="false">30D</button><button type="button" data-days="0" aria-pressed="true">All</button></div>
       </div>
-      <div class="chart-body chart-lg"><canvas id="equityChart" role="img" aria-label="Paper account equity over time" hidden></canvas>
+      <div class="chart-body chart-lg"><canvas id="equityChart" class="is-empty" role="img" aria-label="Paper account equity over time"></canvas>
         <div class="chart-empty" id="equityEmpty" hidden><strong>No equity history yet</strong><span>Results appear after the engine completes its first cycle.</span></div>
       </div>
     </div>
@@ -263,13 +263,13 @@ document.documentElement.setAttribute('data-theme',t);})();
         <div><h2>Live price</h2><p class="hint" id="hftPriceHint">The bars the engine decides on</p></div>
         <select id="hftMarketSel" aria-label="Market to chart"></select>
       </div>
-      <div class="chart-body"><canvas id="hftPriceChart" aria-label="Fast book price and EMA20" role="img" hidden></canvas></div>
-      <div class="empty" id="hftPriceEmpty" hidden>No candles yet — the feed is warming up.</div>
+      <div class="chart-body"><canvas id="hftPriceChart" class="is-empty" aria-label="Fast book price and EMA20" role="img"></canvas>
+        <div class="chart-empty" id="hftPriceEmpty" hidden>No candles yet — the feed is warming up.</div></div>
     </div>
     <div class="card">
       <div class="card-head"><h2>Equity</h2><span class="hint">fast book only</span></div>
-      <div class="chart-body"><canvas id="hftEquityChart" aria-label="Fast book equity curve" role="img" hidden></canvas></div>
-      <div class="empty" id="hftEquityEmpty" hidden>No equity points yet — start the fast book.</div>
+      <div class="chart-body"><canvas id="hftEquityChart" class="is-empty" aria-label="Fast book equity curve" role="img"></canvas>
+        <div class="chart-empty" id="hftEquityEmpty" hidden>No equity points yet — start the fast book.</div></div>
     </div>
   </div>
   <div class="card">
@@ -392,13 +392,13 @@ document.documentElement.setAttribute('data-theme',t);})();
   <div class="grid grid-split">
     <div class="card">
       <div class="card-head"><div><h2>Kronos forecast quality</h2><p class="hint" id="krMeta">Rolling rank-IC against its promotion hurdle</p></div></div>
-      <div class="chart-body"><canvas id="kronosChart" role="img" aria-label="Kronos rolling IC"></canvas></div>
-      <div class="empty" id="krEmpty" hidden></div>
+      <div class="chart-body"><canvas id="kronosChart" class="is-empty" role="img" aria-label="Kronos rolling IC"></canvas>
+        <div class="chart-empty" id="krEmpty" hidden></div></div>
     </div>
     <div class="card">
       <div class="card-head"><div><h2>Out-of-sample paths</h2><p class="hint">Purged cross-validation return per path</p></div></div>
-      <div class="chart-body"><canvas id="cvChart" role="img" aria-label="Purged-CV path returns"></canvas></div>
-      <div class="empty" id="cvEmpty" hidden></div>
+      <div class="chart-body"><canvas id="cvChart" class="is-empty" role="img" aria-label="Purged-CV path returns"></canvas>
+        <div class="chart-empty" id="cvEmpty" hidden></div></div>
     </div>
   </div>
   <div class="card">

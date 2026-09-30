@@ -250,6 +250,9 @@ function buildEquityLine(canvasSel, label) {
   return buildChart(canvasSel, {type: 'line', data: {labels: [], datasets: [lineDataset(label)]},
     options: chartOptions({yTick: v => '$' + v.toLocaleString(), tooltipLabel: c => ' ' + fmt$(c.parsed.y)})});
 }
+/* an empty chart keeps its layout box (visibility, not display: a canvas
+   that is display:none when Chart.js builds it never gets a size) */
+const showChart = (sel, on) => $(sel).classList.toggle('is-empty', !on);
 function setSeries(chart, labels, ...series) {
   chart.data.labels = labels;
   series.forEach((s, i) => { chart.data.datasets[i].data = s; });
@@ -522,7 +525,7 @@ function renderEquityHistory() {
   const eq = equityDays ? equityHistory.filter(p => Date.parse(p.ts) >= lastTime - equityDays * 86400000) : equityHistory;
   const drawable = eq.length > 1;   // one mark is a point, not a curve
   $('#equityEmpty').hidden = drawable;
-  $('#equityChart').hidden = !drawable;
+  showChart('#equityChart', drawable);
   setSeries(equityChart, eq.map(p => fmtTs(p.ts)), eq.map(p => p.equity));
   $('#eqRange').textContent = eq.length ? fmtTs(eq[0].ts).slice(0, 5) + ' → ' +
     fmtTs(eq[eq.length - 1].ts).slice(0, 5) + ' · ' + eq.length + ' marks (IST)' : 'No recorded equity';
@@ -638,7 +641,7 @@ async function refreshHftPrice() {
   catch { d = null; }
   const bars = (d && d.bars) || [];
   $('#hftPriceEmpty').hidden = bars.length > 0;
-  $('#hftPriceChart').hidden = !bars.length;
+  showChart('#hftPriceChart', bars.length > 0);
   $('#hftPriceEmpty').textContent = d ? 'No candles yet — the feed is warming up.'
     : 'Price feed unavailable — the exchange could not be reached. Retrying automatically.';
   if (!d) return;
@@ -706,7 +709,7 @@ async function refreshHft() {
     try { eq = await jget('/api/hft/equity'); } catch { eq = []; }
     if (!Array.isArray(eq)) eq = [];
     $('#hftEquityEmpty').hidden = eq.length > 1;
-    $('#hftEquityChart').hidden = eq.length < 2;
+    showChart('#hftEquityChart', eq.length > 1);
     if (eq.length > 1) setSeries(hftChart, eq.map(p => fmtTs(p.ts)), eq.map(p => p.equity));
   }
 
@@ -1090,14 +1093,16 @@ async function refreshEvidence() {
   const S = k.series || [];
   const labels = S.map(p => p.i);
   if (kronosChart) { kronosChart.destroy(); kronosChart = null; }
+  /* the ledger pools every market and timeframe ever forecast; the voting
+     decision is per market (main.py kronos), and Kronos runs offline only */
   $('#krMeta').textContent = k.error ? 'Ledger unavailable: ' + k.error
-    : k.n ? k.n + ' resolved forecasts · ' + (k.pending ?? 0) + ' pending · rolling IC ' +
-      (k.ic == null ? '—' : Number(k.ic).toFixed(3)) +
-      ' vs hurdle ' + (k.hurdle ?? 0.02) + (k.ic != null && k.ic < (k.hurdle ?? 0.02) ? ' — no vote' : '')
+    : k.n ? k.n + ' resolved forecasts, all markets pooled · rolling IC ' +
+      (k.ic == null ? '—' : Number(k.ic).toFixed(3)) + ' (hurdle ' + (k.hurdle ?? 0.02) + ') · ' +
+      'offline research only — it does not vote in live trading' + (k.note ? '. Note: ' + k.note : '')
     : 'Rolling rank-IC against its promotion hurdle';
   $('#krEmpty').innerHTML = KR_EMPTY_HTML;      // restore after a failure render
   $('#krEmpty').hidden = labels.length > 0;
-  $('#kronosChart').hidden = !labels.length;
+  showChart('#kronosChart', labels.length > 0);
   if (labels.length && typeof Chart !== 'undefined') {
     const flat = (v, color, dash, label) => ({label, data: labels.map(() => v), borderColor: color,
       borderDash: dash, pointRadius: 0, borderWidth: 1, fill: false});
@@ -1190,7 +1195,7 @@ function renderEvidenceReport() {
   const paths = r && r.purged_cv ? (r.purged_cv.paths || []) : [];
   $('#cvEmpty').innerHTML = CV_EMPTY_HTML;      // restore after a failure render
   $('#cvEmpty').hidden = paths.some(p => p.trades);
-  $('#cvChart').hidden = !paths.length;
+  showChart('#cvChart', paths.length > 0);
   if (!paths.length || typeof Chart === 'undefined') return;
   cvChart = buildChart('#cvChart', {type: 'bar',
     data: {labels: paths.map((p, i) => 'p' + (i + 1) + (p.trades ? '' : ' ·')),

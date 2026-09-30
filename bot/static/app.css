@@ -271,7 +271,9 @@ select { padding-right: 28px; cursor: pointer; }
 /* ---------------------------------------------------------------- charts */
 .chart-body { position: relative; height: 260px; }
 .chart-lg { height: 360px; }
-.chart-empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 4px; text-align: center; color: var(--color-muted); }
+.chart-empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 4px; padding: 0 16px;
+  text-align: center; color: var(--color-muted); font-size: 13px; }
+canvas.is-empty { visibility: hidden; }
 .chart-empty strong { color: var(--color-text); }
 
 .strat-bars { display: grid; gap: 10px; }

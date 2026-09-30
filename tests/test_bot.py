@@ -822,17 +822,19 @@ def test_every_valid_timeframe_is_owned():
     that timeframe."""
     import bot.dashboard as dash_mod
     from config import VALID_TIMEFRAMES
-    covered = set(dash_mod.STRATEGY_BY_TF)
+    covered = set(dash_mod.STRATEGIES_BY_TF)
     assert covered >= set(VALID_TIMEFRAMES), \
         f"unowned timeframes: {sorted(set(VALID_TIMEFRAMES) - covered)}"
     # the ownership map must agree with what the orchestrator enforces: the
-    # badge for each tf names a REGISTERED strategy that prefers that tf
+    # badges for each tf name REGISTERED strategies that prefer that tf
     from bot.strategies import STRATEGY_CLASSES
-    for tf, name in dash_mod.STRATEGY_BY_TF.items():
-        assert name in STRATEGY_CLASSES
-        assert tf in STRATEGY_CLASSES[name].preferred_timeframes
-    assert dash_mod.STRATEGY_BY_TF["5m"] == "vwap_scalper"   # standard book only
-    assert dash_mod.STRATEGY_BY_TF["1d"] == "connors_meanrev"
+    for tf, names in dash_mod.STRATEGIES_BY_TF.items():
+        for name in names:
+            assert name in STRATEGY_CLASSES
+            assert tf in STRATEGY_CLASSES[name].preferred_timeframes
+    assert dash_mod.STRATEGIES_BY_TF["5m"] == ["vwap_scalper"]   # standard book only
+    assert dash_mod.STRATEGIES_BY_TF["1d"] == ["connors_meanrev"]
+    assert {"turtle_trend", "ts_momentum"} <= set(dash_mod.STRATEGIES_BY_TF["1h"])
 
 
 def test_orchestrator_conflict_guard():

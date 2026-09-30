@@ -39,3 +39,6 @@ REPORT.md
 data/hft_engine_state.json
 data/market_mode.json
 nvidia_test.py
+
+# local Claude Code workspace settings
+.claude/

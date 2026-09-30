@@ -55,7 +55,7 @@ STRATEGY_DOCS = {
 
 
 def _fmt_money(v: float) -> str:
-    return f"${v:,.2f}"
+    return f"-${-v:,.2f}" if v < 0 else f"${v:,.2f}"
 
 
 def _symbol_from_question(q: str, known: list[str] | None = None) -> str | None:
@@ -149,10 +149,7 @@ class ChatBot:
         of a known ledger value (total_pnl, start/current equity, net
         deposits) triggers a repair suffix with the true numbers."""
         import re
-        try:
-            net_dep = float(self.journal.deposits_net(mode="paper"))
-        except Exception:
-            net_dep = 0.0
+        net_dep = float(stats.get("net_deposits") or 0.0)
         known = [float(stats.get("total_pnl") or 0.0),
                  float(stats.get("current_equity") or 0.0),
                  float(stats.get("start_equity") or 0.0), net_dep]
@@ -175,10 +172,6 @@ class ChatBot:
 
     def _journal_context(self) -> dict:
         stats = self.journal.stats(mode="paper")
-        try:
-            stats["deposits_net"] = round(float(self.journal.deposits_net(mode="paper")), 2)
-        except Exception:
-            stats["deposits_net"] = 0.0
         trades = self.journal.recent_trades(limit=15, mode="paper")
         decisions = self.journal.recent_decisions(limit=5, mode="paper")
         # IST-convert timestamps here too — the LLM quotes what it's given
@@ -222,14 +215,12 @@ class ChatBot:
 
         if any(w in ql for w in ("earn", "profit", "p&l", "pnl", "performance", "made", "how much")):
             open_trades = stats["open_trades"]
-            net_dep = self.journal.deposits_net(mode="paper")
+            net_dep = stats.get("net_deposits") or 0.0
             dep_note = ""
             if abs(net_dep) >= 0.01:
-                # equity walk includes deposits, trade P&L doesn't — without
-                # this line the two numbers in one sentence contradicted
-                # ("total P&L −$194.71 (return 6.89%…)")
-                dep_note = (f" Net deposits {_fmt_money(net_dep)} are included in the "
-                            f"equity/return but not in trade P&L.")
+                # equity includes deposits; the return and trade P&L don't
+                dep_note = (f" Equity includes net deposits of {_fmt_money(net_dep)}; "
+                            f"the return and trade P&L exclude them.")
             reply = (f"Closed trades: {stats['closed_trades']} with {stats['win_rate']}% win rate, "
                      f"total P&L {_fmt_money(stats['total_pnl'])} (return {stats['return_pct']}% from "
                      f"{_fmt_money(stats['start_equity'])} to {_fmt_money(stats['current_equity'])}). "

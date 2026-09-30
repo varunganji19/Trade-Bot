@@ -907,20 +907,6 @@ class Journal:
             return [dict(r) for r in conn.execute(q, params)]
 
     @_retry_busy
-    def deposits_net(self, mode: str | None = None) -> float:
-        """Net deposits (deposit − withdrawals) in the typed account ledger —
-        the reconciliation between the equity walk (includes deposits) and the
-        trades' own P&L (excludes them). A reset row is 0 by definition (the
-        ledger restarts with the account; reset wipes all rows anyway)."""
-        q = ("SELECT COALESCE(SUM(CASE kind WHEN 'deposit' THEN amount"
-             " WHEN 'withdrawal' THEN -amount ELSE 0 END), 0) FROM transactions")
-        params: list = []
-        if mode:
-            q += " WHERE mode=?"
-            params.append(mode)
-        with self._conn() as conn:
-            return float(conn.execute(q, params).fetchone()[0])
-
     @_retry_busy
     def recent_decisions(self, limit: int = 60, mode: str | None = None,
                          since_id: int | None = None) -> list:

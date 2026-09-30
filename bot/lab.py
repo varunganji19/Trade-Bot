@@ -266,7 +266,10 @@ def run_lab(spec: LabSpec) -> dict:
         if spec.strategy == "all":
             bt = Backtester(cfg, book=book)   # fresh state per comparison cell
 
-    best = max(runs, key=lambda r: r[2]["total_pnl"])
+    # the charts show the best strategy that actually traded: a strategy that
+    # never trades (e.g. an ensemble whose voters are all gated) "wins" every
+    # losing comparison at $0 and would headline a flat line
+    best = max([r for r in runs if r[2]["trades"]] or runs, key=lambda r: r[2]["total_pnl"])
     costs = cfg.costs
     c = costs.fee(spec.kind) + costs.slippage(spec.kind)
     payload = {

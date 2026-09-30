@@ -1,8 +1,7 @@
 """
-FastAPI dashboard + JSON API — a tabbed single-page app (inline HTML/CSS/JS;
-Chart.js is VENDORED locally at bot/chart.umd.min.js, so all JS/CSS work with
-no network; the only outbound fetch is the Google Fonts stylesheet for
-typography, which silently falls back to system fonts offline).
+FastAPI dashboard + JSON API — a single-page app served from bot/static/
+(index.html + app.css + app.js). Chart.js is VENDORED at bot/chart.umd.min.js
+and no web fonts are fetched, so the page makes no outbound requests at all.
 
 Tabs (hash routing, ~4s polling):
   #overview   — equity curve, headline stats, engine controls, decision feed,
@@ -112,8 +111,7 @@ class _TokenGuard:   # pure ASGI middleware — no BaseHTTPMiddleware overhead
     and the SPA attaches the bearer token from localStorage on its fetches
     (prompting for it once when the API answers 401)."""
     # shell only — every data route stays behind the token
-    _EXEMPT_GET = frozenset({"/", "/chart.umd.min.js", "/dashboard.css",
-                             "/app.css", "/app.js"})
+    _EXEMPT_GET = frozenset({"/", "/chart.umd.min.js", "/app.css", "/app.js"})
 
     def __init__(self, asgi_app, token: str):
         self.app = asgi_app
@@ -165,9 +163,13 @@ _LEGACY_TF = "1h"
 # both books trade 5m since the fast book left 1m — without the book filter
 # a 5m standard spec would be badged with a fast-book strategy that never
 # votes on it.
-STRATEGY_BY_TF = {tf: name for name, cls in STRATEGY_CLASSES.items()
-                  if getattr(cls, "book", "standard") == "standard"
-                  for tf in cls.preferred_timeframes}
+# Several strategies may share a timeframe (1h: turtle, ts_momentum,
+# fx_regime_meanrev), so the badge lists all of them, never an arbitrary one.
+STRATEGIES_BY_TF: dict[str, list[str]] = {}
+for _name, _cls in sorted(STRATEGY_CLASSES.items()):
+    if getattr(_cls, "book", "standard") == "standard":
+        for _tf in _cls.preferred_timeframes:
+            STRATEGIES_BY_TF.setdefault(_tf, []).append(_name)
 
 apply_saved_watchlist()  # data/watchlist.json → CONFIG.watchlist (creates file on first boot)
 
@@ -625,11 +627,6 @@ def chart_js():
                         media_type="application/javascript")
 
 
-@app.get("/dashboard.css", include_in_schema=False)
-def dashboard_css():
-    return FileResponse(os.path.join(os.path.dirname(__file__), "dashboard.css"),
-                        media_type="text/css", headers={"Cache-Control": "no-cache"})
-
 
 # ---------------------------------------------------------------------------
 # stats / history
@@ -934,7 +931,7 @@ def api_evidence():
 def api_watchlist_get():
     with _wl_lock:
         return [{"kind": s.kind, "symbol": s.symbol, "timeframe": s.timeframe,
-                 "display": s.display, "strategy": STRATEGY_BY_TF.get(s.timeframe, "ensemble")}
+                 "display": s.display, "strategies": STRATEGIES_BY_TF.get(s.timeframe, [])}
                 for s in CONFIG.watchlist]
 
 

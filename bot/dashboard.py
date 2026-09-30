@@ -69,6 +69,9 @@ async def _lifespan(_app):
     # the handlers it calls and resolves at startup time
     # a failed auto-resume must never abort uvicorn's startup: without the UI
     # there is nothing left to explain the failure with
+    if os.environ.get("ALGO_NO_AUTO_RESUME", "") not in ("", "0", "false"):
+        print("[dashboard] auto-resume disabled via ALGO_NO_AUTO_RESUME — "
+              "start the engines from the dashboard when you want them trading")
     for resume in (_auto_resume_engine, _auto_resume_hft_engine):
         try:
             resume()
@@ -232,24 +235,55 @@ def _engine_state_path() -> str:
                         "engine_state.json")
 
 
-def _write_engine_state(running: bool, interval: int) -> bool:
-    """Persist the operator's desired engine state so a dashboard restart can
+def _write_state_file(path: str, running: bool, interval: int) -> bool:
+    """Persist a book's desired engine state so a dashboard restart can
     auto-resume it (a stop must win over a stale 'running' file). Returns
     False (and logs loudly) when the write fails so endpoints can surface it
     instead of silently losing auto-resume."""
     try:
         # atomic: a torn state file would silently disable auto-resume
-        tmp = _engine_state_path() + ".tmp"
+        tmp = path + ".tmp"
         with open(tmp, "w") as f:
             json.dump({"desired": "running" if running else "stopped",
                        "interval": interval}, f)
-        os.replace(tmp, _engine_state_path())
+        os.replace(tmp, path)
         return True
     except OSError as exc:
-        print(f"[dashboard] FAILED to persist engine_state (desired="
+        print(f"[dashboard] FAILED to persist {os.path.basename(path)} (desired="
               f"{'running' if running else 'stopped'}): {exc}")
         traceback.print_exc()
         return False
+
+
+def _read_resume_interval(path: str, default: int, floor: int) -> int | None:
+    """The interval to auto-resume a book with, or None when it must stay
+    stopped: auto-resume disabled, the last session stopped it, or the state
+    file is missing/unreadable. Skipped under pytest: tests swap
+    CONFIG.db_path to temp dirs, but the real state file may say 'running'
+    and must never spawn a live engine there."""
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return None
+    if os.environ.get("ALGO_NO_AUTO_RESUME", "") not in ("", "0", "false"):
+        return None
+    try:
+        with open(path) as f:
+            state = json.load(f)
+        if not isinstance(state, dict) or state.get("desired") != "running":
+            return None
+        return max(floor, min(3600, int(state.get("interval", default))))
+    except (OSError, ValueError, TypeError, OverflowError):
+        return None
+
+
+def _state_warning(result: dict, ok: bool, what: str) -> dict:
+    if not ok:
+        result["state_warning"] = (f"{what} but desired-state persist failed — "
+                                   f"auto-resume may be stale")
+    return result
+
+
+def _write_engine_state(running: bool, interval: int) -> bool:
+    return _write_state_file(_engine_state_path(), running, interval)
 
 
 _engine_starting = False  # placeholder claimed under lock before the build
@@ -396,17 +430,7 @@ def _hft_state_path() -> str:
 
 
 def _write_hft_state(running: bool, interval: int) -> bool:
-    try:
-        tmp = _hft_state_path() + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump({"desired": "running" if running else "stopped",
-                       "interval": interval}, f)
-        os.replace(tmp, _hft_state_path())
-        return True
-    except OSError as exc:
-        print(f"[dashboard] FAILED to persist hft_engine_state: {exc}")
-        traceback.print_exc()
-        return False
+    return _write_state_file(_hft_state_path(), running, interval)
 
 
 _hft_starting = False
@@ -1215,14 +1239,11 @@ def api_engine_start(body: EngineIn):
     if result["status"] == "owned":
         raise HTTPException(409, result["detail"])
     if result["status"] == "started":
-        ok = _write_engine_state(True, body.interval)
-        if not ok:
-            result["state_warning"] = ("engine started but desired-state "
-                                       "persist failed — auto-resume disabled")
+        _state_warning(result, _write_engine_state(True, body.interval), "engine started")
     return result
 
 
-def _join_in_background(th: threading.Thread, done, interval: int, hft: bool = False):
+def _join_in_background(th: threading.Thread, done, interval: int):
     """Bounded join off the request path; persists stopped state on completion."""
 
     def _wait():
@@ -1248,11 +1269,7 @@ def api_engine_stop(body: EmptyIn):
             status = "starting" if _engine_starting else (
                 "stopping" if _engine_thread is not None and _engine_thread.is_alive()
                 else "not_running")
-            result: dict = {"status": status}
-            if not ok:
-                result["state_warning"] = ("engine stopped but desired-state "
-                                           "persist failed — auto-resume may be stale")
-            return result
+            return _state_warning({"status": status}, ok, "engine stopped")
         _engine = None
         stop_interval = _engine_interval
     th = _engine_thread
@@ -1260,17 +1277,9 @@ def api_engine_stop(body: EmptyIn):
         ok = _write_engine_state(False, stop_interval)
         _join_in_background(th, lambda iv: _write_engine_state(False, iv),
                             stop_interval)
-        result = {"status": "stopping"}
-        if not ok:
-            result["state_warning"] = ("engine stopped but desired-state "
-                                       "persist failed — auto-resume may be stale")
-        return result
+        return _state_warning({"status": "stopping"}, ok, "engine stopped")
     ok = _write_engine_state(False, stop_interval)
-    result = {"status": "stopped"}
-    if not ok:
-        result["state_warning"] = ("engine stopped but desired-state "
-                                   "persist failed — auto-resume may be stale")
-    return result
+    return _state_warning({"status": "stopped"}, ok, "engine stopped")
 
 
 def _auto_resume_engine():
@@ -1282,23 +1291,10 @@ def _auto_resume_engine():
     ALGO_NO_AUTO_RESUME=1 disables the resume entirely (a rehearsal/demo
     machine that must NOT start trading on boot)."""
     global _AUTO_RESUMED_AT_BOOT
-    if "PYTEST_CURRENT_TEST" in os.environ:
+    interval = _read_resume_interval(_engine_state_path(),
+                                     CONFIG.live_interval_seconds, floor=5)
+    if interval is None:
         return
-    if os.environ.get("ALGO_NO_AUTO_RESUME", "") not in ("", "0", "false"):
-        print("[dashboard] auto-resume disabled via ALGO_NO_AUTO_RESUME — "
-              "start the engine from the top bar when you want it trading")
-        return
-    try:
-        with open(_engine_state_path()) as f:
-            state = json.load(f)
-        if not isinstance(state, dict):
-            return
-        if state.get("desired") != "running":
-            return
-        interval = int(state.get("interval", CONFIG.live_interval_seconds))
-    except (OSError, ValueError, TypeError, OverflowError):
-        return
-    interval = max(5, min(3600, interval))
     result = _spawn_engine(interval)
     if result["status"] == "owned":
         # a standalone CLI engine already trades this book — resuming here
@@ -1315,19 +1311,10 @@ def _auto_resume_hft_engine():
     """Same contract as the standard engine's auto-resume, for the HFT book:
     a stopped book stays stopped, a running one resumes with a toast."""
     global _HFT_AUTO_RESUMED_AT_BOOT
-    if "PYTEST_CURRENT_TEST" in os.environ:
+    interval = _read_resume_interval(_hft_state_path(),
+                                     CONFIG.hft.live_interval_seconds, floor=1)
+    if interval is None:
         return
-    if os.environ.get("ALGO_NO_AUTO_RESUME", "") not in ("", "0", "false"):
-        return
-    try:
-        with open(_hft_state_path()) as f:
-            state = json.load(f)
-        if not isinstance(state, dict) or state.get("desired") != "running":
-            return
-        interval = int(state.get("interval", CONFIG.hft.live_interval_seconds))
-    except (OSError, ValueError, TypeError, OverflowError):
-        return
-    interval = max(1, min(3600, interval))
     result = _spawn_hft_engine(interval)
     if result["status"] == "owned":
         print(f"[dashboard] HFT book NOT auto-resumed — {result['detail']}")
@@ -1497,10 +1484,7 @@ def api_hft_engine_start(body: HftEngineIn):
     if result["status"] == "owned":
         raise HTTPException(409, result["detail"])
     if result["status"] == "started":
-        ok = _write_hft_state(True, body.interval)
-        if not ok:
-            result["state_warning"] = ("HFT engine started but desired-state "
-                                       "persist failed — auto-resume disabled")
+        _state_warning(result, _write_hft_state(True, body.interval), "HFT engine started")
     return result
 
 
@@ -1510,29 +1494,17 @@ def api_hft_engine_stop(body: EmptyIn):
     with _hft_lock:
         if _hft_engine is None:
             ok = _write_hft_state(False, CONFIG.hft.live_interval_seconds)
-            result: dict = {"status": "not_running"}
-            if not ok:
-                result["state_warning"] = ("HFT engine stopped but desired-state "
-                                           "persist failed — auto-resume may be stale")
-            return result
+            return _state_warning({"status": "not_running"}, ok, "HFT engine stopped")
         _hft_engine = None
         stop_interval = _hft_interval
     th = _hft_thread
     if th is not None and th is not threading.current_thread() and th.is_alive():
         ok = _write_hft_state(False, stop_interval)
         _join_in_background(th, lambda iv: _write_hft_state(False, iv),
-                            stop_interval, hft=True)
-        result = {"status": "stopping"}
-        if not ok:
-            result["state_warning"] = ("HFT engine stopped but desired-state "
-                                       "persist failed — auto-resume may be stale")
-        return result
+                            stop_interval)
+        return _state_warning({"status": "stopping"}, ok, "HFT engine stopped")
     ok = _write_hft_state(False, stop_interval)
-    result = {"status": "stopped"}
-    if not ok:
-        result["state_warning"] = ("HFT engine stopped but desired-state "
-                                   "persist failed — auto-resume may be stale")
-    return result
+    return _state_warning({"status": "stopped"}, ok, "HFT engine stopped")
 
 
 @app.get("/api/hft/engine/status")

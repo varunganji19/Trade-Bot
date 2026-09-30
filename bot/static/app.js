@@ -172,6 +172,7 @@ function setView(name) {
     else t.removeAttribute('aria-current');
   });
   const [kicker, title, description] = VIEW_COPY[name];
+  document.body.dataset.view = name;
   $('#workspaceKicker').textContent = kicker;
   $('#pageTitle').textContent = title;
   $('#pageDescription').textContent = description;

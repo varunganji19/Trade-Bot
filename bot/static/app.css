@@ -144,6 +144,8 @@ b, strong { font-weight: 600; }
 .page-heading p { color: var(--color-muted); margin-top: 2px; }
 .topbar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .freshness { color: var(--color-muted); font-size: 12.5px; margin-right: 4px; }
+/* the fast book has its own engine controls; the header's drive the standard book */
+body[data-view="hft"] #btnStart, body[data-view="hft"] #btnStop { display: none; }
 .freshness[data-state="error"] { color: var(--color-neg); }
 main { padding-bottom: 56px; outline: none; }
 

@@ -1130,6 +1130,23 @@ def test_journal_stats_aggregates_match_python_math():
         assert s["by_strategy"]["B"]["wins"] == 1
 
 
+def test_journal_stats_net_out_deposits_and_withdrawals():
+    """A withdrawal is not a drawdown and a deposit is not a return: the
+    headline return and drawdown measure trading performance only."""
+    from bot.journal import Journal
+    with tempfile.TemporaryDirectory() as td:
+        j = Journal(os.path.join(td, "t.db"))
+        j.add_equity(10_000.0, 10_000.0, mode="paper")
+        j.add_equity(10_200.0, 10_200.0, mode="paper")      # +2% from trading
+        j.adjust_account(3_000.0, "withdrawal", mode="paper")
+        j.adjust_account(500.0, "deposit", mode="paper")
+        s = j.stats(mode="paper")
+        assert s["current_equity"] == 7_700.0
+        assert s["net_deposits"] == -2_500.0
+        assert s["return_pct"] == 2.0
+        assert s["max_drawdown_pct"] == 0.0
+
+
 # ------------------------------------------- regression: audit bugs (2026-09-04)
 def test_broker_positions_are_per_timeframe():
     """Bug 1 regression: a symbol traded by several specs (BTC 1h turtle +

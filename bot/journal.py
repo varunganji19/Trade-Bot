@@ -21,6 +21,7 @@ between checkpoints, so trading a book is leased through the book_owner table
 """
 from __future__ import annotations
 
+import bisect
 import json
 import math
 import os
@@ -1040,7 +1041,7 @@ class Journal:
                                " SUM(COALESCE(pnl,0)) AS pnl"
                                f" FROM trades WHERE status='CLOSED'{mode_sql} GROUP BY strategy",
                                mode_args)}
-            eq_q, eq_args = "SELECT equity FROM equity", []
+            eq_q, eq_args = "SELECT mode, equity, cash_event_id FROM equity", []
             if mode:
                 eq_q += " WHERE mode=?"
                 eq_args.append(mode)
@@ -1049,8 +1050,15 @@ class Journal:
             # The scan is bounded (stats() runs on every 4s dashboard poll; a
             # year of sub-minute equity points would otherwise read ~500k rows
             # each time) — 200k rows covers years of realistic runs identically.
-            eq = [r[0] for r in conn.execute(eq_q + " ORDER BY ts, id LIMIT 200000",
-                                             eq_args)]
+            eq = conn.execute(eq_q + " ORDER BY ts, id LIMIT 200000", eq_args).fetchall()
+            # deposits/withdrawals move equity without being performance: a
+            # $1,000 withdrawal must not read as a drawdown, nor a deposit as
+            # a return. Each equity row records the last cash event it saw
+            # (cash_event_id), which places every flow exactly on the curve.
+            flows = conn.execute(
+                "SELECT mode, id, amount FROM cash_events"
+                f" WHERE kind IN ('deposit','withdrawal'){mode_sql} ORDER BY id",
+                mode_args).fetchall()
 
         n, wins = row["n"], row["wins"]
         losses = n - wins
@@ -1058,13 +1066,32 @@ class Journal:
         gross_loss = row["gross_loss"] or 0.0
         total = row["total"] or 0.0
 
-        max_dd, peak = 0.0, float("-inf")
-        for e in eq:
-            peak = max(peak, e)
-            max_dd = min(max_dd, (e - peak) / peak if peak > 0 else 0.0)
+        # per-mode running totals of external flows, keyed by cash-event id
+        flow_ids: dict[str, list[int]] = {}
+        flow_sums: dict[str, list[float]] = {}
+        for m, fid, amount in flows:
+            sums = flow_sums.setdefault(m, [0.0])
+            flow_ids.setdefault(m, []).append(fid)
+            sums.append(sums[-1] + amount)
+        net_flow = sum(sums[-1] for sums in flow_sums.values())
 
-        start_eq = eq[0] if eq else CONFIG.paper_capital
-        end_eq = eq[-1] if eq else start_eq
+        def flows_before(m: str, cash_event_id: int | None) -> float:
+            if m not in flow_ids or cash_event_id is None:
+                return 0.0
+            return flow_sums[m][bisect.bisect_right(flow_ids[m], cash_event_id)]
+
+        # peak-to-trough walk on the curve with external flows netted out
+        max_dd, peak = 0.0, float("-inf")
+        for m, e, cash_event_id in eq:
+            perf = e - flows_before(m, cash_event_id)
+            peak = max(peak, perf)
+            max_dd = min(max_dd, (perf - peak) / peak if peak > 0 else 0.0)
+
+        start_eq = eq[0][1] if eq else CONFIG.paper_capital
+        end_eq = eq[-1][1] if eq else start_eq
+        # flows recorded before the first equity point are already in start_eq
+        if eq:
+            net_flow -= flows_before(eq[0][0], eq[0][2])
         out = {
             "total_pnl": round(total, 2),
             "closed_trades": n,
@@ -1076,7 +1103,9 @@ class Journal:
             "max_drawdown_pct": round(max_dd * 100, 2),
             "start_equity": start_eq,
             "current_equity": round(end_eq, 2),
-            "return_pct": round((end_eq / start_eq - 1) * 100, 2) if start_eq else 0.0,
+            "net_deposits": round(net_flow, 2),
+            "return_pct": (round((end_eq - net_flow - start_eq) / start_eq * 100, 2)
+                           if start_eq else 0.0),
             "by_strategy": by_strategy,
         }
         if getattr(self, "last_error", None):

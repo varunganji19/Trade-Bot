@@ -21,7 +21,7 @@ flags:
   * cycles that outran their own interval
   * an engine that stops reporting `alive` while it claims to be running
 
-Usage:  python3 scripts/soak.py [--rounds 6] [--log <server log path>]
+Usage:  python3 scripts/soak.py [--rounds 6] [--port 8000] [--log <server log path>]
 Exit code is non-zero when something was flagged, so it can gate a release.
 """
 from __future__ import annotations
@@ -159,7 +159,7 @@ def round_once(n: int, log_path: str, seen: set, baseline: tuple[int, int]):
         req("/api/account/deposit", "POST", {"amount": 100.0, "note": "soak"})
         req("/api/account/withdraw", "POST", {"amount": 100.0, "note": "soak"})
         acct = jget("/api/account")
-        if acct is not None and abs(float(acct.get("cash", 0)) ) < 0:
+        if acct is not None and float(acct.get("cash", 0)) < 0:
             flag("account cash went negative after a net-zero deposit/withdraw")
         # pause/resume must not strand the engine
         req("/api/trading/pause", "POST", {"note": "soak"})
@@ -186,11 +186,14 @@ def main() -> int:
     ap.add_argument("--rounds", type=int, default=6)
     ap.add_argument("--sleep", type=int, default=20, help="seconds between rounds")
     ap.add_argument("--log", default=None, help="server log to scan for tracebacks")
+    ap.add_argument("--port", type=int, default=8000, help="dashboard port")
     args = ap.parse_args()
+    global BASE
+    BASE = f"http://127.0.0.1:{args.port}"
 
     print("=== soak: driving the running dashboard ===")
     if jget("/api/engine/status") is None:
-        print("no dashboard on 127.0.0.1:8000 — start one first")
+        print(f"no dashboard at {BASE} — start one first")
         return 2
     baseline = proc_stats()
     seen: set = set()

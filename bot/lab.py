@@ -1,14 +1,13 @@
-"""Strategy Lab — pick any stock/pair, apply strategies, backtest them.
+"""Strategy Lab — pick any crypto/forex pair, apply strategies, backtest them.
 
 The user-facing flow (dashboard Lab tab, backed by this module):
 
-  1. pick a BOOK      — "standard" (the forex+crypto+NSE paper book's
+  1. pick a BOOK      — "standard" (the crypto+forex paper book's
                         strategies and kind-aware costs) or "hft" (the
-                        high-frequency book's 1m strategies + fee tiers)
+                        fast book's 5m strategies + fee tiers)
   2. pick a MARKET    — kind (crypto | forex) + any symbol; aliases
                         normalize per kind ("BTCUSDT" -> "BTC/USDT",
-                        "EURUSD" -> "EURUSD=X", "RELIANCE" -> "RELIANCE.NS",
-                        "NIFTY" -> "^NSEI")
+                        "EURUSD" -> "EURUSD=X")
   3. pick strategies  — every strategy REGISTERED for the chosen timeframe
                         (one source of truth: STRATEGY_CLASSES), or "all"
                         for a comparison run on one fetched frame
@@ -22,7 +21,7 @@ Design constraints honored from the repo's own rules:
   journal writes, zero shared state with the live engines — a lab run can
   never disturb an open paper position.
 - Same costs as the books: kind-aware cost stack (crypto taker / forex
-  spread / the full NSE regulatory stack) for the standard book, the HFT
+  spread) for the standard book, the HFT
   book's perp/spot tiers for the hft book.
 - Honest guardrails: Yahoo's per-timeframe history caps are enforced with a
   visible note (forex 5m/15m = 60d), lab compute caps per

@@ -1,8 +1,8 @@
 """HFT book — the separate high-frequency PAPER account.
 
-The standard book (mode='paper') trades 1h/4h/15m specs on the market-mode
-universe (forex+crypto vs India). This package defines a SECOND book,
-mode='hft', trading 1m bars (crypto + forex) with its own capital, risk
+The standard book (mode='paper') trades 1h/4h/15m crypto + forex specs. This
+package defines a SECOND book, mode='hft', trading 5m bars (crypto + forex;
+it ran 1m until 2026-09-19) with its own capital, risk
 dials, fee tier, strategies (bot/strategies/hft.py) and dashboard page.
 Everything below the decision layer is SHARED — PaperBroker, RiskManager,
 Orchestrator, journal — so HFT paper trades and HFT backtests run the same

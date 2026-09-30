@@ -1,5 +1,8 @@
 """
-Time-Series Momentum — India (single-symbol absolute momentum, long-only).
+Time-Series Momentum (single-symbol absolute momentum, long-only).
+
+Designed for the retired India book; it now runs on crypto 1h/4h, where the
+promotion gate measures it like every other strategy.
 
 Grounding (all three on Indian equity data):
 - "Momentum in Indian Equity Markets: Positive Convexity and Positive Alpha"

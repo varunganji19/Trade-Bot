@@ -397,9 +397,7 @@ def parse_utc(ts: str | None) -> "datetime | None":
 
 
 DEFAULT_WATCHLIST: list[MarketSpec] = [
-    # FOREX-mode universe (crypto + forex): the active book while the persisted
-    # market mode (see MARKET_MODE below) is "forex" — the default. The India
-    # universe lives in SPECS_INDIA; the two lists never merge.
+    # the standard book's universe: crypto + forex, priced in US dollars
     # 1h: turtle trend + ensemble
     MarketSpec("crypto", "BTC/USDT", "1h", "Bitcoin"),
     MarketSpec("crypto", "ETH/USDT", "1h", "Ethereum"),

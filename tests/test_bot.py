@@ -2886,6 +2886,35 @@ def test_decisions_feed_filters_demo_rows():
             dash.chatbot = dash.ChatBot(dash.journal)
 
 
+def test_headline_stats_never_count_other_books():
+    """/api/stats is the standard paper book only. It used to fall back to
+    every mode when the paper book had no trades (e.g. right after a reset),
+    headlining demo P&L and a demo+fast-book drawdown beside paper equity."""
+    import tempfile
+    from bot import dashboard as dash
+    from fastapi.testclient import TestClient
+
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            dash.journal = dash.Journal(CONFIG.db_path)
+            j = dash.journal
+            tid = j.open_trade("BTC/USDT", "long", 1.0, 100.0, 95.0, None, "turtle_trend",
+                               "r", mode="demo")
+            j.close_trade(tid, 80.0, -20.0, -20.0, 0.1, "stop", mode="demo")
+            j.add_equity(10_000.0, 10_000.0, mode="demo")
+            j.add_equity(8_000.0, 8_000.0, mode="demo")
+            j.add_equity(10_000.0, 10_000.0, mode="paper")
+            s = TestClient(dash.app, base_url="http://127.0.0.1").get("/api/stats").json()
+            assert s["closed_trades"] == 0 and s["total_pnl"] == 0.0
+            assert s["max_drawdown_pct"] == 0.0 and s["current_equity"] == 10_000.0
+            assert s["trade_modes"] == {"demo": 1}
+        finally:
+            CONFIG.db_path = old_db
+            dash.journal = dash.Journal(old_db)
+
+
 def test_chatbot_why_matches_symbol_not_newest():
     """'why did you buy BTC?' must answer about BTC — it used to return the
     newest non-HOLD decision of ANY market (a GBPUSD demo row on a fresh

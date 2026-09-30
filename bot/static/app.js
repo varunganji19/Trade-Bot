@@ -452,11 +452,10 @@ async function refreshStats() {
 
   const demoN = (s.trade_modes || {}).demo || 0;
   const paperN = (s.trade_modes || {}).paper || 0;
-  $('#firstRun').hidden = !!(s.engine_running || paperN || demoN || openN);
+  $('#firstRun').hidden = !!(s.engine_running || paperN || openN);
   $('#ovDemoNote').innerHTML = demoN
     ? tag('demo', 'demo') + ' ' + demoN + ' seeded backtest-replay trades are ' +
-      (paperN ? 'badged in the history and excluded from these figures.'
-              : 'shown until the engine records its own paper trades.')
+      'kept in the history (badged) and never counted in these figures.'
     : '';
 
   const lifecycle = s.engine_state || (s.engine_running ? 'running' : 'stopped');
@@ -529,7 +528,9 @@ $$('.range-switch button').forEach(b => b.addEventListener('click', () => {
 }));
 async function refreshEquity() {
   if (!equityChart) return;   // offline: the boot banner already says so
-  try { equityHistory = await jget('/api/equity'); } catch { return; }
+  let eq;
+  try { eq = await jget('/api/equity'); } catch { return; }
+  equityHistory = Array.isArray(eq) ? eq : [];   // an empty book answers {rows: [], demo_only}
   renderEquityHistory();
 }
 
@@ -697,6 +698,7 @@ async function refreshHft() {
   if (hftChart) {
     let eq;
     try { eq = await jget('/api/hft/equity'); } catch { eq = []; }
+    if (!Array.isArray(eq)) eq = [];
     $('#hftEquityEmpty').hidden = eq.length > 0;
     if (eq.length) setSeries(hftChart, eq.map(p => fmtTs(p.ts)), eq.map(p => p.equity));
   }

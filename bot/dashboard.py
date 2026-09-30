@@ -656,18 +656,12 @@ def chart_js():
 # stats / history
 @app.get("/api/stats")
 def api_stats():
-    # the headline cards are the bot's OWN paper record when one exists; a
-    # demo-only journal (fresh seed-demo) still shows so the demo works — the
-    # overview demo note labels what's seeded. The paper record needs BOTH a
-    # paper trade and a paper equity point: trades without an equity walk
-    # (only hand-producible) would put a nonzero total_pnl beside a
-    # capital-equals-equity headline — the same contradiction the demo fix
-    # targeted
+    # the headline cards are the standard book's OWN paper record, always.
+    # Falling back to every mode (for the since-deleted demo seeder) put the
+    # demo trades' P&L and a demo+fast-book drawdown beside a paper equity
+    # card — e.g. right after an account reset.
     modes = journal.trade_mode_counts()
-    if modes.get("paper") and journal.last_equity_point(mode="paper") is not None:
-        stats = journal.stats(mode="paper")
-    else:
-        stats = journal.stats()
+    stats = journal.stats(mode="paper")
     # seeded demo rows (seed-demo backtest replays) are labeled mode='demo' —
     # surface the split so the UI can badge them instead of passing them off
     # as the bot's own paper record

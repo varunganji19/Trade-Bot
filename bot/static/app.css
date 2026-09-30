@@ -152,7 +152,7 @@ main { padding-bottom: 56px; outline: none; }
 @keyframes slide-in { from { transform: translateY(6px); } to { transform: none; } }
 
 .grid { display: grid; gap: 16px; }
-.grid-main { grid-template-columns: minmax(0, 2fr) minmax(290px, 1fr); }
+.grid-main { grid-template-columns: minmax(0, 2fr) minmax(290px, 1fr); align-items: start; }
 .grid-split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid > *, .stats-grid > * { min-width: 0; }
 
@@ -269,7 +269,7 @@ select { padding-right: 28px; cursor: pointer; }
 
 /* ---------------------------------------------------------------- charts */
 .chart-body { position: relative; height: 260px; }
-.chart-lg { height: 320px; }
+.chart-lg { height: 360px; }
 .chart-empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 4px; text-align: center; color: var(--color-muted); }
 .chart-empty strong { color: var(--color-text); }
 

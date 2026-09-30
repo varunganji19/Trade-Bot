@@ -35,7 +35,7 @@ day — zero trades, zero decisions, ever. See CHANGELOG.md and HISTORY.md.)
   statistics that quantify how much of the Sharpe is trial-selection.
 - **Causality and determinism are tested**, not assumed: truncating history at
   bar *i* cannot change the bar-*i* signal; identical inputs produce identical
-  trades. **274 tests** + a parity smoke and a soak harness, CI on every push.
+  trades. **300 tests** + a parity smoke and a soak harness, CI on every push.
 
 Built for a competition with an explicit engineering thesis: **the edge is the
 process** — evidence-based strategies (researched from the most profitable
@@ -43,39 +43,51 @@ traders in history), honest validation with fees and slippage, strict risk
 control, and full attribution of every decision. No strategy here is presented
 as "guaranteed profitable" (see [RESEARCH.md](RESEARCH.md) §4).
 
-| ![Overview — equity curve, live decision terminal, strategy P&L](docs/screenshots/dashboard-overview.png) | ![Evidence — the honesty layer, rendered](docs/screenshots/dashboard-evidence.png) |
+| ![Overview — equity, engine control, promotion gate](docs/screenshots/dashboard-overview.png) | ![Evidence — validation verdicts, Kronos IC, purged-CV paths, shadow account](docs/screenshots/dashboard-evidence.png) |
 |---|---|
-| **Overview** — live engine, mark-to-market equity, per-strategy P&L, every decision journaled with its reasoning | **Evidence** — Kronos rolling IC vs its own promotion hurdle, purged-CV path distribution, PBO/DSR verdict cards, shadow-account adherence |
+| **Overview** — equity, realized P&L, the engine and which strategies may vote, every decision journaled with its reasoning | **Evidence** — PBO / Deflated Sharpe verdicts, Kronos rolling IC against its hurdle, purged-CV path returns, shadow-account adherence |
 
-![Portfolio — trade history with strategy attribution](docs/screenshots/dashboard-portfolio.png)
+![Portfolio — searchable trade history with strategy attribution](docs/screenshots/dashboard-portfolio.png)
+
+## Five-minute demo
+
+```bash
+pip install -r requirements.txt
+ALGO_NO_AUTO_RESUME=1 python3 main.py dashboard   # → http://127.0.0.1:8000
+```
+
+1. **Overview** — equity, realized P&L and drawdown; the Engine card shows the
+   promotion gate: which strategies may vote and the measured reason the
+   others may not. Press **Start engine** to paper-trade live (Stop at any time).
+2. **Strategy Lab** — pick BTC/USDT, 1h, **Compare all**, **Run backtest**:
+   every registered strategy on the same real data, after fees and slippage.
+3. **Evidence** — the validation verdicts (PBO, Deflated Sharpe), the
+   foundation model that measured too weak to earn a vote, and the Shadow
+   Account auditing the bot against its own rules.
+4. **Ask the journal** — "how much did you earn?", "which strategy is best?".
+
+`ALGO_NO_AUTO_RESUME=1` keeps the engine stopped until you click Start. A
+fresh, consistent record is one click away under **Paper account → Reset**
+(the journal is backed up first).
 
 
 ```
-                    ┌──────────────────────────────────────────┐
- news RSS ─────────▶│ Sentiment overlay (veto/shrink, never     │
-                    │ initiates)                                │
- candles (ccxt      │                                          │
- fallback chain /   │ Indicators ─▶ Strategies ─▶ Orchestrator │
- yfinance, closed   │   (RSI/ATR/ADX/   (Turtle,   (regime +    │
- bars only,         │    VWAP/EMA...)  Connors,    weighted    │
- validated+stamped)  │                   Scalper)    vote)      │
-                    │                        ▲                  │
-                    │    Kronos (probabilistic forecast,        │
-                    │     IC ledger — votes only after it      │
-                    │     EARNS voting rights)                 │
-                    │                     │                     │
-                    │  Allocator (skfolio) ─┐│                 │
-                    │  risk budget per sym  │▼                 │
-                    │              RiskManager (final veto)     │
-                    │                     │                     │
-                    │              PaperBroker (fees+slippage,  │
-                    │               OCO brackets, gap-aware)   │
-                    │                     │                     │
-                    │              SQLite Journal ────────────────┼──▶ Dashboard
-                    └──────────────────────────────────────────┘      (FastAPI + Chart.js)
-                                                                    + Chatbot
-                     Shadow Account (journal vs its own rules)        + Purged-CV
-                     Kronos IC ledger (earned voting rights)           validation
+ candles (ccxt Binance→Bybit→OKX, yfinance for forex;
+          closed bars only, validated + caliber-stamped)
+    │
+    ▼
+ Indicators ──▶ Strategies ──▶ Orchestrator ──▶ RiskManager ──▶ PaperBroker
+ (RSI, ATR,     (Turtle,        (regime +        (sizing, caps,   (fees + slippage,
+  ADX, VWAP,     Connors,        weighted vote,   kill switch,     OCO brackets,
+  EMA, …)        Scalper,        promotion gate)  pause, final     gap-aware fills)
+                 Momentum, FX)        ▲           veto)                 │
+                                      │                                 ▼
+                      Allocator (skfolio risk budget per symbol)   SQLite journal
+                                                                        │
+      deterministic end to end: no LLM or news feed in the decision     ▼
+                                                     Dashboard (FastAPI + Chart.js)
+ Offline research: Kronos IC ledger · purged-CV / PBO / Deflated Sharpe ·
+                   Shadow Account (journal vs its own rules) · Strategy Lab
 ```
 
 ## Quick start
@@ -107,11 +119,11 @@ python3 main.py dashboard           # → http://127.0.0.1:8000
 #    "why did you buy BTC?", "which strategy is best?" — and open the
 #    Evidence tab: the honesty layer, rendered)
 
-# 3a-2. Strategy Lab — pick ANY stock/pair, apply strategies, backtest
+# 3a-2. Strategy Lab — pick any crypto/forex pair, apply strategies, backtest
 #    (dashboard: the Lab tab; works for BOTH books via a toggle)
 python3 main.py dashboard            # → http://127.0.0.1:8000/#lab
 #    crypto/forex symbols normalize from aliases ("btcusdt", "eurusd");
-#    "ALL strategies" runs a comparison on one fetched frame;
+#    "Compare all" runs every registered strategy on one fetched frame;
 #    async runs poll /api/lab/status; artifacts land in data/results/lab_*.json
 
 # 3b. the high-frequency paper book (separate account + dashboard tab)
@@ -133,7 +145,7 @@ make verify                         # tests + lint + live-vs-backtest parity smo
 make soak                           # drive the RUNNING dashboard and flag breakdowns
 make test / make lint / make battery / make config
 python3 main.py chat "explain the connors strategy"
-python3 -m pytest tests/ -q         # 274 tests
+python3 -m pytest tests/ -q         # 300 tests
 ```
 
 ## The strategies (each mapped to evidence — see RESEARCH.md)
@@ -164,10 +176,11 @@ the risk manager, unmeasured, and — because the backtester ran neither — pro
 that live and backtest were executing different decision code.
 `make verify` now fails if they ever diverge again.
 
-**LLM integration is optional**: with `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`)
-set, the LLM scores news, acts as a tie-breaker/veto, and powers the chatbot's
-answers; without a key the bot runs fully deterministic ("quant mode") and the
-chatbot answers from the journal with template logic.
+**LLM integration is optional and never trades**: with `OPENAI_API_KEY` (or
+`ANTHROPIC_API_KEY`) set, an LLM phrases the chatbot's free-form answers, and
+every dollar figure it quotes is cross-checked against the journal. Without a
+key the chatbot answers from the journal with template logic. Either way the
+trading decision is the same deterministic code.
 
 ## Risk management (the part that survives)
 
@@ -292,17 +305,12 @@ which is single-threaded). The gate and the ledger are intact, so the day the
 evidence says it deserves a vote, wiring it back is a decision with numbers
 behind it. The Evidence tab reads the ledger either way.
 
-**Removal proposal:** delete Kronos completely in a dedicated follow-up:
-the offline command and IC ledger, Evidence card, 573-line wrapper, 1,249
-lines of vendored model implementation, optional requirements, and 15
-dedicated tests. That removes a 49m36s recurring evidence job and 109 MB of
-Kronos-specific cached weights. In an isolated project environment it also
-avoids about 712 MB of optional package directories (`torch`, `transformers`,
-`huggingface_hub`, `einops`, `tqdm`); no non-Kronos Python module in this
-repository imports them. It saves **no additional live-cycle latency**, since
-Kronos is already absent from the trading loop. Until that explicit deletion
-is approved, the populated ledger makes the remaining research surface
-observable rather than half-alive.
+**Kept as evidence, not as a voter (decided 2026-10-01).** Removal was
+measured (≈1,800 lines, 15 tests and optional ML dependencies, and no live
+latency saved because Kronos is already offline) and declined: the rejected
+model is the clearest demonstration that a signal has to earn its vote here.
+The torch/transformers extras stay optional; the bot and the whole test suite
+run without them.
 
 ## Shadow Account — did the bot follow its own rules?
 
@@ -321,7 +329,8 @@ on BTC 1h, 16 lingering exits, 236 trades that blew through their initial stop
 distance, and a +342h disposition gap (losers held much longer than winners) —
 exactly the diagnostics the attribution story needs.
 
-rows — badged in the trade history, excluded from the chatbot's paper-record
+**Caveat:** those trades are seeded backtest-replay rows (`mode='demo'`) —
+badged in the trade history, excluded from the chatbot's paper-record
 answers, and skipped by `shadow` by default (`--include-demo` audits them).
 Those headline shadow numbers were computed on such seeded replays, not on
 trades the live engine took; they demonstrate the tooling, not a live record.
@@ -381,7 +390,7 @@ models/kronos/       vendored Kronos model source (upstream MIT license vendored
                      weights via HF Hub)
 HFT.md               the high-frequency paper book: research grounding,
                      fee math, strategies, harness, measured results
-tests/test_bot.py    274 tests: indicators, strategies, causality, determinism,
+tests/              300 tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,
                      shadow, journal, backtest, live-engine regressions
                      (cross-timeframe isolation, restart cash, bars_held)
@@ -389,7 +398,7 @@ run_battery.py       full backtest battery across symbols/strategies
 scripts/pinned_runs.py  pinned Milestone-A windows (byte-identical reruns)
 LICENSE              MIT
 pyproject.toml       committed ruff + pytest config (the lint floor CI enforces)
-Makefile             make setup / test / lint / backtest / validate / demo / battery
+Makefile             make setup / test / lint / verify / backtest / validate / battery
 CHANGELOG.md         rounds 1–6 and the audit hardening, mapped to history
 ```
 
@@ -399,8 +408,8 @@ CHANGELOG.md         rounds 1–6 and the audit hardening, mapped to history
   (core: `pandas numpy ccxt yfinance fastapi uvicorn requests pyarrow skfolio`;
   Kronos extras: `torch transformers huggingface_hub einops tqdm`)
 - Vendor the Kronos model source once: `git clone https://github.com/shiyu-coder/Kronos models/kronos`
-- Network access for market data + RSS (no API keys required for data)
-- Optional: `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` (LLM mode), `OPENAI_BASE_URL`
+- Network access for market data (no API keys required)
+- Optional: `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` (free-form chatbot answers), `OPENAI_BASE_URL`
 - `PAPER_CAPITAL`, `LIVE_INTERVAL`, `BOT_DB_PATH`, `PORTFOLIO_METHOD`,
   `PORTFOLIO_ALLOC`, `MAKER_PRICING` env overrides
 - `DASHBOARD_TOKEN` — optional: set it to require `Authorization: Bearer <token>`

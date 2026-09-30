@@ -87,11 +87,9 @@ def check_decision_parity():
         if book == "fast":
             from bot.hft import build_hft_config
             cfg = build_hft_config()
-        engine_side = Orchestrator(cfg.params, llm_client=None, sentiment_overlay=None,
-                                   cfg=cfg, book=book)
+        engine_side = Orchestrator(cfg.params, cfg=cfg, book=book)
         bt = Backtester(cfg, book=book)
-        backtest_side = Orchestrator(bt.cfg.params, llm_client=None,
-                                     sentiment_overlay=None, cfg=bt.cfg, book=bt.book)
+        backtest_side = Orchestrator(bt.cfg.params, cfg=bt.cfg, book=bt.book)
         for i in (600, 700, 800, 880):
             a = engine_side.decide(df, i, spec)
             b = backtest_side.decide(df, i, spec)

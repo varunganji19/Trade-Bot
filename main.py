@@ -469,23 +469,6 @@ def cmd_dashboard(args):
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 
-def _live_engine_state() -> str | None:
-    """'paper'/'hft' when that book's engine_state file says desired='running',
-    else None. The market switch is journal-blind without this: a live engine
-    mid-cycle would keep trading the OLD universe after the watchlist is
-    rewritten. Never raises (missing/unreadable file = not running)."""
-    from config import CONFIG
-    base = os.path.dirname(os.path.abspath(CONFIG.db_path))
-    for book, fname in (("paper", "engine_state.json"), ("hft", "hft_engine_state.json")):
-        try:
-            with open(os.path.join(base, fname)) as fh:
-                if json.load(fh).get("desired") == "running":
-                    return book
-        except (OSError, ValueError):
-            continue
-    return None
-
-
 def _port_owner(port: int) -> str | None:
     """Best-effort PID+command of whatever holds `port` (for the bind-failure
     message); returns None when nothing can be identified — never raises."""

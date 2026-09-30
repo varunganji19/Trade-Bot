@@ -70,7 +70,6 @@ class KronosConfig:
     demote_below: float = 0.0       # rolling IC that loses the vote again
     min_observations: int = 60      # forecasts before promotion is even possible
     ic_half_life: int = 100          # exp-weighted IC memory (bars of forecasts)
-    evaluate_every_bars: int = 4     # live cadence: forecast every N closed bars
     track_file: str = os.path.join(os.path.dirname(__file__), "..", "data", "kronos_ic.json")
 
 

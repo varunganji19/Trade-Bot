@@ -132,8 +132,7 @@ class Backtester:
         """
         broker = PaperBroker(self.starting_capital, costs=self.cfg.costs)
         risk = RiskManager(self.cfg)
-        orchestrator = Orchestrator(self.cfg.params, llm_client=None, sentiment_overlay=None,
-                                    cfg=self.cfg, book=self.book)
+        orchestrator = Orchestrator(self.cfg.params, cfg=self.cfg, book=self.book)
 
         # slice the spec to one timeframe (orchestrator filters by preferred tf)
         single = get_strategy(strategy, self.cfg.params) if strategy else None
@@ -273,7 +272,7 @@ class Backtester:
                 decision = _decision_from_signal(sig, float(cur_bar["close"]))
                 strategy_name = single.name
             else:
-                decision = orchestrator.decide(ind, i, spec, include_sentiment=False)
+                decision = orchestrator.decide(ind, i, spec)
                 strategy_name = decision.strategy_name or "orchestrator"
 
             if decision.action == "HOLD":

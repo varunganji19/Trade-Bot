@@ -296,7 +296,6 @@ class StrategyParams:
     hft_fade_time_stop: int = 9        # bars (~45 min: inside the documented MR half-life band)
     # Avellaneda-Stoikov-inspired maker (gamma-sigma quote width + drift skew)
     hft_mm_gamma: float = 0.1          # risk aversion (A-S notation)
-    hft_mm_sigma_window: int = 60      # log-return std window (bars)
     hft_mm_width_frac_atr: float = 0.5 # quote half-width = this x ATR (A-S width scales with sigma)
     hft_mm_min_width_bps: float = 2.0  # half-width floor (bp of price)
     hft_mm_max_width_bps: float = 15.0
@@ -557,12 +556,6 @@ def watchlist_path() -> str:
         return WATCHLIST_PATH
     return os.path.join(db_dir(), "watchlist.json")
 
-
-def kronos_track_path() -> str:
-    """Resolved kronos_ic.json under the journal dir (STRAT agent: point
-    KronosSignalEngine's default track_file here so BOT_DB_PATH overrides
-    stop leaking the IC ledger into the repo's data/)."""
-    return os.path.join(db_dir(), "kronos_ic.json")
 
 def _watchlist_to_dicts(specs: list) -> list:
     return [{"kind": s.kind, "symbol": s.symbol, "timeframe": s.timeframe,

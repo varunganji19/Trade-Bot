@@ -795,7 +795,7 @@ def test_regime_detection():
 def test_orchestrator_decision_shape():
     o = Orchestrator()
     df = add_all_indicators(trending_df(500, seed=21))
-    d = o.decide(df, len(df) - 2, CRYPTO_1H, include_sentiment=False)
+    d = o.decide(df, len(df) - 2, CRYPTO_1H)
     assert d.action in ("LONG", "SHORT", "HOLD")
     assert 0 <= d.confidence <= 0.95
     assert d.regime in ("trending", "ranging", "unknown")
@@ -850,7 +850,7 @@ def test_orchestrator_conflict_guard():
             from bot.strategies.base import Signal
             return Signal("fake2", "SHORT", 0.9, rationale="y")
     o.strategies = {"turtle_trend": FakeLong(), "connors_meanrev": FakeShort()}
-    d = o.decide(df, len(df) - 2, CRYPTO_1H, include_sentiment=False)
+    d = o.decide(df, len(df) - 2, CRYPTO_1H)
     assert d.action == "HOLD"
 
 
@@ -5714,8 +5714,7 @@ def test_candidate_strategies_never_steer_a_live_decision():
         strat.evaluate = counted
     df = add_all_indicators(make_df(50_000 * np.cumprod(
         1 + np.random.default_rng(6).normal(0, 0.003, 700)), freq="5min"))
-    orch.decide(df, 650, MarketSpec("crypto", "BTC/USDT", "5m"),
-                include_sentiment=False)
+    orch.decide(df, 650, MarketSpec("crypto", "BTC/USDT", "5m"))
     assert seen["hft_micro_breakout"] > 0          # the fast-book incumbents ran
     for name in CANDIDATE_STRATEGIES:
         assert seen[name] == 0, name
@@ -6034,8 +6033,7 @@ def test_orchestrator_flat_votes_do_not_dilute():
         def evaluate(self, df, i):
             return self._sig
 
-    orch = Orchestrator(CONFIG.params, llm_client=None, sentiment_overlay=None,
-                        cfg=CONFIG, book="fast")
+    orch = Orchestrator(CONFIG.params, cfg=CONFIG, book="fast")
     orch.strategies = {
         "hft_exhaustion_fade": Fake("hft_exhaustion_fade",
                                     Signal("hft_exhaustion_fade", "LONG", 0.60,
@@ -6045,7 +6043,7 @@ def test_orchestrator_flat_votes_do_not_dilute():
     }
     df = add_all_indicators(make_df(
         100 * np.cumprod(1 + np.random.default_rng(5).normal(0, 0.002, 400)), freq="5min"))
-    d = orch.decide(df, 350, MarketSpec("crypto", "TEST/USDT", "5m"), include_sentiment=False)
+    d = orch.decide(df, 350, MarketSpec("crypto", "TEST/USDT", "5m"))
     assert d.action == "LONG", d.rationale
     assert d.confidence >= CONFIG.risk.min_confidence
     assert d.limit_price == 99.0        # the maker entry rides through ensemble mode

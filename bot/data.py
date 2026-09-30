@@ -196,10 +196,8 @@ def fetch_crypto_history(symbol: str, timeframe: str, days: int,
 # --------------------------------------------------------------------------- forex
 def _safe_name(symbol: str) -> str:
     """Deterministic, collision-free cache-file stem from a ticker: crypto
-    'BTC/USDT' -> 'BTCUSDT', forex 'EURUSD=X' -> 'EURUSD', India '^NSEI' ->
-    'NSEI' (caret stripped), 'RELIANCE.NS' kept verbatim ('.NS' is the NSE
-    suffix — collision-free: no other kind's stem can end '.NS'). One shared
-    transform — the cache writer and the rolling-cache glob must agree or
+    'BTC/USDT' -> 'BTCUSDT', forex 'EURUSD=X' -> 'EURUSD' (a leading index
+    caret is stripped too). One shared transform — the cache writer and the rolling-cache glob must agree or
     freshness reuse silently misses every file."""
     return symbol.replace("/", "").replace("=X", "").replace("^", "")
 

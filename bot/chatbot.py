@@ -48,8 +48,8 @@ STRATEGY_DOCS = {
                      "Opening-Range-Breakout evidence (Zarattini & Aziz 2023) plus our VWAP prototype."),
     "orchestrator": ("The Orchestrator blends all three strategies per market regime (trending vs "
                      "ranging via ADX): trending favors the Turtle breakout, ranging favors Connors "
-                     "mean reversion; conflicting strong signals stand down, news sentiment can veto "
-                     "but never initiate."),
+                     "mean reversion; conflicting strong signals stand down. The decision is fully "
+                     "deterministic — no LLM or news feed takes part in it."),
     "ensemble": "Ensemble — backtest mode where the orchestrator blends all three strategies.",
 }
 

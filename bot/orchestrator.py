@@ -85,12 +85,7 @@ def detect_regime(df, i: int) -> tuple[str, dict]:
 
 
 class Orchestrator:
-    def __init__(self, params=None, llm_client=None, sentiment_overlay=None, cfg=None,
-                 book: str = "standard"):
-        # llm_client is accepted and IGNORED for decisions (see the module
-        # docstring): kept in the signature so existing callers/tests are not
-        # broken by the removal, and so the chatbot's client can still be
-        # handed around without a second wiring path.
+    def __init__(self, params=None, cfg=None, book: str = "standard"):
         from config import CONFIG
         self.cfg = cfg or CONFIG
         # which book's strategies may vote here (BaseStrategy.book). Timeframe
@@ -102,13 +97,9 @@ class Orchestrator:
         # at construction — a stale gate looks exactly like a working one).
         # A strategy the harness measured as a loser does not vote; see
         # bot/promotion.py for why it is three states.
-        self.llm = llm_client
-        self.sentiment = sentiment_overlay
 
     # ------------------------------------------------------------------ main
-    def decide(self, df, i: int, spec, include_sentiment: bool = False) -> Decision:
-        # include_sentiment is accepted and ignored (the overlay is gone) so
-        # existing call sites keep working
+    def decide(self, df, i: int, spec) -> Decision:
         regime, regime_meta = detect_regime(df, i)
         weights = dict(REGIME_WEIGHTS.get(regime, REGIME_WEIGHTS["ranging"]))
 

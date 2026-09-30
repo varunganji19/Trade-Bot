@@ -13,8 +13,8 @@ Tabs (hash routing, ~4s polling):
                 feed for the fast book (mode='hft')
   #watchlist  — full CRUD of what the bot trades (persisted data/watchlist.json;
                 hot-reloads into a RUNNING engine's CONFIG)
-  #lab        — Strategy Lab: pick ANY stock/pair (crypto, forex, NSE —
-                aliases normalized), apply the strategies registered for it,
+  #lab        — Strategy Lab: pick ANY crypto/forex pair (aliases
+                normalized), apply the strategies registered for it,
                 backtest on real data — in BOTH books (standard + HFT);
                 async runs with status polling, comparison mode, artifacts
                 in data/results/lab_*.json
@@ -28,7 +28,6 @@ Tabs (hash routing, ~4s polling):
 API: GET /  /api/stats /api/equity /api/trades /api/decisions /api/evidence
      /api/positions (open positions) /api/watchlist /api/account
      /api/account/transactions /api/chat /api/engine/status
-     time, never both; see config.MARKET_MODE)
      POST /api/chat {message}  /api/engine/start {interval}  /api/engine/stop
           /api/watchlist {kind,symbol,timeframe,display?}
           /api/account/deposit {amount}  /api/account/withdraw {amount}
@@ -1041,16 +1040,6 @@ def api_account():
             "unrealized": round(equity - cash, 2)}
 
 
-def _reject_overdraft(direction: str, new_cash: float, base_cash: float,
-                      amount: float) -> None:
-    """Withdraw past the balance guard — identical 400 for the engine-on and
-    engine-off paths (both branches compute the same inequality, so it's ONE
-    rule, not two copies that could drift apart)."""
-    if direction == "withdraw" and new_cash < -1e-9:
-        raise HTTPException(400, f"insufficient cash: ${base_cash:,.2f} available, "
-                                 f"-${amount:,.2f} requested")
-
-
 def _adjust_account(amount: float, direction: str) -> dict:
     """Atomically adjust the account ledger and broker under lifecycle/cycle locks."""
     kind = "deposit" if direction == "deposit" else "withdrawal"
@@ -1569,8 +1558,8 @@ def api_hft_engine_status():
 
 
 # ------------------------------------------------------------- Strategy Lab
-# Pick any stock/pair, apply the strategies registered for it, backtest —
-# in BOTH books (standard forex+crypto+NSE and the HFT book). Pure backtest:
+# Pick any crypto/forex pair, apply the strategies registered for it,
+# backtest — in BOTH books (standard crypto+forex and the HFT book). Pure backtest:
 # own broker/risk per run, zero journal writes, zero engine interference.
 class LabIn(BaseModel):
     book: str = Field(default="standard", max_length=16)
@@ -1654,36 +1643,6 @@ def api_trading_resume(body: EmptyIn):
 
 
 # ---------------------------------------------------------------------------
-def _open_position_dicts(eng: TradingEngine | None) -> list[dict]:
-    """Every open position the switch could orphan, from BOTH holders:
-    the live engine's broker (engine-on case) and the journal's OPEN rows
-    (engine-off case — a stale engine process could still hold rows the
-    dashboard would otherwise miss). Live and journal views are merged and
-    de-duplicated on (symbol, timeframe): a position the engine holds is
-    also a journal row; only a journal row the engine lost (crash window)
-    shows as journal-only."""
-    live: dict[tuple[str, str], dict] = {}
-    if eng is not None:
-        # positions_snapshot + the caller's engine identity check keep this
-        # race-free against the engine's own open/close mutations
-        for p in eng.broker.positions_snapshot():
-            live[(p.symbol, p.timeframe)] = {
-                "symbol": p.symbol, "timeframe": p.timeframe, "side": p.side,
-                "qty": p.qty, "entry": p.entry_price, "held_in": "engine",
-                "kind": infer_kind(p.symbol)}
-    journal_only: dict[tuple[str, str], dict] = {}
-    for t in journal.open_trades():
-        tf = t.get("timeframe") or _LEGACY_TF
-        key = (t["symbol"], tf)
-        if key in live:
-            continue
-        journal_only[key] = {"symbol": t["symbol"], "timeframe": tf,
-                             "side": t["side"], "qty": t["qty"],
-                             "entry": t["entry_price"], "held_in": "journal",
-                             "kind": infer_kind(t["symbol"])}
-    return list(live.values()) + list(journal_only.values())
-
-
 def _close_all_open_positions(eng: TradingEngine | None) -> list[dict]:
     """Force-close every open paper position at its last mark. Returns the
     per-position close results.

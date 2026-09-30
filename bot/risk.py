@@ -206,13 +206,6 @@ class RiskManager:
         per-trade risk by the symbol's share of the book's total budget."""
         self.alloc_weights = weights or {}
 
-    def clear_allocation(self):
-        """Drop all portfolio weights (safe on empty/missing state).
-
-        The engine calls this when the allocator is unavailable so the book
-        falls back to equal risk split instead of trading on stale weights."""
-        self.alloc_weights = {}
-
     # ------------------------------------------------------------------ core
     def size_position(self, equity: float, price: float, stop_distance: float,
                       kind: str = "crypto",

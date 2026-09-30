@@ -309,20 +309,6 @@ def _downsample_curve(curve: list, cap: int = 500) -> list:
     return [curve[int(i * step)] for i in range(cap)]
 
 
-def lab_artifacts(limit: int = 20, offset: int = 0) -> list[str]:
-    """Paginated newest-first lab artifact names (evidence loaders page
-    through this instead of globbing+parsing the whole dir)."""
-    d = os.path.join("data", "results")
-    try:
-        files = sorted((f for f in os.listdir(d)
-                        if f.startswith("lab_") and f.endswith(".json")),
-                       key=lambda f: os.path.getmtime(os.path.join(d, f)),
-                       reverse=True)
-    except OSError:
-        return []
-    return files[offset:offset + max(1, limit)]
-
-
 def _write_artifact(payload: dict, keep_n: int = 20) -> str:
     try:
         s = payload["spec"]

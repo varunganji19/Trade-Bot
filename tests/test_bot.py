@@ -2942,6 +2942,11 @@ def test_standard_views_never_show_fast_book_rows():
             assert [x["mode"] for x in client.get("/api/decisions").json()] == ["demo"]
             trades = client.get("/api/trades").json()
             assert sorted(t["mode"] for t in trades) == ["demo", "paper"]
+            # engine stopped: open positions come from the journal — paper only
+            held = client.get("/api/stats").json()["open_positions"]
+            assert [p["symbol"] for p in held] == ["BTC/USDT"]
+            held = client.get("/api/positions").json()["positions"]
+            assert [p["symbol"] for p in held] == ["BTC/USDT"]
         finally:
             CONFIG.db_path = old_db
             dash.journal = dash.Journal(old_db)

@@ -705,7 +705,8 @@ def api_stats():
         stats["health_note"] = getattr(eng, "health_note", None)
     else:
         stats["llm_mode"] = "quant"
-        stats["open_positions"] = [_journal_position_dict(t) for t in journal.open_trades()]
+        stats["open_positions"] = [_journal_position_dict(t)
+                                   for t in journal.open_trades(mode="paper")]
         stats["health_note"] = None
     return stats
 
@@ -997,7 +998,7 @@ def api_watchlist_delete(kind: str, symbol: str, timeframe: str):
         # would restore on next start into a watchlist that no longer manages
         # it (stops never checked, marks never fetched — a zombie position)
         if any(t.get("symbol") == symbol and (t.get("timeframe") or _LEGACY_TF) == timeframe
-               for t in journal.open_trades()):
+               for t in journal.open_trades(mode="paper")):
             raise HTTPException(
                 409, f"cannot remove {symbol} {timeframe}: an open journaled trade exists "
                      f"on it — close the position first (Portfolio tab)")
@@ -1017,7 +1018,7 @@ def api_positions():
         positions, marks, _ = _live_state(eng)
         return {"live": True, "positions": [_position_dict(p, marks) for p in positions]}
     return {"live": False,
-            "positions": [_journal_position_dict(t) for t in journal.open_trades()]}
+            "positions": [_journal_position_dict(t) for t in journal.open_trades(mode="paper")]}
 
 
 @app.post("/api/positions/close")

@@ -403,18 +403,18 @@ function tradeRow(t) {
 }
 
 /* ===================================================== overview */
-let statsBusy = false, lastStatsAt = 0, statsFailed = false, engineActionBusy = false;
+let statsBusy = false, lastStatsAt = 0, statsFailed = false, authNeeded = false, engineActionBusy = false;
 function updateFreshness() {
   /* stale means a request FAILED (jget aborts after 10s) — not merely an old
      timestamp: polling pauses while the tab is hidden, which is not an outage */
   const age = lastStatsAt ? Math.floor((Date.now() - lastStatsAt) / 1000) : 0;
-  const stale = statsFailed;
-  $('#connectionState').dataset.state = stale ? 'error' : lastStatsAt ? 'ok' : 'loading';
-  $('#connectionState').textContent = stale ? 'Connection lost'
+  const stale = statsFailed && !authNeeded;
+  $('#connectionState').dataset.state = stale || authNeeded ? 'error' : lastStatsAt ? 'ok' : 'loading';
+  $('#connectionState').textContent = authNeeded ? 'Token required' : stale ? 'Connection lost'
     : lastStatsAt ? (age < 5 ? 'Updated just now' : 'Updated ' + age + 's ago') : 'Connecting…';
   $('#connectionBanner').hidden = !stale;
   $('#connectionBanner').classList.toggle('show', !!stale);
-  if (stale) {
+  if (statsFailed) {
     $('#enginePillText').textContent = 'Engine status unavailable';
     $('#engineDot').className = 'dot';
     $('#btnStart').disabled = true;
@@ -426,9 +426,14 @@ async function refreshStats() {
   statsBusy = true;
   let s;
   try { s = await jget('/api/stats'); }
-  catch { statsFailed = true; updateFreshness(); return; }
+  catch (e) {
+    statsFailed = true;
+    authNeeded = /401/.test(String(e && e.message));
+    updateFreshness();
+    return;
+  }
   finally { statsBusy = false; }
-  lastStatsAt = Date.now(); statsFailed = false; updateFreshness();
+  lastStatsAt = Date.now(); statsFailed = authNeeded = false; updateFreshness();
   const openN = (s.open_positions || []).length;
   renderStatCards($('#ovStats'), [
     ['Equity', fmt$(s.current_equity), '',

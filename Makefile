@@ -85,7 +85,7 @@ soak:
 config:
 	python3 main.py config
 
-# pinned Milestone-A windows (byte-identical reruns incl. forex+india legs)
+# pinned Milestone-A windows (byte-identical reruns, crypto + forex legs)
 pinned:
 	python3 scripts/pinned_runs.py before
 
@@ -97,4 +97,3 @@ shadow:
 kronos:
 	python3 main.py kronos --days 60
 
-.PHONY: hft-battery hft-status

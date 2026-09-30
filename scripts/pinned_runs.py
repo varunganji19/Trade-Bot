@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the 7 pinned Milestone-A backtest windows into a results directory.
+"""Run the pinned Milestone-A backtest windows into a results directory.
 
 Usage: python3 scripts/pinned_runs.py <before|mid|after>
 
@@ -24,9 +24,6 @@ RUNS = [
     ("ETH/USDT", "15m", "2026-01-05", "2026-09-05", "vwap_scalper", "ETHUSDT_15m_scalper"),
     # forex leg (same pinned style; Yahoo 1h history comfortably covers it)
     ("EURUSD=X", "1h", "2026-01-04", "2026-09-04", "fx_regime_meanrev", "EURUSD_1h_fxmr"),
-    # india leg (NSE 1h; Yahoo intraday caps 1h history at 730d — this window
-    # stays inside it, matching the battery's 1h depth)
-    ("RELIANCE.NS", "1h", "2025-09-08", "2026-09-04", "ts_momentum", "RELIANCE_1h_tsmom"),
 ]
 
 

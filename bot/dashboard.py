@@ -750,7 +750,9 @@ def api_equity(limit: int = Query(default=500, ge=1, le=3000),
 def api_trades(limit: int = Query(default=100, ge=1, le=1000),
                since_id: int | None = Query(default=None, ge=0)):
     try:
-        return journal.recent_trades(limit=limit, since_id=since_id)
+        # the standard book's history: its paper trades plus the badged demo
+        # replays — never the fast book's rows (they have their own view)
+        return journal.recent_trades(limit=limit, mode=("paper", "demo"), since_id=since_id)
     except Exception as exc:
         if _is_busy_error(exc):
             raise HTTPException(503, "journal is busy — retry shortly")
@@ -760,13 +762,13 @@ def api_trades(limit: int = Query(default=100, ge=1, le=1000),
 @app.get("/api/decisions")
 def api_decisions(limit: int = Query(default=40, ge=1, le=500),
                   since_id: int | None = Query(default=None, ge=0)):
-    # paper feed first; a demo-only journal (fresh seed-demo) still renders —
-    # demo rows are then badged in the terminal (they are backtest replays)
+    # paper feed first; with no paper decisions the demo rows render, badged
+    # as backtest replays. Never the fast book's decisions (its own view).
     try:
         rows = journal.recent_decisions(limit=limit, mode="paper",
                                         since_id=since_id)
         if not rows and since_id is None:
-            rows = journal.recent_decisions(limit=limit)
+            rows = journal.recent_decisions(limit=limit, mode="demo")
     except Exception as exc:
         if _is_busy_error(exc):
             raise HTTPException(503, "journal is busy — retry shortly")

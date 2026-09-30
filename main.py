@@ -630,7 +630,8 @@ def cmd_shadow(args):
     from bot.data import fetch_history
 
     j = Journal()
-    trades = j.recent_trades(limit=2000, mode=None if args.include_demo else "paper")
+    trades = j.recent_trades(limit=2000,
+                             mode=("paper", "demo") if args.include_demo else "paper")
     demo = j.trade_mode_counts().get("demo", 0)
     if demo and not args.include_demo:
         print(f"[shadow] excluding {demo} mode='demo' (seed-demo backtest-replay) rows — "

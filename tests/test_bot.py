@@ -2915,6 +2915,38 @@ def test_headline_stats_never_count_other_books():
             dash.journal = dash.Journal(old_db)
 
 
+def test_standard_views_never_show_fast_book_rows():
+    """The standard book's trade history and decision feed read paper (and
+    badged demo) rows only. Both fell back to EVERY mode, so after a reset
+    the Overview showed the fast book's 5m decisions as its own."""
+    import tempfile
+    from types import SimpleNamespace
+    from bot import dashboard as dash
+    from fastapi.testclient import TestClient
+
+    with tempfile.TemporaryDirectory() as td:
+        old_db = CONFIG.db_path
+        CONFIG.db_path = os.path.join(td, "t.db")
+        try:
+            dash.journal = dash.Journal(CONFIG.db_path)
+            j = dash.journal
+            d = SimpleNamespace(action="HOLD", confidence=0.0, price=1.0, regime="ranging",
+                                stop_distance=None, target_rr=None, strategy_signals={},
+                                sentiment={}, rationale="r")
+            j.add_decision("EURUSD=X", "5m", d, mode="hft")
+            for mode, sym in (("hft", "ETH/BTC"), ("demo", "GBPUSD=X"), ("paper", "BTC/USDT")):
+                j.open_trade(sym, "long", 1.0, 100.0, 95.0, None, "s", "r", mode=mode)
+            client = TestClient(dash.app, base_url="http://127.0.0.1")
+            assert client.get("/api/decisions").json() == []
+            j.add_decision("GBPUSD=X", "1h", d, mode="demo")
+            assert [x["mode"] for x in client.get("/api/decisions").json()] == ["demo"]
+            trades = client.get("/api/trades").json()
+            assert sorted(t["mode"] for t in trades) == ["demo", "paper"]
+        finally:
+            CONFIG.db_path = old_db
+            dash.journal = dash.Journal(old_db)
+
+
 def test_chatbot_why_matches_symbol_not_newest():
     """'why did you buy BTC?' must answer about BTC — it used to return the
     newest non-HOLD decision of ANY market (a GBPUSD demo row on a fresh

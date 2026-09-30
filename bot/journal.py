@@ -872,19 +872,26 @@ class Journal:
             return [dict(r) for r in conn.execute(q, params)]
 
     @_retry_busy
-    def recent_trades(self, limit: int = 100, mode: str | None = None,
+    def recent_trades(self, limit: int = 100, mode: str | tuple | None = None,
                       since_id: int | None = None) -> list:
-        q, params = "SELECT * FROM trades", []
+        return self._recent("trades", limit, mode, since_id)
+
+    def _recent(self, table: str, limit: int, mode: str | tuple | None,
+                since_id: int | None) -> list:
+        """Newest-first rows of `table`, optionally limited to one mode or a
+        tuple of modes and to ids above `since_id`."""
+        where, params = [], []
         if mode:
-            q += " WHERE mode=?"
-            params.append(mode)
+            modes = (mode,) if isinstance(mode, str) else tuple(mode)
+            where.append(f"mode IN ({','.join('?' * len(modes))})")
+            params.extend(modes)
         if since_id is not None:
-            q += (" AND id>?" if mode else " WHERE id>?")
+            where.append("id>?")
             params.append(since_id)
-        q += " ORDER BY id DESC LIMIT ?"
-        params.append(limit)
+        q = f"SELECT * FROM {table}" + (" WHERE " + " AND ".join(where) if where else "")
         with self._conn() as conn:
-            return [dict(r) for r in conn.execute(q, params)]
+            return [dict(r) for r in conn.execute(q + " ORDER BY id DESC LIMIT ?",
+                                                  params + [limit])]
 
     @_retry_busy
     def trade_mode_counts(self) -> dict[str, int]:
@@ -908,22 +915,12 @@ class Journal:
 
     @_retry_busy
     @_retry_busy
-    def recent_decisions(self, limit: int = 60, mode: str | None = None,
+    def recent_decisions(self, limit: int = 60, mode: str | tuple | None = None,
                          since_id: int | None = None) -> list:
         """mode filters like the other read paths: the dashboard feed and the
         chatbot read the bot's OWN paper decisions first and only fall back to
-        every row on a demo-only journal (seed-demo writes mode='demo')."""
-        q, params = "SELECT * FROM decisions", []
-        if mode:
-            q += " WHERE mode=?"
-            params.append(mode)
-        if since_id is not None:
-            q += (" AND id>?" if mode else " WHERE id>?")
-            params.append(since_id)
-        q += " ORDER BY id DESC LIMIT ?"
-        params.append(limit)
-        with self._conn() as conn:
-            return [dict(r) for r in conn.execute(q, params)]
+        the demo rows on a journal with no paper decisions."""
+        return self._recent("decisions", limit, mode, since_id)
 
     @_retry_busy
     def equity_curve(self, limit: int = 2000, mode: str | None = None,

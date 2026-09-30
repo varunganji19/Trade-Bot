@@ -515,8 +515,9 @@ function renderEquityHistory() {
   if (!equityChart) return;
   const lastTime = equityHistory.length ? Date.parse(equityHistory[equityHistory.length - 1].ts) : 0;
   const eq = equityDays ? equityHistory.filter(p => Date.parse(p.ts) >= lastTime - equityDays * 86400000) : equityHistory;
-  $('#equityEmpty').hidden = eq.length > 0;
-  $('#equityChart').hidden = !eq.length;
+  const drawable = eq.length > 1;   // one mark is a point, not a curve
+  $('#equityEmpty').hidden = drawable;
+  $('#equityChart').hidden = !drawable;
   setSeries(equityChart, eq.map(p => fmtTs(p.ts)), eq.map(p => p.equity));
   $('#eqRange').textContent = eq.length ? fmtTs(eq[0].ts).slice(0, 5) + ' → ' +
     fmtTs(eq[eq.length - 1].ts).slice(0, 5) + ' · ' + eq.length + ' marks (IST)' : 'No recorded equity';
@@ -699,8 +700,9 @@ async function refreshHft() {
     let eq;
     try { eq = await jget('/api/hft/equity'); } catch { eq = []; }
     if (!Array.isArray(eq)) eq = [];
-    $('#hftEquityEmpty').hidden = eq.length > 0;
-    if (eq.length) setSeries(hftChart, eq.map(p => fmtTs(p.ts)), eq.map(p => p.equity));
+    $('#hftEquityEmpty').hidden = eq.length > 1;
+    $('#hftEquityChart').hidden = eq.length < 2;
+    if (eq.length > 1) setSeries(hftChart, eq.map(p => fmtTs(p.ts)), eq.map(p => p.equity));
   }
 
   /* ALL fast-book trades — the one place for the high-frequency history */

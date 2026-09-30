@@ -35,7 +35,7 @@ day — zero trades, zero decisions, ever. See CHANGELOG.md and HISTORY.md.)
   statistics that quantify how much of the Sharpe is trial-selection.
 - **Causality and determinism are tested**, not assumed: truncating history at
   bar *i* cannot change the bar-*i* signal; identical inputs produce identical
-  trades. **300 tests** + a parity smoke and a soak harness, CI on every push.
+  trades. **300+ tests** + a parity smoke and a soak harness, CI on every push.
 
 Built for a competition with an explicit engineering thesis: **the edge is the
 process** — evidence-based strategies (researched from the most profitable
@@ -145,7 +145,7 @@ make verify                         # tests + lint + live-vs-backtest parity smo
 make soak                           # drive the RUNNING dashboard and flag breakdowns
 make test / make lint / make battery / make config
 python3 main.py chat "explain the connors strategy"
-python3 -m pytest tests/ -q         # 300 tests
+python3 -m pytest tests/ -q         # 300+ tests
 ```
 
 ## The strategies (each mapped to evidence — see RESEARCH.md)
@@ -390,7 +390,7 @@ models/kronos/       vendored Kronos model source (upstream MIT license vendored
                      weights via HF Hub)
 HFT.md               the high-frequency paper book: research grounding,
                      fee math, strategies, harness, measured results
-tests/              300 tests: indicators, strategies, causality, determinism,
+tests/              300+ tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,
                      shadow, journal, backtest, live-engine regressions
                      (cross-timeframe isolation, restart cash, bars_held)

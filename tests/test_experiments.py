@@ -327,7 +327,8 @@ def test_experiment_log_shows_runs_and_history_newest_first(tmp_path, monkeypatc
 
     import bot.dashboard as dash
     from fastapi.testclient import TestClient
-    dash._EVIDENCE_CACHE.update(key=None, payload=None, ts=0.0)
+    import bot.api.evidence as evidence_api
+    evidence_api._EVIDENCE_CACHE.update(key=None, payload=None, ts=0.0)
     payload = TestClient(dash.app, base_url="http://127.0.0.1").get("/api/evidence").json()
     assert payload["experiments"]["n"] == len(rows)
     promo._CACHE.update(path=None, mtime=None, verdicts={})

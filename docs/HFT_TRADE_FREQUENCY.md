@@ -213,6 +213,40 @@ right exit if a future variant reverts more often.
 stop closes half the trades; does the reversion simply need more time?),
 and real taker-buy order flow as an entry filter (resource idea 1 below).
 
+## Measured: holding longer (2026-10-01)
+
+Half the fade's trades were closed by its 45-minute time stop, so the next
+question was whether the reversion simply needs more time. Same 15 markets,
+same 60/30-day split, variants fixed in advance; only the maximum hold changes.
+
+| Setup | Max hold | Selection median OOS PF | Holdout net (30 days) | Stop-loss share of exits |
+|---|---|---|---|---|
+| live thresholds, market exit | 45 min (live) | 0.75 | **−$407** | 41% |
+| live thresholds, market exit | 1.5 h | 0.75 | −$493 | 53% |
+| live thresholds, market exit | 3 h | 0.83 | −$502 | 58% |
+| live thresholds, market exit | 6 h | 0.68 | −$501 | 60% |
+| 2.25σ / 2.5×, limit exit +2bp | 45 min | 0.81 | **−$170** | 39% |
+| 2.25σ / 2.5×, limit exit +2bp | 1.5 h | 0.87 | −$585 | 51% |
+| 2.25σ / 2.5×, limit exit +2bp | 3 h | 0.94 | −$446 | 57% |
+| 2.25σ / 2.5×, limit exit +2bp | 6 h | 0.99 | −$525 | 62% |
+| same, entry must also trade through 2bp | 6 h | 0.94 | −$620 | 62% |
+
+**Result: holding longer makes every variant worse on unseen data.** More
+trades reach the mean (take-profits 43 → 132), but more of them hit the stop
+first; the stretches that revert do so quickly. The 45-minute hold already
+in use is the best of the four.
+
+**The overfitting lesson, measured:** on the 60 selection days the 6-hour
+hold looks best (median PF 0.99, almost passing); on the 30 unseen days it
+loses three times as much as the 45-minute hold. Selecting on the same data
+you report would have shipped the worst setting.
+
+**Where the fast book stands:** breadth delivers the frequency (9–15
+trades/day on 15 markets); every variant of the one surviving strategy —
+thresholds, exit type, hold length — loses after fees out of sample. The
+remaining untested lever is real order flow (Binance taker-buy volume,
+roadmap item M8).
+
 ## Open-source resources worth using (GitHub survey, 2026-10-01)
 
 Licences matter: **MIT / Apache-2.0** code can be reused with attribution;

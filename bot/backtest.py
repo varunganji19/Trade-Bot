@@ -54,6 +54,7 @@ from bot.orchestrator import Orchestrator
 from bot.risk import RiskManager, correlation_cluster
 from config import CONFIG, MarketSpec, bars_per_year, infer_kind
 from bot.strategies import get_strategy
+from bot.strategies.base import strategy_applies
 
 
 @dataclass
@@ -268,6 +269,8 @@ class Backtester:
 
             # ---- look for an entry on the CURRENT closed bar ----------------
             if single is not None:
+                if not strategy_applies(single, spec.symbol):
+                    continue           # e.g. a cross-pair strategy on BTC/USDT
                 sig = single.evaluate(ind, i)
                 decision = _decision_from_signal(sig, float(cur_bar["close"]))
                 strategy_name = single.name

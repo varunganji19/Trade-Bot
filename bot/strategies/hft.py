@@ -39,8 +39,17 @@ gross of fees at this cadence is fiction; the harness always reports both.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
+
+from bot.indicators import halflife_ar1
 
 from .base import BaseStrategy, Signal
+
+# bars handed to the rolling statistics below: the longest window any of
+# them reads (the 200-bar half-life fit) plus slack. Slicing to this tail
+# gives the SAME value at bar i as the full frame (each statistic only reads
+# its own window) and keeps a backtest linear instead of quadratic.
+_TAIL = 260
 
 
 def _stop_floor(p, price: float) -> float:
@@ -61,6 +70,21 @@ def _maker_width_floor_bps(p) -> float:
     below that round trip is a guaranteed loser even when the quote fills and
     the target hits."""
     return p.hft_maker_cost_floor_bps * p.hft_cost_buffer
+
+
+def _deviation(df, i: int) -> pd.Series:
+    """log(close/ema50) over the causal tail ending at bar i."""
+    tail = df.iloc[max(0, i - _TAIL + 1): i + 1]
+    return np.log(tail["close"] / tail["ema50"])
+
+
+def _stretch_z(df, i: int) -> float:
+    """How far price is stretched from its 50-bar EMA at bar i, in units of
+    that stretch's own 100-bar volatility (min 60 bars: ema50 itself is NaN
+    for its warmup, and those NaNs would poison a strict window)."""
+    dev = _deviation(df, i)
+    sigma = dev.rolling(100, min_periods=60).std()
+    return float((dev / sigma).iloc[-1])
 
 
 def _clv(df, i: int) -> float:
@@ -140,21 +164,13 @@ class HFTExhaustionFade(BaseStrategy):
     preferred_timeframes = ("5m",)
     book = "fast"
 
-    def _z(self, df, i: int) -> float:
-        dev = np.log(df["close"] / df["ema50"])
-        # min_periods=60: ema50 itself is NaN for its first min_periods bars,
-        # and those NaNs would poison a strict 100-bar window forever after
-        sigma = dev.rolling(100, min_periods=60).std()
-        z = dev / sigma
-        return float(z.iloc[i])
-
     def evaluate(self, df, i: int) -> Signal:
         p = self.p
         close = self._at(df, "close", i)
         atr = self._at(df, "atr", i)
         ema50 = self._at(df, "ema50", i)
         vol = self._at(df, "vol_ratio", i)
-        z = self._z(df, i)
+        z = _stretch_z(df, i)
         if not all(self._ok(v) for v in (close, atr, ema50, vol, z)) or atr <= 0:
             return Signal(self.name, "FLAT", 0.0, rationale="warmup")
         clv = _clv(df, i)
@@ -186,7 +202,7 @@ class HFTExhaustionFade(BaseStrategy):
         return Signal(self.name, "FLAT", 0.0, rationale="no exhaustion")
 
     def check_exit(self, df, i: int, position) -> tuple[str | None, float | None]:
-        z = self._z(df, i)
+        z = _stretch_z(df, i)
         if self._ok(z):
             if position.side == "long" and z >= 0.0:
                 return "reversion to mean", None
@@ -350,5 +366,129 @@ class HFTOFIMomentum(BaseStrategy):
             if position.side == "short" and z >= self.p.hft_ofi_z_entry:
                 return "flow reversed", None
         if position.bars_held >= self.p.hft_ofi_time_stop:
+            return "time stop", None
+        return None, None
+
+
+class HFTCrossReversion(BaseStrategy):
+    """Spread reversion on a cross pair (pairs trading in one instrument).
+
+    ETH/BTC is the price of ETH in BTC — the ratio of two coins that mostly
+    move together. When the ratio stretches 2 sigma from its 50-bar EMA, fade
+    it with a resting maker limit, but ONLY while the spread is measurably
+    mean-reverting: the AR(1) half-life of the log ratio ITSELF (Chan's
+    machinery, indicators.halflife_ar1) must be inside the holding horizon.
+    It has to be the level, not the gap to the EMA: in a steady trend that
+    gap is stationary too (the EMA chases price), so a deviation-based gate
+    passed and the strategy bought every bar of a downtrend. A trending
+    ratio — one coin genuinely re-rating against the other — sits near the
+    unit root, reads a long half-life and is refused; fading it is how
+    pairs traders get run over. Exit when the deviation crosses back through the
+    mean, or on the time stop."""
+    name = "hft_cross_reversion"
+    preferred_timeframes = ("5m",)
+    book = "fast"
+
+    def applies_to(self, symbol: str) -> bool:
+        # a cross is quoted in another coin, not a dollar stablecoin
+        return symbol.partition("/")[2] in ("BTC", "ETH")
+
+    def _half_life(self, df, i: int) -> float:
+        log_ratio = np.log(df["close"].iloc[max(0, i - _TAIL + 1): i + 1])
+        hl = halflife_ar1(log_ratio, window=self.p.hft_xr_halflife_window)
+        return float(hl.iloc[-1])
+
+    def evaluate(self, df, i: int) -> Signal:
+        p = self.p
+        close = self._at(df, "close", i)
+        atr = self._at(df, "atr", i)
+        ema50 = self._at(df, "ema50", i)
+        z = _stretch_z(df, i)
+        if not all(self._ok(v) for v in (close, atr, ema50, z)) or atr <= 0:
+            return Signal(self.name, "FLAT", 0.0, rationale="warmup")
+        if abs(z) < p.hft_xr_z_entry:
+            return Signal(self.name, "FLAT", 0.0, rationale=f"spread z {z:+.2f} inside the band")
+        hl = self._half_life(df, i)
+        if not self._ok(hl) or hl > p.hft_xr_halflife_max:
+            return Signal(self.name, "FLAT", 0.0,
+                          rationale=f"spread not reverting (half-life {hl:.1f} bars > "
+                                    f"{p.hft_xr_halflife_max:.0f})")
+        stop = p.hft_xr_stop_atr * atr
+        if stop < _stop_floor(p, close):
+            return Signal(self.name, "FLAT", 0.0,
+                          rationale=f"stop {stop / close * 1e4:.1f}bp under the "
+                                    f"{p.hft_cost_floor_bps * p.hft_cost_buffer:.1f}bp cost floor")
+        conf = self._clip_conf(0.60 + 0.10 * min(1.0, abs(z) - p.hft_xr_z_entry))
+        side = "LONG" if z < 0 else "SHORT"
+        return Signal(self.name, side, conf, stop_distance=stop, target_rr=None,
+                      limit_price=close,
+                      rationale=f"spread {side.lower()}: z {z:+.2f}, half-life {hl:.1f} bars "
+                                f"— maker {'bid' if side == 'LONG' else 'ask'} at {close:.6g}")
+
+    def check_exit(self, df, i: int, position) -> tuple[str | None, float | None]:
+        z = _stretch_z(df, i)
+        if self._ok(z) and ((position.side == "long" and z >= 0.0)
+                            or (position.side == "short" and z <= 0.0)):
+            return "spread back at mean", None
+        if position.bars_held >= self.p.hft_xr_time_stop:
+            return "time stop", None
+        return None, None
+
+
+class HFTFundingReversion(BaseStrategy):
+    """Fade the crowded side of a perpetual, as priced by its funding rate.
+
+    Funding is what one side pays the other to hold leverage: far above its
+    own recent norm, longs are crowded; far below, shorts are. Crowding alone
+    is not a timing signal, so the entry also needs price stretched WITH the
+    crowd (z of log(close/ema50) beyond +/-1) and the bar closing against it
+    (the push is failing). Taker entry, 2xATR stop, 2R target; exit when
+    price returns to its mean or on the time stop.
+
+    Needs bot.funding.attach_funding to have added funding_rate/funding_z;
+    without them it reports 'no funding data' and never trades."""
+    name = "hft_funding_reversion"
+    preferred_timeframes = ("5m",)
+    book = "fast"
+
+    def applies_to(self, symbol: str) -> bool:
+        from bot.funding import perp_symbol
+        return perp_symbol(symbol) is not None
+
+    def evaluate(self, df, i: int) -> Signal:
+        p = self.p
+        if "funding_z" not in df.columns:
+            return Signal(self.name, "FLAT", 0.0, rationale="no funding data")
+        close = self._at(df, "close", i)
+        atr = self._at(df, "atr", i)
+        fz = self._at(df, "funding_z", i)
+        rate = self._at(df, "funding_rate", i)
+        pz = _stretch_z(df, i)
+        if not all(self._ok(v) for v in (close, atr, fz, rate, pz)) or atr <= 0:
+            return Signal(self.name, "FLAT", 0.0, rationale="warmup")
+        clv = _clv(df, i)
+        stop = p.hft_fund_stop_atr * atr
+        if stop < _stop_floor(p, close):
+            return Signal(self.name, "FLAT", 0.0,
+                          rationale=f"stop {stop / close * 1e4:.1f}bp under the "
+                                    f"{p.hft_cost_floor_bps * p.hft_cost_buffer:.1f}bp cost floor")
+        conf = self._clip_conf(0.60 + 0.10 * min(1.0, abs(fz) - p.hft_fund_z_entry))
+        where = f"funding {rate * 1e4:+.2f}bp (z {fz:+.2f}), price z {pz:+.2f}, CLV {clv:+.2f}"
+        if fz >= p.hft_fund_z_entry and pz >= p.hft_fund_price_z and clv < 0:
+            return Signal(self.name, "SHORT", conf, stop_distance=stop,
+                          target_rr=p.hft_fund_target_rr,
+                          rationale=f"crowded longs fading: {where}")
+        if fz <= -p.hft_fund_z_entry and pz <= -p.hft_fund_price_z and clv > 0:
+            return Signal(self.name, "LONG", conf, stop_distance=stop,
+                          target_rr=p.hft_fund_target_rr,
+                          rationale=f"crowded shorts squeezing: {where}")
+        return Signal(self.name, "FLAT", 0.0, rationale=f"no crowding setup: {where}")
+
+    def check_exit(self, df, i: int, position) -> tuple[str | None, float | None]:
+        pz = _stretch_z(df, i)
+        if self._ok(pz) and ((position.side == "long" and pz >= 0.0)
+                             or (position.side == "short" and pz <= 0.0)):
+            return "price back at mean", None
+        if position.bars_held >= self.p.hft_fund_time_stop:
             return "time stop", None
         return None, None

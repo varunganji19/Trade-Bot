@@ -323,6 +323,22 @@ class StrategyParams:
     hft_ofi_stop_atr: float = 1.0
     hft_ofi_target_rr: float = 1.5
     hft_ofi_time_stop: int = 3         # bars (~15 min: the documented OFI horizon is minutes)
+    # cross-pair spread reversion (candidate): a cross like ETH/BTC IS the
+    # price ratio of two co-moving coins, so fading its stretches is a pairs
+    # trade in one instrument — gated on the spread actually reverting
+    hft_xr_z_entry: float = 2.0         # |z of log(close/ema50)|, rolling 100-bar sigma
+    hft_xr_halflife_window: int = 200   # bars in the AR(1) half-life fit (~17h)
+    hft_xr_halflife_max: float = 24.0   # bars (2h): reversion must happen inside the hold
+    hft_xr_stop_atr: float = 2.5
+    hft_xr_time_stop: int = 36          # bars (3h)
+    # funding-rate extremes (candidate): a crowded side of the perpetual
+    # (funding far from its own recent norm) fading once price stretches
+    # with the crowd and the bar turns against it
+    hft_fund_z_entry: float = 2.0       # |z of the funding rate| vs its last 90 prints
+    hft_fund_price_z: float = 1.0       # price stretched with the crowd (z of log(close/ema50))
+    hft_fund_stop_atr: float = 2.0
+    hft_fund_target_rr: float = 2.0
+    hft_fund_time_stop: int = 36        # bars (3h)
 
 
 @dataclass

@@ -234,6 +234,10 @@ def run_lab(spec: LabSpec) -> dict:
                 f"window {span_d}d exceeds the {timeframe_cap_note(spec.kind, spec.timeframe, cap)}")
     df = fetch_history(kind_spec, days=spec.days or None,
                        start=spec.start, end=spec.end)
+    if spec.book == "hft":
+        # the fast book's funding strategy reads the perpetual's funding rate
+        from bot.funding import attach_funding
+        df = attach_funding(df, spec.symbol)
     _MAX_BARS = 100_000
     if df is not None and len(df) > _MAX_BARS:
         raise LabError(f"only {len(df)} bars returned — exceeds the {_MAX_BARS}-bar lab cap "

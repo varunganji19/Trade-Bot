@@ -8,7 +8,7 @@ from .scalper import VWAPScalper
 from .fx_regime_meanrev import FXRegimeMeanRev
 from .ts_momentum import TimeSeriesMomentum
 from .hft import (HFTMicroBreakout, HFTExhaustionFade, HFTMarketMaker,
-                  HFTOFIMomentum)
+                  HFTOFIMomentum, HFTCrossReversion, HFTFundingReversion)
 
 STRATEGY_CLASSES = {
     TurtleTrend.name: TurtleTrend,
@@ -20,10 +20,13 @@ STRATEGY_CLASSES = {
     HFTExhaustionFade.name: HFTExhaustionFade,
     HFTMarketMaker.name: HFTMarketMaker,
     HFTOFIMomentum.name: HFTOFIMomentum,
+    HFTCrossReversion.name: HFTCrossReversion,
+    HFTFundingReversion.name: HFTFundingReversion,
 }
 
 HFT_STRATEGY_NAMES = ("hft_micro_breakout", "hft_exhaustion_fade",
-                      "hft_market_maker", "hft_ofi_momentum")
+                      "hft_market_maker", "hft_ofi_momentum",
+                      "hft_cross_reversion", "hft_funding_reversion")
 
 # CANDIDATES: registered, backtestable and available in the Lab and the
 # battery, but NOT voting in the live ensemble — the same evidence standard
@@ -39,7 +42,12 @@ HFT_STRATEGY_NAMES = ("hft_micro_breakout", "hft_exhaustion_fade",
 #   (adverse selection is invisible to the backtest AND to the live engine).
 #   Retired from the live vote when the fast book moved to 5m, where
 #   liquidity provision on 5m candles is not a thing that exists.
-CANDIDATE_STRATEGIES = ("hft_ofi_momentum", "hft_market_maker")
+#   hft_cross_reversion, hft_funding_reversion — added 2026-10-01 as the
+#   replacements researched in docs/HFT_TRADE_FREQUENCY.md; unmeasured until
+#   the battery runs them. The funding one also needs funding data wired
+#   into the live engine before it could ever vote (tests pin this).
+CANDIDATE_STRATEGIES = ("hft_ofi_momentum", "hft_market_maker",
+                        "hft_cross_reversion", "hft_funding_reversion")
 
 _INSTANCE_CACHE: dict = {}   # id(params) -> (params_ref, {name: instance})
 
@@ -70,6 +78,6 @@ def get_strategy(name: str, params=None) -> BaseStrategy:
 __all__ = ["BaseStrategy", "Signal", "TurtleTrend", "ConnorsMeanReversion",
            "VWAPScalper", "FXRegimeMeanRev", "TimeSeriesMomentum",
            "HFTMicroBreakout", "HFTExhaustionFade", "HFTMarketMaker",
-           "HFTOFIMomentum",
+           "HFTOFIMomentum", "HFTCrossReversion", "HFTFundingReversion",
            "HFT_STRATEGY_NAMES", "CANDIDATE_STRATEGIES",
            "STRATEGY_CLASSES", "get_strategies", "get_strategy"]

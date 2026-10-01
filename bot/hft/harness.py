@@ -58,8 +58,10 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
         for spec in BATTERY_SPECS:
             if spec.symbol not in frames:
                 from bot.data import fetch_history
+                from bot.funding import attach_funding
                 try:
-                    frames[spec.symbol] = fetch_history(spec, days=days)
+                    frames[spec.symbol] = attach_funding(fetch_history(spec, days=days),
+                                                         spec.symbol)
                 except Exception as exc:
                     if not quiet:
                         print(f"!! {spec.symbol} {spec.timeframe}: data error {exc}")

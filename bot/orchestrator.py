@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 
 from bot.promotion import is_demoted, load_verdicts
 from bot.strategies import CANDIDATE_STRATEGIES, get_strategies, Signal
+from bot.strategies.base import strategy_applies
 
 REGIME_WEIGHTS = {
     "trending": {"turtle_trend": 0.55, "vwap_scalper": 0.30, "connors_meanrev": 0.15,
@@ -118,7 +119,8 @@ class Orchestrator:
             # picks the stop/limit by confidence irrespective of weight, and
             # the conflict guard counts any strong directional signal — a
             # zero-weight strategy would still steer live decisions.
-            if name in CANDIDATE_STRATEGIES:
+            # a strategy may cover only some markets (e.g. cross pairs)
+            if name in CANDIDATE_STRATEGIES or not strategy_applies(strat, spec.symbol):
                 continue
             # measured losers do not vote (promotion gate). Unmeasured ones
             # do — the gate can only take a vote away on evidence.

@@ -27,6 +27,12 @@ class Signal:
     limit_price: float | None = None
 
 
+def strategy_applies(strategy, symbol: str) -> bool:
+    """BaseStrategy.applies_to, tolerating duck-typed strategies without it."""
+    hook = getattr(strategy, "applies_to", None)
+    return hook is None or hook(symbol)
+
+
 class BaseStrategy:
     name: str = "base"
     preferred_timeframes: tuple = ("1h",)
@@ -40,6 +46,13 @@ class BaseStrategy:
     def __init__(self, params=None):
         from config import StrategyParams
         self.p = params or StrategyParams()
+
+    def applies_to(self, symbol: str) -> bool:
+        """Whether this strategy trades `symbol` at all (e.g. a cross-pair
+        strategy has nothing to say about BTC/USDT). The orchestrator and
+        the backtester skip it elsewhere, exactly like a timeframe it does
+        not prefer."""
+        return True
 
     def evaluate(self, df, i: int) -> Signal:
         raise NotImplementedError

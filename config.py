@@ -294,6 +294,12 @@ class StrategyParams:
     hft_fade_clv_max: float = -0.8     # close in the extreme tail of the bar's range
     hft_fade_stop_atr: float = 2.0
     hft_fade_time_stop: int = 9        # bars (~45 min: inside the documented MR half-life band)
+    # exit mode (experiment, docs/HFT_TRADE_FREQUENCY.md). None: exit with a
+    # market order once price is back at the mean (taker, the live default).
+    # A number: rest a take-profit at the entry-time mean, this many bp
+    # beyond it so price must trade THROUGH the level to fill (a touch is not
+    # a fill) — maker fee, no slippage; stops and the time stop stay taker.
+    hft_fade_limit_exit_bps: float | None = None
     # Avellaneda-Stoikov-inspired maker (gamma-sigma quote width + drift skew)
     hft_mm_gamma: float = 0.1          # risk aversion (A-S notation)
     hft_mm_width_frac_atr: float = 0.5 # quote half-width = this x ATR (A-S width scales with sigma)
@@ -375,6 +381,11 @@ class MarketSpec:
 # journal identifier stays 'hft' so the existing record keeps resolving; the
 # book is an INTRADAY book, and the docs now say so rather than claiming a
 # latency edge a polled OHLCV feed cannot have.
+# the fast book's floor on a declared take-profit (in R): its brackets invert
+# the swing ratio, so it carries its own floor (bot/hft.build_hft_config) and
+# strategies refuse a nearer target themselves instead of being vetoed
+HFT_MIN_TARGET_RR = 0.3
+
 HFT_WATCHLIST: list[MarketSpec] = [
     # crypto 5m (ccxt public endpoints, 24/7)
     MarketSpec("crypto", "BTC/USDT", "5m", "Bitcoin fast"),

@@ -7,6 +7,7 @@ import inspect
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import pandas as pd
 
 from bot.funding import attach_funding, funding_features, perp_symbol
@@ -186,3 +187,34 @@ def test_sub_dollar_crypto_keeps_its_stop_on_the_right_side():
                             strategy_name="test", rationale="")
     pos = broker.open_position(spec, short, qty=1.0, price=0.03255, trade_id=1)
     assert pos.stop > pos.entry_price
+
+
+def _exhaustion_frame():
+    """Quiet tape, then a capitulation bar: big drop, 6x volume, close at the low."""
+    rng = np.random.default_rng(11)
+    prices = 100 * np.exp(np.cumsum(rng.normal(0, 0.0015, 600)))
+    prices[-1] = prices[-2] * 0.975
+    df = _bars(prices)
+    df.iloc[-1, df.columns.get_loc("low")] = df["close"].iloc[-1]
+    df.iloc[-1, df.columns.get_loc("volume")] = 700.0
+    return add_all_indicators(df)
+
+
+def test_fade_limit_exit_rests_a_take_profit_at_the_mean():
+    from dataclasses import replace
+    from bot.strategies.hft import HFTExhaustionFade
+    from config import StrategyParams
+    df = _exhaustion_frame()
+    i = len(df) - 1
+    live = HFTExhaustionFade().evaluate(df, i)
+    assert live.action == "LONG" and live.target_rr is None        # default unchanged
+    s = HFTExhaustionFade(replace(StrategyParams(), hft_fade_limit_exit_bps=2.0))
+    sig = s.evaluate(df, i)
+    close, ema50 = df["close"].iloc[i], df["ema50"].iloc[i]
+    target = close + sig.target_rr * sig.stop_distance
+    assert target == pytest.approx(ema50 + close * 2.0 / 1e4)     # mean + trade-through
+    # the resting order is the reversion exit: no market-order exit at the mean
+    pos = SimpleNamespace(side="long", bars_held=1)
+    assert s.check_exit(df.assign(close=df["ema50"] * 1.001), i, pos) == (None, None)
+    assert HFTExhaustionFade().check_exit(df.assign(close=df["ema50"] * 1.001), i, pos)[0] \
+        == "reversion to mean"

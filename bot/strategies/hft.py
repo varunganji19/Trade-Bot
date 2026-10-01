@@ -42,6 +42,7 @@ import numpy as np
 import pandas as pd
 
 from bot.indicators import halflife_ar1
+from config import HFT_MIN_TARGET_RR
 
 from .base import BaseStrategy, Signal
 
@@ -183,11 +184,19 @@ class HFTExhaustionFade(BaseStrategy):
                                     f"{p.hft_cost_floor_bps * p.hft_cost_buffer:.1f}bp "
                                     f"cost floor — no tradable edge in this vol")
         vol_ok = vol >= p.hft_fade_vol_spike
+        target_rr = None
+        if p.hft_fade_limit_exit_bps is not None:
+            # resting exit at the mean (plus the trade-through margin)
+            target_rr = (abs(close - ema50) + close * p.hft_fade_limit_exit_bps / 1e4) / stop
+            if target_rr < HFT_MIN_TARGET_RR:
+                return Signal(self.name, "FLAT", 0.0,
+                              rationale=f"mean only {target_rr:.2f}R away — too close to "
+                                        f"pay for the round trip")
         if z <= -p.hft_fade_z_entry and clv <= p.hft_fade_clv_max and vol_ok and close < ema50:
             conf = self._clip_conf(0.60 + 0.10 * min(1.0, abs(z) - p.hft_fade_z_entry))
             return Signal(self.name, "LONG", conf,
                           stop_distance=stop,
-                          target_rr=None,
+                          target_rr=target_rr,
                           limit_price=close,
                           rationale=f"exhaustion fade LONG: z {z:.2f}, CLV {clv:.2f}, "
                                     f"vol {vol:.1f}x — maker bid at {close:.6g}")
@@ -195,7 +204,7 @@ class HFTExhaustionFade(BaseStrategy):
             conf = self._clip_conf(0.60 + 0.10 * min(1.0, abs(z) - p.hft_fade_z_entry))
             return Signal(self.name, "SHORT", conf,
                           stop_distance=stop,
-                          target_rr=None,
+                          target_rr=target_rr,
                           limit_price=close,
                           rationale=f"exhaustion fade SHORT: z {z:.2f}, CLV {clv:.2f}, "
                                     f"vol {vol:.1f}x — maker ask at {close:.6g}")
@@ -203,7 +212,8 @@ class HFTExhaustionFade(BaseStrategy):
 
     def check_exit(self, df, i: int, position) -> tuple[str | None, float | None]:
         z = _stretch_z(df, i)
-        if self._ok(z):
+        # in limit-exit mode the resting take-profit IS the reversion exit
+        if self._ok(z) and self.p.hft_fade_limit_exit_bps is None:
             if position.side == "long" and z >= 0.0:
                 return "reversion to mean", None
             if position.side == "short" and z <= 0.0:

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from config import CONFIG, HFT_WATCHLIST, Config
+from config import CONFIG, HFT_MIN_TARGET_RR, HFT_WATCHLIST, Config
 
 __all__ = ["build_hft_config", "build_hft_engine", "HFT_WATCHLIST"]
 
@@ -72,7 +72,7 @@ def build_hft_config(fee_tier: str | None = None) -> Config:
                    daily_loss_kill_switch=h.daily_loss_kill_switch,
                    max_open_positions=h.max_open_positions,
                    min_confidence=h.min_confidence,
-                   min_rr_per_trade=0.3)
+                   min_rr_per_trade=HFT_MIN_TARGET_RR)
     return replace(CONFIG,
                    params=_cost_floor_params(costs, CONFIG.params),
                    watchlist=list(HFT_WATCHLIST),

@@ -171,3 +171,18 @@ def test_orchestrator_skips_strategies_that_do_not_cover_the_market():
     orch.strategies = {"only_crosses": OnlyCrosses()}
     orch.decide(df, len(df) - 1, MarketSpec("crypto", "BTC/USDT", "5m"))
     assert calls == []
+
+
+def test_sub_dollar_crypto_keeps_its_stop_on_the_right_side():
+    """Crypto prices were rounded to 2dp, so an ETH/BTC short's stop at
+    0.03265 became 0.03 — below the entry — and every sub-$1 crypto trade
+    stopped out on the bar it opened (all strategies, live and backtest)."""
+    from bot.broker import PaperBroker, quantize_price
+    assert quantize_price(0.03265, "crypto") == 0.03265
+    assert quantize_price(83000.123, "crypto") == 83000.12      # majors unchanged
+    broker = PaperBroker(10_000)
+    spec = MarketSpec("crypto", "ETH/BTC", "5m")
+    short = SimpleNamespace(action="SHORT", stop_distance=0.0001, target_rr=None,
+                            strategy_name="test", rationale="")
+    pos = broker.open_position(spec, short, qty=1.0, price=0.03255, trade_id=1)
+    assert pos.stop > pos.entry_price

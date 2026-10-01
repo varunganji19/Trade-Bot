@@ -22,24 +22,35 @@ range), and fills account for gaps through the level:
 """
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 
 from config import CONFIG, MarketSpec, CostConfig, parse_utc, infer_kind
 
 
 # Tick quantization: resting stop/target levels must sit on a tradable tick.
-# Per-kind decimals (crypto 2dp, forex 5dp, india 2dp/paise). Crypto spans
-# many magnitudes (BTC 80000 vs sub-penny alts), so the helper never collapses
-# a non-zero price to 0.0 — it falls back to 8dp rather than zeroing dust.
-TICK_DPS: dict[str, int] = {"crypto": 2, "forex": 5, "india": 2}
+# Forex and india use fixed decimals. Crypto spans many magnitudes (BTC 80000,
+# ETH/BTC 0.03, DOGE 0.1), so its decimals scale with the price: 2dp from
+# $100 up, more below, keeping at least ~5 significant digits. A fixed 2dp
+# rounded an ETH/BTC short's stop at 0.03265 down to 0.03 — BELOW the entry —
+# so every sub-$1 crypto trade stopped out on the bar it opened.
+TICK_DPS: dict[str, int] = {"forex": 5, "india": 2}
+
+
+def _crypto_dps(price: float) -> int:
+    if price <= 0:
+        return 8
+    return min(10, max(2, 4 - math.floor(math.log10(price))))
 
 
 def quantize_price(price: float, kind: str) -> float:
-    """Round `price` to the per-kind tick (see TICK_DPS)."""
-    dps = TICK_DPS.get(kind, 2)
-    q = round(float(price), dps)
+    """Round `price` to the per-kind tick (see TICK_DPS / _crypto_dps)."""
+    price = float(price)
+    dps = _crypto_dps(abs(price)) if kind == "crypto" else TICK_DPS.get(kind, 2)
+    q = round(price, dps)
     if q == 0 and price:
-        return round(float(price), 8)
+        return round(price, 8)
     return q
 
 

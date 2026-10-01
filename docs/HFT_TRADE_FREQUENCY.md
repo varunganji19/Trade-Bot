@@ -172,6 +172,47 @@ about 10 bp to about 4 bp, roughly the size of the measured gross edge. It
 has to be modelled honestly: a resting exit can miss, and the stop must
 stay a taker order.
 
+## Measured: limit exits for the fade (2026-10-01)
+
+Hypothesis from the previous section: the fade is positive before fees, so a
+cheaper exit might flip it. Implemented as the opt-in parameter
+`hft_fade_limit_exit_bps` (a resting take-profit at the entry-time mean,
+placed N bp beyond it so price must trade through; maker fee, no slippage;
+stops and time stops stay market orders). Same 15 markets and the same
+60-day selection / 30-day holdout split; all variants fixed in advance.
+
+| Thresholds | Exit | Selection median OOS PF | Holdout trades/day | Gross | Fees | **Net (30 days)** |
+|---|---|---|---|---|---|---|
+| live 2.5σ / 3× | market (today) | 0.75 | 9.3 | +$78 | $485 | −$407 |
+| live 2.5σ / 3× | limit, touch | 0.78 | 9.3 | +$111 | $472 | −$361 |
+| live 2.5σ / 3× | limit +2bp | 0.76 | 9.3 | +$101 | $473 | −$372 |
+| live 2.5σ / 3× | limit +5bp | 0.78 | 9.3 | +$91 | $474 | −$383 |
+| 2.25σ / 2.5× | market | 0.80 | 14.8 | +$459 | $778 | −$319 |
+| 2.25σ / 2.5× | limit, touch | 0.79 | 14.8 | +$574 | $745 | −$171 |
+| 2.25σ / 2.5× | limit +2bp | 0.81 | 14.8 | +$576 | $746 | **−$170** |
+| 2.25σ / 2.5× | limit +5bp | 0.83 | 14.8 | +$574 | $748 | −$174 |
+| 2.25σ / 2.5× | limit +2bp, **entry must also trade through 2bp** | 0.74 | 14.7 | +$482 | $737 | −$255 |
+
+**Result: limit exits help a little and flip nothing.** The best variant
+loses $170 over 30 days instead of $319, and once the entry limit is also
+required to trade through (the realistic case), it loses $255 and is
+demoted. No variant clears the 1.0 promotion line.
+
+**Why the cheaper exit barely matters:** only about 10% of trades ever reach
+the mean. Of 445 holdout trades at the looser setting, roughly 50% are closed
+by the 45-minute time stop and 40% by the stop loss — both market orders by
+design. The exit being priced is the rare one. The fade's problem is not
+what its winning exit costs, but that most stretches do not revert within 45
+minutes.
+
+`hft_fade_limit_exit_bps` stays off (live behaviour unchanged). It is kept
+because it is strictly cheaper whenever the fade does revert, and it is the
+right exit if a future variant reverts more often.
+
+**What would actually test the remaining idea:** a longer hold (the time
+stop closes half the trades; does the reversion simply need more time?),
+and real taker-buy order flow as an entry filter (resource idea 1 below).
+
 ## Open-source resources worth using (GitHub survey, 2026-10-01)
 
 Licences matter: **MIT / Apache-2.0** code can be reused with attribution;

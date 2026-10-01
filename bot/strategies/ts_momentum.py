@@ -14,7 +14,7 @@ Grounding (all three on Indian equity data):
 
 ARCHITECTURAL NOTE: those papers rank a WHOLE stock universe cross-sectionally
 every month and hold a top-decile portfolio. This bot's BaseStrategy is a
-single-symbol time-series evaluator — a different shape. Per HISTORY.md
+single-symbol time-series evaluator — a different shape. Per docs/archive/HISTORY.md
 Milestone C1, the MVP is path (a): a TIME-SERIES/absolute momentum variant
 scored per symbol (fits BaseStrategy, no new infrastructure); the papers'
 6-12 month momentum horizon becomes a trailing-N-bar return threshold, and the
@@ -56,7 +56,7 @@ class TimeSeriesMomentum(BaseStrategy):
     name = "ts_momentum"
     # momentum needs lookback: 240 1h bars (~10 months of NSE sessions) on 1h,
     # 4h as the coarser alternative. Short timeframes churn a slow strategy
-    # into the cost model (see BACKTESTS.md cost studies).
+    # into the cost model (see docs/archive/BACKTESTS.md cost studies).
     preferred_timeframes = ("1h", "4h")
 
     def _trailing_ret(self, df, i: int) -> float:

@@ -1,7 +1,7 @@
 """
 Risk manager — the final veto layer before any order.
 
-Implements the risk framework from RESEARCH.md §2.5:
+Implements the risk framework from docs/archive/RESEARCH.md §2.5:
   - 1% of equity risked per trade, size computed from the stop distance
   - notional cap per position, concurrent position cap, gross-notional
     leverage cap across the whole book

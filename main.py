@@ -272,7 +272,7 @@ def cmd_hft_status(args):
 
 def cmd_hft_battery(args):
     """The fast-book harness: every strategy x symbol x fee tier, plus
-    the measured fee-sensitivity table (HFT.md)."""
+    the measured fee-sensitivity table (docs/archive/HFT.md)."""
     from bot.hft.harness import run_battery
     tiers = ("perp", "spot") if args.tier == "both" else (args.tier,)
     run_battery(days=args.days, tiers=tiers, quiet=False)
@@ -350,7 +350,7 @@ def cmd_validate(args):
                   ">=8 traded paths each")
 
     # 3) Deflated Sharpe: how many configs did we try while shipping this?
-    #    BACKTESTS.md documents the tried configurations — keep this number
+    #    docs/archive/BACKTESTS.md documents the tried configurations — keep this number
     #    honest as the config history grows. The primary run's equity returns
     #    feed the moment-aware SE (skew/kurtosis widen the SE on fat-tailed
     #    assets; the normal-only SE overstated confidence there).
@@ -818,7 +818,7 @@ def build_parser() -> argparse.ArgumentParser:
     va.add_argument("--cv-folds", type=int, default=8)
     va.add_argument("--purge-bars", type=int, default=24)
     va.add_argument("--trial-sharpes", type=float, nargs="*", default=None,
-                    help="the Sharpes of the documented config trials (BACKTESTS.md) "
+                    help="the Sharpes of the documented config trials (docs/archive/BACKTESTS.md) "
                          "for the Deflated Sharpe correction")
     va.add_argument("--report", default=None,
                     help="also render the report as Markdown here (e.g. REPORT.md)")

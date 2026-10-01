@@ -19,7 +19,7 @@ when pointed at its own strategies.
 - The **fast book** (5-minute bars, separate account) is **experimental**:
   five of its six strategies are measured losers, and the sixth was tuned
   27 ways and lost after fees in every variant on unseen data
-  ([docs/HFT_TRADE_FREQUENCY.md](docs/HFT_TRADE_FREQUENCY.md)).
+  ([docs/archive/HFT_TRADE_FREQUENCY.md](docs/archive/HFT_TRADE_FREQUENCY.md)).
 - A published foundation model (Kronos, AAAI'26) had to earn a vote like
   any strategy; on BTC 1h it scored **IC −0.075** against a +0.02 hurdle
   and was rejected.
@@ -156,7 +156,7 @@ python3 main.py chat "explain the connors strategy"
 python3 -m pytest tests/ -q         # 300+ tests
 ```
 
-## The strategies (each mapped to evidence — see RESEARCH.md)
+## The strategies (each mapped to evidence — see docs/archive/RESEARCH.md)
 
 | Strategy | Lineage | Style | Timeframe |
 |---|---|---|---|
@@ -164,8 +164,8 @@ python3 -m pytest tests/ -q         # 300+ tests
 | **Connors Mean Reversion** | Larry Connors RSI(2) + EMA(200) trend filter (documented ~75% win rate on indices) + Chan AR(1)/OU half-life gate | buy deep pullbacks in uptrends *while pullbacks are actually reverting* (measured half-life ≤ 12 bars), snapback exits, 3×ATR stop + time stop | 4h / 1d |
 | **TS Momentum** | Momentum papers (SSRN 3345280/3510433/4587697) | long-only absolute momentum: 240-bar return >8% + near 52-week high + EMA200 | 1h / 4h |
 | **FX Regime Mean-Rev** | Regime-conditioned FX reversion (SSRN 6087107) | z-score stretch fade with AR(1) half-life regime gate | 1h |
-| **Fast book** (separate account, **experimental**) | Carver 2025, Zarattini-Aziz 2023 (see HFT.md) | exhaustion fade (on probation: too few out-of-sample trades to judge, and every tuned variant lost out of sample); micro-breakout, market-making and OFI are measured losers that do not vote | 5m |
-| **VWAP Scalper** | Opening Range Breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP institutional benchmark + team's earlier VWAP prototype | VWAP reclaim/loss with momentum + volume confirmation, rolling-range breakout, breakeven trail, time stop; optional time-of-day RVOL filter (tested, off by default — measured neutral on 24/7 crypto, BACKTESTS.md) | 5m / 15m |
+| **Fast book** (separate account, **experimental**) | Carver 2025, Zarattini-Aziz 2023 (see docs/archive/HFT.md) | exhaustion fade (on probation: too few out-of-sample trades to judge, and every tuned variant lost out of sample); micro-breakout, market-making and OFI are measured losers that do not vote | 5m |
+| **VWAP Scalper** | Opening Range Breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP institutional benchmark + team's earlier VWAP prototype | VWAP reclaim/loss with momentum + volume confirmation, rolling-range breakout, breakeven trail, time stop; optional time-of-day RVOL filter (tested, off by default — measured neutral on 24/7 crypto, docs/archive/BACKTESTS.md) | 5m / 15m |
 
 **Orchestrator**: classifies each market's regime (ADX + EMA structure) and runs
 the strategy registered for that timeframe. Honest caveat: each strategy ships on
@@ -254,7 +254,7 @@ The India/NSE universe — a session calendar, a per-side regulatory cost stack,
 a currency-isolation rule and a market-mode toggle — was removed on
 2026-09-19. It had produced **zero trades and zero decisions** in the entire
 journal while touching every module, including a 4h refusal that raised on
-every live cycle. `git log` has it if you want it back; HISTORY.md has the
+every live cycle. `git log` has it if you want it back; docs/archive/HISTORY.md has the
 reasoning.
 
 A watchlist spec whose kind or timeframe the bot no longer trades is dropped
@@ -347,8 +347,8 @@ trades the live engine took; they demonstrate the tooling, not a live record.
 
 ```
 config.py            all tunables (watchlist, risk, costs, strategy params, allocation)
-RESEARCH.md          the evidence behind every strategy + honest limitations
-BACKTESTS.md         real-data results across symbols/strategies
+docs/archive/RESEARCH.md          the evidence behind every strategy + honest limitations
+docs/archive/BACKTESTS.md         real-data results across symbols/strategies
 bot/
   data.py            ccxt fallback chain (Binance→Bybit→OKX) + yfinance;
                      OHLCV validation (weekend-aware gap guard), caliber
@@ -374,7 +374,7 @@ bot/
   kronos_signal.py   Kronos foundation-model signal: probabilistic forecast,
                      IC ledger, earned voting rights — OFFLINE (main.py kronos)
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
-  hft/               the separate fast (5m) paper book (HFT.md): config
+  hft/               the separate fast (5m) paper book (docs/archive/HFT.md): config
                      factory, perp/spot fee tiers, derived cost floors,
                      harness battery + promotion verdicts — strategies in
                      bot/strategies/hft.py
@@ -396,7 +396,7 @@ scripts/
                      (make soak)
 models/kronos/       vendored Kronos model source (upstream MIT license vendored;
                      weights via HF Hub)
-HFT.md               the fast (5m) paper book: research grounding,
+docs/archive/HFT.md               the fast (5m) paper book: research grounding,
                      fee math, strategies, harness, measured results
 tests/              300+ tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,

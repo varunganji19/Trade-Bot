@@ -152,7 +152,7 @@ def fetch_crypto_history(symbol: str, timeframe: str, days: int,
 
     Either `days` (rolling window ending now) or a pinned `start`/`end`
     (YYYY-MM-DD) — the pinned form fetches the SAME window every run, which is
-    what makes BACKTESTS.md numbers reproducible rather than re-rollable."""
+    what makes docs/archive/BACKTESTS.md numbers reproducible rather than re-rollable."""
     tf_ms = TIMEFRAME_SECONDS[timeframe] * 1000
     if start:
         start_ms = int(pd.Timestamp(start, tz="UTC").timestamp() * 1000)
@@ -826,7 +826,7 @@ def fetch_history(spec: MarketSpec, days: int | None = None,
 
     if start and end:
         # PINNED window: EXACT-NAME, byte-identical semantics — this is the
-        # reproducibility artifact behind BACKTESTS.md. This branch must
+        # reproducibility artifact behind docs/archive/BACKTESTS.md. This branch must
         # NEVER glob or reuse a differently-named file: a rolling file
         # (days-form or _now-form for the same symbol) covers a DIFFERENT
         # window than the pinned one being asked for; freshness-bounded reuse
@@ -842,7 +842,7 @@ def fetch_history(spec: MarketSpec, days: int | None = None,
         # with now anyway, so reuse is bounded by FRESHNESS, not by the fetch
         # day embedded in the file name — the old exact-day-stamp lookup
         # refetched every calendar day even when yesterday's file was minutes
-        # old. (HISTORY.md Fix 4.1: freshness is the honest bound.) The
+        # old. (docs/archive/HISTORY.md Fix 4.1: freshness is the honest bound.) The
         # glob is the ONLY rolling reuse path on purpose: keeping a same-day
         # exact-name fallback would let a day-stamped file that aged past the
         # window sneak back in, defeating CACHE_FRESHNESS_HOURS=0 as a

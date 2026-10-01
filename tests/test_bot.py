@@ -175,7 +175,7 @@ def test_scalper_rvol_gate():
     is below the symbol's own norm for that time of day, and take it when the
     same setup arrives with unusual same-slot volume (the Stocks-in-Play
     RVOL filter: same rules went from Sharpe 0.48 to 2.81). The knob ships
-    OFF (measured neutral on 24/7 crypto bars — BACKTESTS.md) so the test
+    OFF (measured neutral on 24/7 crypto bars — docs/archive/BACKTESTS.md) so the test
     raises it explicitly; 0.0 must auto-pass everything."""
     n = 4 * 96
     prices = list(np.linspace(120, 100, n - 4)) + [100.5, 101.5, 103.2, 105.0]
@@ -256,7 +256,7 @@ def test_halflife_ar1_math():
 def test_connors_halflife_gate():
     """The half-life gate refuses a Connors entry whose measured reversion
     half-life exceeds the strategy's own horizon, passes it when short, and
-    auto-passes NaN (warmup). Ships ON at 12 bars (BACKTESTS.md Round 6:
+    auto-passes NaN (warmup). Ships ON at 12 bars (docs/archive/BACKTESTS.md Round 6:
     walk-forward positive on both symbols, 3 of 4 cells positive)."""
     from config import StrategyParams
     from bot.indicators import add_all_indicators as aai
@@ -3084,7 +3084,7 @@ def test_ccxt_source_cooldown_benches_dead_exchanges():
 
 
 # ---------------------------------- verification-gap pass (2026-09-08)
-# Fixes from the HISTORY.md passes shipped with holes in their test cover:
+# Fixes from the docs/archive/HISTORY.md passes shipped with holes in their test cover:
 # these six pin the ones that had NO regression test standing guard.
 
 def test_account_reset_refused_while_engine_stopping():
@@ -4021,7 +4021,7 @@ def test_meanrev_never_fires_short_gate_on_warmup_rsi():
     assert mr.evaluate(old, i).action == "SHORT"
 
 
-# ------------------- confirmed-flaw fixes (HISTORY.md, 2026-09-09)
+# ------------------- confirmed-flaw fixes (docs/archive/HISTORY.md, 2026-09-09)
 def test_turtle_opposite_channel_exit_actually_fires():
     """Flaw 1.1: the unshifted exit channel included the decision bar's own
     low/high, making the exit mathematically impossible (close >= low by

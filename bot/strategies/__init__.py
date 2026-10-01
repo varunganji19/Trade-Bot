@@ -43,7 +43,7 @@ HFT_STRATEGY_NAMES = ("hft_micro_breakout", "hft_exhaustion_fade",
 #   Retired from the live vote when the fast book moved to 5m, where
 #   liquidity provision on 5m candles is not a thing that exists.
 #   hft_cross_reversion, hft_funding_reversion — added 2026-10-01 as the
-#   replacements researched in docs/HFT_TRADE_FREQUENCY.md; unmeasured until
+#   replacements researched in docs/archive/HFT_TRADE_FREQUENCY.md; unmeasured until
 #   the battery runs them. The funding one also needs funding data wired
 #   into the live engine before it could ever vote (tests pin this).
 CANDIDATE_STRATEGIES = ("hft_ofi_momentum", "hft_market_maker",

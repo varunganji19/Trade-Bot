@@ -13,7 +13,7 @@ Combines three evidenced intraday ideas:
      equity opening ranges, trading only names unusually active vs their own
      time-of-day norm took identical ORB rules from Sharpe 0.48 to 2.81).
      Our every-bar 24/7-crypto adaptation measured neutral-to-slightly-
-     negative (BACKTESTS.md), so it is OFF by default (scalper_rvol_min=0)
+     negative (docs/archive/BACKTESTS.md), so it is OFF by default (scalper_rvol_min=0)
      and kept as tested, causal machinery for future research.
 
 Exits: VWAP cross-down, breakeven trail after +1R, time stop (scalps should
@@ -31,13 +31,13 @@ from .base import BaseStrategy, Signal
 class VWAPScalper(BaseStrategy):
     name = "vwap_scalper"
     # 15m preferred: measured 12-bar forward edge (~+0.1%) vs crypto round-trip
-    # costs (~0.3%) makes 5m scalping structurally unprofitable (BACKTESTS.md:
+    # costs (~0.3%) makes 5m scalping structurally unprofitable (docs/archive/BACKTESTS.md:
     # -28..-31% over 30 days on majors). 5m stays enabled only by explicit user
     # decision — revert this tuple to ("15m",) to pull it back.
     preferred_timeframes = ("15m", "5m")
 
     # P0: shorts EXPLICITLY disabled (documented, not accidental). Every short
-    # bucket lost money in testing (BACKTESTS.md), so the config floor
+    # bucket lost money in testing (docs/archive/BACKTESTS.md), so the config floor
     # scalper_short_min_confidence=1.01 already clips them to silence — this
     # flag makes the intent explicit and skips the short path entirely in
     # evaluate(). _short_signal stays intact for research/A-B: set
@@ -92,7 +92,7 @@ class VWAPScalper(BaseStrategy):
         """Time-of-day RVOL gate (Zarattini-Barbon-Aziz 2024: on US-equity
         opening ranges, trading only unusually-active names moved their ORB
         from Sharpe 0.48 to 2.81). 0 disables (shipped default — measured
-        neutral on 24/7 crypto bars, BACKTESTS.md). NaN auto-passes:
+        neutral on 24/7 crypto bars, docs/archive/BACKTESTS.md). NaN auto-passes:
         no-volume feeds (forex) and slots without enough same-time history
         stay ungated rather than frozen."""
         if self.p.scalper_rvol_min <= 0:

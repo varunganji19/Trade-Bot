@@ -2,7 +2,7 @@
 Decision orchestrator — the bot's "brain".
 
 1. Classifies the regime (trending / ranging) from ADX + EMA structure.
-2. Weight-blends strategy signals per regime (see RESEARCH.md §3):
+2. Weight-blends strategy signals per regime (see docs/archive/RESEARCH.md §3):
      trending  -> turtle 0.55, scalper 0.30, meanrev 0.15
      ranging   -> meanrev 0.55, scalper 0.30, turtle 0.15
    REALITY CHECK: the blend only engages when strategies SHARE a timeframe.

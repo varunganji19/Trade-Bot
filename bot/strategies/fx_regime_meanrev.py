@@ -53,7 +53,7 @@ Exit:   z crosses back through -/+fxmr_z_exit toward the mean (the snapback
 FOREX COST REALITY: the round trip here is ~0.06% of notional (taker
 0.02% + slippage 0.01% per market leg, both legs) — a 2-sigma snapback edge
 on 1h EUR/USD-style bars must clear that bar to be worth trading. The
-pinned-window acceptance run in BACKTESTS.md is the honest measurement; no
+pinned-window acceptance run in docs/archive/BACKTESTS.md is the honest measurement; no
 parameter was tuned to pass it.
 """
 from __future__ import annotations

@@ -38,7 +38,7 @@ STRATEGY_DOCS = {
                      "confirms a trending regime, exit on the opposite 10-bar channel, stop 2xATR. "
                      "Low win rate, big winners — it's the strategy that made the Turtles famous."),
     "connors_meanrev": ("Connors RSI-2 — Larry Connors' mean-reversion pullback: buy when RSI(2) drops "
-                        "below 5 (we tightened his published 10 threshold; see BACKTESTS.md) while "
+                        "below 5 (we tightened his published 10 threshold; see docs/archive/BACKTESTS.md) while "
                         "price is above the 200-EMA (uptrend filter), exit on the "
                         "snapback above RSI(2) 65 or EMA(5). Historically ~75% win rate on indices, "
                         "small winners / occasional larger losers (we add a 3xATR stop)."),

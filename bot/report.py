@@ -62,7 +62,7 @@ def render_validation_report(r: dict) -> str:
         lines.append(f"best trial Sharpe {dsr.get('best_sharpe')} over {dsr.get('n_trials')} "
                      f"documented trials → **DSR {dsr.get('deflated_sharpe')}** — "
                      f"{dsr.get('verdict')}. Trial Sharpes must be the annualized Sharpes of "
-                     "every configuration tried on this window (BACKTESTS.md rounds).")
+                     "every configuration tried on this window (docs/archive/BACKTESTS.md rounds).")
         lines.append("")
 
     mc = r.get("monte_carlo")
@@ -85,7 +85,7 @@ def render_validation_report(r: dict) -> str:
     lines.append("## Caveats (read before the numbers)")
     lines.append("")
     lines.append("- Backtests are not promises: regime shifts kill edges, and live results ")
-    lines.append("  should be expected to be worse than these (RESEARCH.md §4).")
+    lines.append("  should be expected to be worse than these (docs/archive/RESEARCH.md §4).")
     lines.append("- Parameters are fixed in config, never fitted on the test window — but the")
     lines.append("  strategy set itself was chosen on overlapping history; DSR/PBO above are")
     lines.append("  the honest counterweight, not a clean pass.")

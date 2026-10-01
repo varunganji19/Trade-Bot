@@ -78,9 +78,9 @@ Switch to the browser. Four stops, about 35 seconds each.
 | Kronos foundation model as a voter | IC −0.075 on BTC 1h → no vote | README "Kronos" |
 | Turtle trend, TS momentum, FX mean reversion | median OOS PF 0.71 / 0.78 / 0.55 → demoted | `promotions_standard.json` |
 | Fast-book micro-breakout, market maker, order-flow proxy | median OOS PF 0.27 / 0.66 / 0.58 → demoted | `promotions.json` |
-| Cross-pair spread and funding-rate reversion | PF 0.58 / 0.39, negative even before fees | `docs/HFT_TRADE_FREQUENCY.md` |
-| The surviving fade, tuned 27 ways (thresholds, exits, hold length) | positive before fees, every variant negative after | `docs/HFT_TRADE_FREQUENCY.md` |
-| RVOL volume filter (published Sharpe 0.48 → 2.81 on equities) | neutral here → shipped off | `BACKTESTS.md` Round 5 |
+| Cross-pair spread and funding-rate reversion | PF 0.58 / 0.39, negative even before fees | `docs/archive/HFT_TRADE_FREQUENCY.md` |
+| The surviving fade, tuned 27 ways (thresholds, exits, hold length) | positive before fees, every variant negative after | `docs/archive/HFT_TRADE_FREQUENCY.md` |
+| RVOL volume filter (published Sharpe 0.48 → 2.81 on equities) | neutral here → shipped off | `docs/archive/BACKTESTS.md` Round 5 |
 
 **Say:**
 > The most useful thing this platform produced is a list of things that do
@@ -126,7 +126,7 @@ Switch to the browser. Four stops, about 35 seconds each.
 |---|---|---|
 | "So does it make money?" | No proven edge. Two strategies pass today's gate on about 60 trades each; the stricter gate will likely demote them. | Overview → Strategies box |
 | "Why does the Kronos chart go above the hurdle?" | The chart pools every market and horizon from a ledger with no market keys; pooling unlike series inflates rank IC. The vote is decided per market, and the BTC 1h verdict was −0.075. | Evidence → Kronos caption |
-| "Why does the fast book never trade?" | It decides once per 5-minute bar, and its one voter fires about 0.6–0.9 times a day per market. Trading more often was measured: 9–15 trades a day on 15 markets, negative after fees. | `docs/HFT_TRADE_FREQUENCY.md` |
+| "Why does the fast book never trade?" | It decides once per 5-minute bar, and its one voter fires about 0.6–0.9 times a day per market. Trading more often was measured: 9–15 trades a day on 15 markets, negative after fees. | `docs/archive/HFT_TRADE_FREQUENCY.md` |
 | "Why do the overview numbers not add up?" | They should after the paper-account reset (roadmap 0.1). If a mismatch ever reappears, roadmap item M4 adds an automatic "ledger inconsistent" banner. | Paper account tab |
 | "How do you know live and backtest match?" | `make verify` runs a parity smoke: the same bars through the engine and the backtester must produce the same decisions. | `scripts/parity_smoke.py` |
 | "What did you design yourself?" | Answer from your own experience; the roadmap's M6 item prepares the architecture notes for this. | `docs/ROADMAP.md` |

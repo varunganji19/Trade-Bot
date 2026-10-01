@@ -23,7 +23,7 @@ class Signal:
     # maker entry: when set, the order RESTS as a limit at this price instead
     # of crossing the spread — filled when a later bar's range reaches it
     # (maker fee, no slippage), expiring after cfg.hft.limit_wait_bars.
-    # Used by the HFT book's liquidity-provision strategies (HFT.md).
+    # Used by the HFT book's liquidity-provision strategies (docs/archive/HFT.md).
     limit_price: float | None = None
 
 

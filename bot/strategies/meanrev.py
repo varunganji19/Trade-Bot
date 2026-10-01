@@ -24,7 +24,7 @@ class ConnorsMeanReversion(BaseStrategy):
     name = "connors_meanrev"
     # Connors' RSI-2 evidence is on DAILY bars — 1d is the strategy's home
     # timeframe; 4h was only the closest analogue our infrastructure traded
-    # before 1d support was enabled. 1h churn destroyed the edge (BACKTESTS.md).
+    # before 1d support was enabled. 1h churn destroyed the edge (docs/archive/BACKTESTS.md).
     preferred_timeframes = ("4h", "1d")
 
     # ---- Chan half-life gate -------------------------------------------
@@ -68,7 +68,7 @@ class ConnorsMeanReversion(BaseStrategy):
             # longs only in DEEP bull regimes: measured on BTC 4h, pullback buys
             # just above the EMA200 lost -0.3%/trade; >10% above it they won
             # (the classic Connors "buy dips in strong bulls" profile). n is
-            # small either way — see BACKTESTS.md.
+            # small either way — see docs/archive/BACKTESTS.md.
             if close < ema200 * 1.10:
                 return Signal(self.name, "FLAT", 0.0,
                               rationale=f"uptrend too shallow ({(close/ema200-1)*100:.1f}% above "

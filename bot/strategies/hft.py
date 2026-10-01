@@ -12,7 +12,7 @@ same ATR is 3-5x larger and clears the round trip honestly. Bar-denominated
 stops below were re-scaled to keep their WALL-CLOCK meaning (a 45-bar fade
 stop was 45 minutes at 1m; it is 9 bars at 5m).
 
-Research grounding (full citations + fee math in HFT.md; strategy scraping
+Research grounding (full citations + fee math in docs/archive/HFT.md; strategy scraping
 done via the agent-reach channels + web research):
 
 - hft_micro_breakout (taker) — Zarattini & Aziz 2023 (SSRN 4416622) opening-
@@ -114,7 +114,7 @@ class HFTMicroBreakout(BaseStrategy):
         if not all(self._ok(v) for v in (close, atr, ema50)) or atr <= 0:
             return Signal(self.name, "FLAT", 0.0, rationale="warmup")
         # regime gate: in dead-flat minutes the 2R target cannot clear the
-        # taker round trip — this gate IS the fee defense (HFT.md §costs).
+        # taker round trip — this gate IS the fee defense (docs/archive/HFT.md §costs).
         # The floor is the LARGER of the configured regime floor and the one
         # the fee tier forces: stop = stop_atr x ATR must clear the round
         # trip, or the risk manager would (rightly) veto the entry as dust.
@@ -232,7 +232,7 @@ class HFTMarketMaker(BaseStrategy):
     ask above; below -> rest a long bid below), the OHLCV analogue of
     inventory-skewed quoting. Bracket: target ~one half-width against a
     3-half-width inventory stop — the inverted ratio the HFT book's own
-    min_rr floor permits (HFT.md)."""
+    min_rr floor permits (docs/archive/HFT.md)."""
     name = "hft_market_maker"
     preferred_timeframes = ("5m",)
     book = "fast"

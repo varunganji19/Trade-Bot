@@ -41,7 +41,7 @@ backtest:
 	python3 main.py backtest --symbol BTC/USDT --timeframe 1h --days 365 --strategy turtle_trend
 
 # the honest-statistics battery + a generated REPORT.md artifact
-# NOTE: append the BACKTESTS.md-documented trial Sharpes for the Deflated
+# NOTE: append the docs/archive/BACKTESTS.md-documented trial Sharpes for the Deflated
 # Sharpe correction, e.g. --trial-sharpes 0.82 1.05 0.64 — without them the
 # validate run reports backtest stats but no selection-aware DSR verdict.
 validate:

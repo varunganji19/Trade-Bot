@@ -62,7 +62,7 @@ if os.environ.get("ALGO_SKIP_DOTENV") != "1":
 # WHERE EVERY SETTING CAME FROM. The env vars that steer this bot are read
 # in a dozen places and a wrong one fails SILENTLY — the .env loader bug
 # (auth was off because DASHBOARD_TOKEN never reached the process) and the
-# fee-tier default are both in HISTORY.md. Each read is recorded here so
+# fee-tier default are both in docs/archive/HISTORY.md. Each read is recorded here so
 # `python3 main.py config` can print the effective value AND its source.
 ENV_PROVENANCE: dict[str, dict] = {}
 
@@ -192,10 +192,10 @@ class StrategyParams:
     turtle_exit_period: int = 10
     turtle_atr_period: int = 14
     turtle_stop_atr: float = 2.0
-    turtle_adx_min: float = 20.0        # volatility/trend regime filter (see RESEARCH.md §2.1)
+    turtle_adx_min: float = 20.0        # volatility/trend regime filter (see docs/archive/RESEARCH.md §2.1)
 
     # Connors RSI-2 mean reversion (documented on daily bars -> we trade 4h, the
-    # closest tradable analogue; on 1h the per-trade edge < costs, see BACKTESTS.md)
+    # closest tradable analogue; on 1h the per-trade edge < costs, see docs/archive/BACKTESTS.md)
     mr_rsi_period: int = 2
     mr_rsi_buy_below: float = 5.0     # tightened from 10: fewer, deeper pullbacks only
     mr_rsi_sell_above: float = 95.0
@@ -213,12 +213,12 @@ class StrategyParams:
     # strategy's own 12-bar time-stop horizon (NaN auto-passes like every
     # gate; the threshold does the refusing — finite windows bias a true
     # random walk to ~window/5 bars, so inf/explosive is rare). Measured
-    # A/B + walk-forward in BACKTESTS.md Round 6: 3 of 4 cells positive,
+    # A/B + walk-forward in docs/archive/BACKTESTS.md Round 6: 3 of 4 cells positive,
     # walk-forward positive on BOTH symbols; binds rarely (~2 entries/yr).
     mr_halflife_max: float = 12.0
 
     # VWAP scalper (ORB-inspired + volume confirmation)
-    # Cost study on real data (BACKTESTS.md): 5m crypto taker-fee round trip
+    # Cost study on real data (docs/archive/BACKTESTS.md): 5m crypto taker-fee round trip
     # (~0.3%) exceeds the measured 12-bar forward edge, so the scalper trades
     # 15m, long-biased with the EMA200 trend (shorts need high conviction).
     scalper_ema_fast: int = 9
@@ -231,18 +231,18 @@ class StrategyParams:
     # US-equity OPENING RANGES the same ORB rules went from Sharpe 0.48 to 2.81
     # trading only names unusually active vs their own time-of-day norm).
     # Our every-bar 24/7-crypto adaptation measured NEUTRAL-to-slightly-
-    # negative across 60/90/180d and walk-forward (BACKTESTS.md), so it ships
+    # negative across 60/90/180d and walk-forward (docs/archive/BACKTESTS.md), so it ships
     # OFF: 0.0 auto-passes. Raise it (e.g. 1.10) to experiment; NaN (no volume
     # data / fresh slots) always passes either way — forex stays ungated.
     scalper_rvol_min: float = 0.0
     scalper_break_even_rr: float = 1.0  # move stop to breakeven after 1R
     scalper_min_confidence: float = 0.62    # low-conf entries measured as noise
-    scalper_short_min_confidence: float = 1.01  # shorts disabled: every short bucket lost money in testing (BACKTESTS.md)
+    scalper_short_min_confidence: float = 1.01  # shorts disabled: every short bucket lost money in testing (docs/archive/BACKTESTS.md)
     scalper_trend_filter: bool = True   # longs need close > EMA200, shorts close < EMA200
     scalper_adx_min: float = 25.0       # entries below ADX 25 measured as negative-edge
     scalper_target_rr: float | None = None  # no fixed TP: caps measured at avg_win $12 vs $19 free
     # buffered VWAP exit: a single bar close across VWAP is noise; require
-    # 2 consecutive closes beyond VWAP - 0.25 ATR (see BACKTESTS.md cost study)
+    # 2 consecutive closes beyond VWAP - 0.25 ATR (see docs/archive/BACKTESTS.md cost study)
     scalper_vwap_buffer_atr: float = 0.25
     scalper_exit_confirm_bars: int = 2
     # generic cooldown after ANY scalper exit (not just stops) so one bad setup
@@ -274,7 +274,7 @@ class StrategyParams:
     tsmom_exit_ret: float = 0.0      # exit line: trailing return < 0 = the momentum regime flipped non-positive (signal exit, the papers' monthly re-rank analogue)
 
     # ---- HFT book (bot/strategies/hft.py, 1m bars — grounding + fee math in
-    # HFT.md). One contiguous block appended at the END of the dataclass; never
+    # docs/archive/HFT.md). One contiguous block appended at the END of the dataclass; never
     # reordered (merge rule). These run ONLY on the separate high-frequency
     # paper book (mode='hft'), never on the standard watchlists.
     # micro-breakout (Zarattini & Aziz ORB analogue at a 5m cadence, taker).
@@ -294,7 +294,7 @@ class StrategyParams:
     hft_fade_clv_max: float = -0.8     # close in the extreme tail of the bar's range
     hft_fade_stop_atr: float = 2.0
     hft_fade_time_stop: int = 9        # bars (~45 min: inside the documented MR half-life band)
-    # exit mode (experiment, docs/HFT_TRADE_FREQUENCY.md). None: exit with a
+    # exit mode (experiment, docs/archive/HFT_TRADE_FREQUENCY.md). None: exit with a
     # market order once price is back at the mean (taker, the live default).
     # A number: rest a take-profit at the entry-time mean, this many bp
     # beyond it so price must trade THROUGH the level to fill (a touch is not
@@ -429,7 +429,7 @@ DEFAULT_WATCHLIST: list[MarketSpec] = [
     MarketSpec("crypto", "BTC/USDT", "1h", "Bitcoin"),
     MarketSpec("crypto", "ETH/USDT", "1h", "Ethereum"),
     MarketSpec("crypto", "SOL/USDT", "1h", "Solana"),
-    # 15m: VWAP scalper (5m measured cost-negative -> 15m, see BACKTESTS.md)
+    # 15m: VWAP scalper (5m measured cost-negative -> 15m, see docs/archive/BACKTESTS.md)
     MarketSpec("crypto", "BTC/USDT", "15m", "Bitcoin (scalp)"),
     MarketSpec("crypto", "ETH/USDT", "15m", "Ethereum (scalp)"),
     # 4h: Connors mean reversion (daily-bar strategy analogue)
@@ -457,7 +457,7 @@ class LLMConfig:
 
 @dataclass
 class PortfolioConfig:
-    """Cross-symbol capital allocation (skfolio-backed, see RESEARCH.md §2.5).
+    """Cross-symbol capital allocation (skfolio-backed, see docs/archive/RESEARCH.md §2.5).
 
     ENV TIMING (deliberate, do not "fix" piecemeal): every _env_* default in
     this file is read ONCE at import time — a process that changes
@@ -483,7 +483,7 @@ class PortfolioConfig:
 
 @dataclass
 class HFTConfig:
-    """The FAST paper book (bot/hft/, HFT.md): a SECOND paper account
+    """The FAST paper book (bot/hft/, docs/archive/HFT.md): a SECOND paper account
     trading 5m bars — same broker/risk/journal machinery as the
     standard book, separate capital, universe, cadence, and journal rows
     (mode='hft'; every journal read already filters on mode, so the whole

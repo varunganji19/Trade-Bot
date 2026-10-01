@@ -1,6 +1,6 @@
 """HFT harness — the evaluation rig for the high-frequency book.
 
-Harness engineering for the 1m book, mirroring what BACKTESTS.md does for
+Harness engineering for the 1m book, mirroring what docs/archive/BACKTESTS.md does for
 the standard book: every strategy x symbol x fee tier cell runs through the
 SAME event-driven backtester, full costs, and the results land in
 data/results/hft_battery.json for the dashboard/docs to cite.

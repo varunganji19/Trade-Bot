@@ -1,4 +1,4 @@
-"""The two fast-book candidates added 2026-10-01 (docs/HFT_TRADE_FREQUENCY.md):
+"""The two fast-book candidates added 2026-10-01 (docs/archive/HFT_TRADE_FREQUENCY.md):
 cross-pair spread reversion and funding-rate reversion, plus the funding feed
 they read. Every frame is synthetic — no network."""
 from __future__ import annotations

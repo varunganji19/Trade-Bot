@@ -11,7 +11,7 @@ code the standard book runs (live/backtest parity by construction).
 Fee tier: 1m strategies live or die on the fee schedule. The default
 'HFT_FEE_TIER=perp' models a perpetuals-style tier (taker 5bp, maker 2bp,
 slippage 3bp) because spot base-tier maker=taker=10bp makes every 1m strategy
-dead on arrival — a measured finding, not an assumption (HFT.md). Set
+dead on arrival — a measured finding, not an assumption (docs/archive/HFT.md). Set
 HFT_FEE_TIER=spot to run the same strategies on the spot tier and see it.
 """
 from __future__ import annotations
@@ -66,7 +66,7 @@ def build_hft_config(fee_tier: str | None = None) -> Config:
     tier = fee_tier or hft_fee_tier()
     costs = CONFIG.costs if tier == "spot" else replace(CONFIG.costs, **_PERP_FEE_OVERRIDES)
     # the MM bracket inverts the swing-trade reward ratio (small target vs
-    # wider inventory stop) — the HFT book carries its own floor (HFT.md)
+    # wider inventory stop) — the HFT book carries its own floor (docs/archive/HFT.md)
     risk = replace(CONFIG.risk,
                    risk_per_trade=h.risk_per_trade,
                    daily_loss_kill_switch=h.daily_loss_kill_switch,

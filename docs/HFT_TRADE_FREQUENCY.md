@@ -121,3 +121,91 @@ numbers.
 strategy's thresholds) from the table above remain the measured route to
 more trades. Both new candidates stay registered so the Lab and the battery
 can re-test them on future data; they cannot vote.
+
+## Measured: more markets and calibrated thresholds for the live fade (2026-10-01)
+
+`hft_exhaustion_fade` (the one strategy allowed to trade) on **15 liquid
+USDT pairs** (BTC, ETH, SOL, BNB, XRP, DOGE, ADA, AVAX, LINK, LTC, DOT, TRX,
+BCH, NEAR, SUI), 90 days of 5m Binance data, perp fee tier, full costs.
+Thresholds were **chosen on the first 60 days** (four walk-forward folds per
+market) and **judged on the last 30 days**, which the choice never saw.
+
+**Selection (60 days, out-of-sample folds):**
+
+| z entry \ volume spike | 2.0× | 2.5× | 3.0× |
+|---|---|---|---|
+| **2.0σ** | 16.2/day · PF 0.72 | 11.5/day · PF 0.76 | 8.5/day · PF 0.73 |
+| **2.25σ** | 13.7/day · PF 0.73 | 9.7/day · **PF 0.80** | 7.2/day · PF 0.76 |
+| **2.5σ** (live today) | 11.1/day · PF 0.66 | 8.0/day · PF 0.75 | 6.0/day · PF 0.75 |
+
+Trades per day are for the whole 15-market book; PF is the median
+out-of-sample profit factor. **Every cell is "demoted"** under the live rule.
+
+**Held-out 30 days (never used for selection):**
+
+| Setting | Trades | Per day | Gross P&L (before fees) | Fees | Net P&L |
+|---|---|---|---|---|---|
+| Live (2.5σ, 3×) | 278 | 9.3 | **+$78** | $485 | −$407 |
+| Best of grid (2.25σ, 2.5×) | 445 | 14.8 | **+$459** | $778 | −$319 |
+
+**What this says:**
+
+1. **Breadth delivers the frequency the mentors asked for.** The same
+   strategy on 15 markets takes 9–15 trades a day instead of 2–4.
+2. **The fade has a small real edge before costs, and fees take all of it.**
+   Positive gross on unseen data at both settings, unlike the two new
+   candidates (negative even gross). This is the one place a cost
+   improvement could change the verdict.
+3. **The live fade is a measured loser once there is enough evidence.** Its
+   "probation" status came from too few trades on four markets over 14 days,
+   not from good results. On 15 markets it would be demoted, leaving the fast
+   book with no voter at all.
+4. **Per-market results scatter widely** (NEAR +$238, AVAX −$149 at the live
+   setting). Keeping only the winners would be cherry-picking a 30-day sample.
+5. **The loosest settings are not better per trade**, only busier. The grid's
+   best cell (PF 0.80) is still below the 1.0 promotion line.
+
+**Next experiment that could actually flip the result: cheaper exits.** The
+fade enters as a maker (2 bp) but exits as a taker (5 bp plus 3 bp
+slippage). A resting limit exit at the mean would cut the round trip from
+about 10 bp to about 4 bp, roughly the size of the measured gross edge. It
+has to be modelled honestly: a resting exit can miss, and the stop must
+stay a taker order.
+
+## Open-source resources worth using (GitHub survey, 2026-10-01)
+
+Licences matter: **MIT / Apache-2.0** code can be reused with attribution;
+**GPL-3.0** code would force this project under the GPL, and vectorbt's
+licence carries a Commons Clause (no commercial use) — borrow *ideas* from
+those, not code.
+
+| Project | ★ | Licence | What it offers us |
+|---|---|---|---|
+| [nkaz001/hftbacktest](https://github.com/nkaz001/hftbacktest) | 4.8k | MIT | Tick-level backtester with **queue-position fill models and feed/order latency**, L2/L3 order-book replay, Binance Futures and Bybit; examples include GLFT market making and order-book-imbalance alpha. The tool option F needs: our market maker lost partly because a candle cannot show queue position or adverse selection. |
+| [hummingbot/hummingbot](https://github.com/hummingbot/hummingbot) | 20.3k | Apache-2.0 | Production market-making framework: Avellaneda–Stoikov with an order-book liquidity estimator, pure and cross-exchange market making, V2 "controllers" for multi-pair strategies. Reference implementation if the market maker is ever rebuilt on real order books. |
+| [freqtrade/freqtrade](https://github.com/freqtrade/freqtrade) + [freqtrade-strategies](https://github.com/freqtrade/freqtrade-strategies) | 55k / 5.5k | GPL-3.0 | The largest 5m crypto-bot community. Ideas to borrow: **pairlist filters** (VolumePairList, VolatilityFilter, SpreadFilter, and PrecisionFilter, which exists for the exact tick-size trap we just fixed), **protections** (StoplossGuard, LowProfitPairs, CooldownPeriod), higher-timeframe "informative" confirmation for 5m entries, and FreqAI for ML. |
+| [iterativv/NostalgiaForInfinity](https://github.com/iterativv/NostalgiaForInfinity) | 3.4k | GPL-3.0 | The most-used community 5m strategy. Its setup guidance is itself evidence for option B: **40–80 volume-ranked USDT pairs**, 6–12 open trades. Frequency comes from breadth, not from loosening one market's trigger. |
+| [nautechsystems/nautilus_trader](https://github.com/nautechsystems/nautilus_trader) | 29.6k | LGPL-3.0 | Deterministic event-driven engine with a Rust core and L2/L3 support; a reference for "backtest equals live" design, which this repo enforces with its parity smoke. |
+| [jesse-ai/jesse](https://github.com/jesse-ai/jesse) | 8.6k | MIT | Python crypto framework with multi-timeframe candles and route-based multi-symbol backtests; readable reference code. |
+| [binance/binance-public-data](https://github.com/binance/binance-public-data) | — | — | Free bulk history: klines for every interval plus trades and aggTrades for spot and USD-M futures (no order-book depth). Bulk downloads beat paging the REST API for 90-day-plus studies. |
+| [wilsonfreitas/awesome-quant](https://github.com/wilsonfreitas/awesome-quant), [paperswithbacktest/awesome-systematic-trading](https://github.com/paperswithbacktest/awesome-systematic-trading) | 30k / 14.5k | — | Curated indexes of libraries, data sources and papers; starting points rather than code. |
+
+**Concrete ideas from the survey, ranked by value for effort:**
+
+1. **Real order flow for free.** Binance's kline API returns
+   `taker_buy_base_volume` with every candle (verified: one BTC 5m bar had
+   29.96 of 42.75 BTC bought by takers, a +17.2 BTC imbalance). ccxt drops
+   that column. Keeping it would replace `hft_ofi_momentum`'s CLV×volume
+   *guess* at order flow with the real aggressor imbalance — the signal
+   Cont, Kukanov & Stoikov actually describe. Small data-layer change; then
+   re-measure the order-flow strategy.
+2. **Breadth with a volume- and volatility-filtered universe** (freqtrade's
+   pairlist idea): rank USDT pairs by 24h volume and drop those whose ATR
+   cannot clear the cost floor, instead of a hand-picked list.
+3. **Higher-timeframe confirmation**: only fade a 5m exhaustion when the 1h
+   trend is not strongly against the fade (freqtrade's "informative pairs").
+4. **Protections per pair**: pause a market after N stop-outs in a window
+   (StoplossGuard), so one trending market cannot rack up repeated losses.
+5. **Order-book backtesting with hftbacktest** if market making is revisited:
+   record L2 from the Binance websocket (Binance publishes no historical
+   depth), then measure with queue-position fills. A project of its own.

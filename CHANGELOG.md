@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] — a stricter gate, pre-registration, a ledger check, a readable codebase (2026-10-01)
+
+Roadmap M3, M4, M5 and M7 (docs/ROADMAP.md).
+
+- **Promotion rule v2** (`bot/promotion.py`, `bot/evidence_stats.py`):
+  promoted only with >= 100 out-of-sample trades, 10+ in each of three
+  market regimes, and the lower end of a 90% block-bootstrap PF interval
+  >= 1.0; probation no longer votes. Older verdict files keep their meaning
+  but show as "OLD RULE" until `make evidence` regenerates them.
+- **Pre-registered experiments and a registry** (`bot/experiments.py`,
+  `experiments/`): declarations must be committed before they run; results
+  are written next to them; the registry feeds the Deflated Sharpe's trial
+  count and the Evidence tab's new Experiment log. `make evidence` reruns
+  both gates. First results: nothing is promoted on either book; the
+  market maker's apparent edge is the touch-fill model (PF 0.96 once quotes
+  must trade through by 5 bp). The 27 fade variants were re-run and
+  reproduce the archived numbers.
+- **Ledger check** on every poll, with a banner naming any gap between a
+  book's cash and its history (flags the legacy $883.35 mismatch).
+- **Code split, no behaviour change:** dashboard routes into `bot/api/`,
+  engine lifecycle into `bot/engines.py`, `journal` and `data` into
+  packages, position management into `bot/positions.py`, CLI commands into
+  `bot/cli/`, strategy parameters into `bot/params.py`. No code file is over
+  600 lines (was 1,732). Source-text test pins on moved code became
+  behaviour tests (engine loops are driven for real).
+- **Fixes:** `shadow`, `validate` and the batteries wrote to a
+  cwd-relative `data/results/` regardless of `BOT_DB_PATH`; they now follow
+  the journal directory. Comments narrating past incidents now state the
+  present reason.
+
 ## [Unreleased] — positioning, honest labels, docs consolidated (2026-10-01)
 
 Roadmap Phase 0 and M2 (docs/ROADMAP.md). Decisions recorded: the project is

@@ -93,21 +93,32 @@ backtester could replay neither, so live and backtest were running different
 code. They were removed on 2026-09-19.
 
 **The promotion gate** (`bot/promotion.py`) decides which strategies may
-vote. Each book's battery (`python3 run_battery.py`, `make hft-battery`)
-runs every strategy through walk-forward folds after full costs and writes a
-verdict per strategy from the **out-of-sample** fold cells only:
+vote. `make evidence` runs each book's gate declaration (§9): every
+strategy walks forward through 4 folds after full costs, and only the
+**out-of-sample** trades are pooled into its verdict (rule v2):
 
-| State | Rule today | Effect |
+| State | Rule | Effect |
 |---|---|---|
-| promoted | ≥ 30 OOS trades over ≥ 2 folds and median PF ≥ 1.0 | votes |
-| probation | too few trades to judge | votes, shown as unproven |
-| demoted | enough trades and median PF ≤ 0.8 | does not vote |
+| promoted | ≥ 100 OOS trades, ≥ 10 in each of 3 regimes, and the **lower** end of the 90% PF interval ≥ 1.0 | votes |
+| probation | anything else that is not demoted | does **not** vote |
+| demoted | ≥ 30 trades and the **upper** end of the interval < 1.0 | does not vote |
 
-Only cells at the book's live fee tier count. A missing verdict file is
-shown as "promotion gate: UNMEASURED", not silently treated as a pass.
-Candidates (`CANDIDATE_STRATEGIES`) are registered and testable but never
-vote until measured. Roadmap item M3 raises this bar to a bootstrap
-interval: lower bound of PF ≥ 1.0, ≥ 100 trades, ≥ 3 regimes.
+- **Interval:** a 90% circular block bootstrap over the time-ordered trade
+  P&Ls (blocks of about n^(1/3) trades keep losing streaks intact; fixed
+  seed, so verdicts are reproducible) — `bot/evidence_stats.py`.
+- **Regimes:** each trade is labelled by the market's regime on the day it
+  was opened: trend up / trend down (ADX(14) ≥ 20, sign of the 20-day change
+  of the 200-day SMA) or range (ADX < 20), from daily bars and shifted one
+  day so a label never sees its own day.
+- A verdict file written under the older rule (median fold PF over ≥ 30
+  trades, probation voting) keeps its old meaning but shows as "STALE — OLD
+  RULE" until regenerated. A missing file shows as "promotion gate:
+  UNMEASURED", never as a silent pass.
+- Candidates (`CANDIDATE_STRATEGIES`) are measured but never vote, whatever
+  their verdict; graduating one is a code change.
+- `run_battery.py` and `make hft-battery` are descriptive batteries only;
+  they never write verdicts, so a quick run cannot replace the gate's
+  evidence.
 
 ## 5. Statistics
 
@@ -123,8 +134,10 @@ to the Evidence tab and optionally to Markdown).
 - **Probability of backtest overfitting (PBO)**, from combinatorially
   symmetric cross-validation across the configurations tried.
 - **Deflated Sharpe ratio**, adjusted for the number of trials and for skew
-  and kurtosis. Its trial count currently has to be passed by hand
-  (`--trial-sharpes`); roadmap M3 reads it from an experiment registry.
+  and kurtosis. `validate` reads the trials from the experiment registry
+  (§9): one trial per distinct configuration per market, so re-running the
+  same settings on newer data is more evidence, not another lottery ticket.
+  `--trial-sharpes` overrides it.
 - **Monte Carlo** resampling of trade order (5th-percentile terminal equity)
   and **minimum track-record length**.
 - **Signal IC.** Rank correlation between a signal's conviction and the
@@ -160,3 +173,46 @@ forecaster starts as a tracked non-voter; a rolling rank-IC ledger scores
 each forecast against what happened, and it could join the vote only after
 60+ resolved forecasts with IC ≥ 0.02, judged per market. Kronos failed this
 gate (RESULTS.md §2) and runs offline only (`python3 main.py kronos`).
+
+## 9. Experiments: pre-registration and the registry
+
+Every variant ever tried is a draw from the same lottery, so the platform
+counts them (`bot/experiments.py`).
+
+- **Declared before they run.** An experiment is a small TOML file in
+  [`experiments/`](../experiments/): hypothesis, strategies, markets, window,
+  folds, an optional holdout and the parameter variants. The runner refuses
+  a declaration that is not committed to git or has uncommitted edits, so
+  the plan provably predates its results, and it can run nothing that is
+  not declared.
+- **Two kinds.** A *gate* measures the shipped settings and writes the
+  book's promotion verdicts. A *study* compares variants — on a selection
+  window of walk-forward folds, judged on a later holdout it never saw — and
+  never touches the gate.
+- **Results next to the plan.** Each run writes `<id>.results.json` beside
+  its declaration (pooled and per-market out-of-sample statistics, intervals,
+  regime counts, holdout P&L, the declaration's hash and commit).
+- **The registry** (`experiments.jsonl` beside the journal) is rebuilt from
+  those files plus [`experiments/history.jsonl`](../experiments/history.jsonl),
+  which records experiments run before the registry existed, each citing its
+  archived source. The Evidence tab's Experiment log reads the same data.
+
+`make evidence` reruns both gate declarations and rebuilds every verdict,
+interval and the registry from scratch. It writes beside the journal, so
+point `BOT_DB_PATH` at a scratch directory to keep a test run away from a
+live journal. Run alone: `python3 main.py experiment run <file.toml>`,
+`python3 main.py experiment list`.
+
+
+## 10. The books reconcile with their own history
+
+Every dashboard poll checks each paper book's ledger
+(`Journal.ledger_check`): the paper broker settles like a margin account, so
+independent of any market price
+
+    journal cash = starting capital + net deposits + realized P&L
+                   - entry fees of still-open trades
+
+and equity is that cash plus unrealized P&L. A gap beyond rounding shows a
+"Ledger inconsistent" banner naming each term, so headline numbers that
+disagree with each other can never pass unnoticed.

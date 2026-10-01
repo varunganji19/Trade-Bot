@@ -9,28 +9,35 @@ backtest. This project is a **paper-trading platform for crypto and forex
 built to catch all three**, and the evidence of what it proved and disproved
 when pointed at its own strategies.
 
-**Headline result: no proven edge yet.**
+**Headline result: no proven edge — and under the platform's own rule,
+nothing is allowed to trade.**
 
-- Of 5 standard strategies, **3 are measured losers** after fees on
-  out-of-sample data (median profit factor 0.55–0.78) and may not trade.
-  **2 pass today's gate** (Connors mean reversion PF 1.56, VWAP scalper
-  PF 1.55), each on only about 60 out-of-sample trades — a small sample that
-  a stricter bar ([roadmap M3](docs/ROADMAP.md)) will likely reject.
-- The **fast book** (5-minute bars, separate account) is **experimental**:
-  five of its six strategies are measured losers, and the sixth was tuned
-  27 ways and lost after fees in every variant on unseen data
-  ([docs/archive/HFT_TRADE_FREQUENCY.md](docs/archive/HFT_TRADE_FREQUENCY.md)).
+- **Standard book**, 2 years, 7 markets: no strategy's 90% profit-factor
+  interval clears 1.0. Three are unproven (best: time-series momentum, PF
+  1.07, interval 0.81–1.37) and two are measured losers. The two strategies
+  that passed the older, looser gate (PF ≈ 1.55 on ≈ 60 trades each) did
+  not survive the larger sample.
+- **Fast book** (5-minute bars, **experimental**), 90 days, 21 markets: every
+  strategy is a measured loser except a market maker whose profit vanishes
+  once quotes must trade through by 5 bp — an artefact of the fill model,
+  shown by a pre-registered study.
 - A published foundation model (Kronos, AAAI'26) had to earn a vote like
   any strategy; on BTC 1h it scored **IC −0.075** against a +0.02 hurdle
   and was rejected.
 
-Sources: `data/results/promotions_standard.json` and `promotions.json`
-(written by the batteries), and the docs linked above.
+Every verdict, interval and study is in [docs/RESULTS.md](docs/RESULTS.md),
+and is reproduced by `make evidence` from the pre-registered declarations
+in [experiments/](experiments/).
 
 **How it keeps itself honest** (each is code and tests, not a claim):
 
-- **Promotion gate.** A strategy votes only if its walk-forward,
-  out-of-sample profit factor clears 1.0 after fees (`bot/promotion.py`).
+- **Promotion gate.** A strategy votes only if the *lower* end of a 90%
+  bootstrap interval on its out-of-sample profit factor clears 1.0 after
+  fees, over 100+ trades in trending-up, trending-down and ranging markets
+  (`bot/promotion.py`).
+- **Pre-registration.** Experiments are declared in git before they run,
+  every variant is recorded, and the Deflated Sharpe reads its trial count
+  from that registry (`bot/experiments.py`).
 - **Live = backtest.** The engine and the backtester run the same decision
   code; `make verify` fails if they ever diverge (`scripts/parity_smoke.py`).
   No LLM or news feed sits in the decision path.
@@ -44,7 +51,7 @@ Sources: `data/results/promotions_standard.json` and `promotions.json`
   through their initial stop, and the dashboard says so.
 - **Causality and determinism are tested**: truncating history at bar *i*
   cannot change the bar-*i* signal; identical inputs give identical trades.
-  300+ tests, a parity smoke and CI on every push.
+  340+ tests, a parity smoke and CI on every push.
 
 Paper trading only. No strategy here is presented as profitable.
 
@@ -135,8 +142,8 @@ python3 main.py dashboard            # → http://127.0.0.1:8000/#lab
 # 3b. the fast paper book — EXPERIMENTAL, no proven edge (separate account + dashboard tab)
 python3 main.py hft-backtest --symbol BTC/USDT --days 14 \
   --strategy hft_micro_breakout          # 5m bars, perp fee tier
-python3 main.py hft-battery             # every strategy x symbol x fee tier,
-                                        # and it writes the promotion verdicts
+python3 main.py hft-battery             # every strategy x symbol x fee tier
+                                        # (descriptive; verdicts: make evidence)
 python3 main.py hft-run                 # live 5m paper engine (mode='hft')
 python3 main.py hft-status              # ALL fast-book trades, one place
 #   (the dashboard's Fast book tab has its own engine controls, equity curve,
@@ -148,9 +155,10 @@ python3 main.py pause "note"        # manual halt: new entries only, nothing for
 python3 main.py resume              # clear the manual pause
 python3 main.py config              # effective settings + where each came from
 make verify                         # tests + lint + live-vs-backtest parity smoke
+make evidence                       # rerun both gate declarations: every verdict + the registry
 make soak                           # drive the RUNNING dashboard and flag breakdowns
 make test / make lint / make battery / make config
-python3 -m pytest tests/ -q         # 300+ tests
+python3 -m pytest tests/ -q         # 340+ tests
 ```
 
 ## How the evidence is produced
@@ -208,8 +216,17 @@ Kept, tested, and outside the main demo path.
 
 ## Layout
 
+One trade, candle to journal, in five files: `bot/data/__init__.py`
+(closed bars) → `bot/engine.py` (the cycle) → `bot/orchestrator.py` (the
+vote and the promotion gate) → `bot/positions.py` (risk approval, fill,
+management, close — via `bot/risk.py` and `bot/broker.py`) →
+`bot/journal/trades.py` (the record).
+
 ```
-config.py            all tunables (watchlist, risk, costs, strategy params, allocation)
+config.py            environment, costs, risk, markets (strategy params: bot/params.py)
+main.py              CLI parser; the commands live in bot/cli/
+experiments/         pre-registered experiment declarations (TOML), their
+                     results, and history.jsonl (experiments run earlier)
 docs/
   METHODOLOGY.md     how the evidence is produced
   RESULTS.md         every strategy and experiment with its verdict
@@ -217,61 +234,52 @@ docs/
   ROADMAP.md         the plan from the mentor and VC reviews
   archive/           the round-by-round lab notebook, kept unchanged
 bot/
-  data.py            ccxt fallback chain (Binance→Bybit→OKX) + yfinance;
-                     OHLCV validation (weekend-aware gap guard), caliber
-                     stamps, forming-bar drop, parquet cache
+  data/              fetch_history + MarketData; sources.py (ccxt fallback
+                     chain, Yahoo), validate.py (OHLCV checks, forming bar),
+                     cache.py (parquet cache + provenance manifest)
   indicators.py      Wilder RSI/ATR/ADX, EMA, Donchian, VWAP (session + rolling)
-  strategies/        base + turtle + meanrev + scalper + ts_momentum +
-                     fx_regime_meanrev + hft (stateless, testable)
-  llm.py             optional OpenAI/Anthropic client — CHATBOT ONLY, it does
-                     not touch a decision
-  orchestrator.py    regime detection, weighted vote, conflict guard, book
-                     separation, promotion gate (deterministic end to end)
-  promotion.py       promoted / probation / demoted from the battery's own
-                     cells: a vote is a measurement, not a citation
-  risk.py            sizing, caps, kill switch (simulated-clock aware), cooldowns,
-                     manual pause flag, gross-notional leverage cap
+  params.py          every strategy tunable, with the reason for its value
+  strategies/        turtle, meanrev, scalper, ts_momentum, fx_regime_meanrev,
+                     hft (fast book) — stateless, testable
+  orchestrator.py    regime detection, vote, book separation, promotion gate
+  promotion.py       the gate: rule v2 verdicts, who may vote, gate state
+  evidence_stats.py  bootstrap intervals and regime labels behind the gate
+  experiments.py     pre-registration, the runner and the registry
+  risk.py            sizing, caps, kill switch, cooldowns, leverage caps
   pause.py           manual "pause all trading" flag file (entries-only halt)
   allocator.py       skfolio inverse-vol / HRP cross-symbol risk budget
   broker.py          paper fills with fees/slippage; OCO brackets, gap-aware fills
-  engine.py          autonomous live loop (journal-recovered positions, veto
-                     telemetry, cycle budget, off-watchlist position management)
-  backtest.py        event-driven backtester + walk-forward + allocation hooks
-  validation.py      purged-CV OOS path distribution + signal IC reports
-  kronos_signal.py   Kronos foundation-model signal: probabilistic forecast,
-                     IC ledger, earned voting rights — OFFLINE (main.py kronos)
+  engine.py          the live cycle (lease, run_cycle, health, run_forever)
+  positions.py       what a cycle does to each market: restore, mark, approve,
+                     fill, manage, close
+  backtest.py        event-driven backtester + walk-forward
+  validation.py      purged CV, PBO, Deflated Sharpe, Monte Carlo, MinTRL
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
-  hft/               the separate fast (5m, experimental) paper book: config
-                     factory, perp/spot fee tiers, derived cost floors,
-                     harness battery + promotion verdicts — strategies in
-                     bot/strategies/hft.py
-  lab.py             Strategy Lab: pick any symbol, apply registered
-                     strategies, backtest — both books (dashboard + CLI)
-  journal.py         SQLite: decisions / trades / equity / chat_log
-                     (mode column: 'paper' standard book, 'hft' fast book,
-                     'demo' historical seeded replays — the seeder is gone,
-                     the labels stay so those rows never mix in)
-  chatbot.py         journal-aware Q&A (LLM or deterministic)
-  dashboard.py       FastAPI endpoints only — the page lives in bot/static/
-  static/            index.html + app.css + app.js (the dashboard itself:
-                     equity curves, live price, veto telemetry, Evidence view)
-  report.py          validate --report renderer (generated REPORT.md)
+  kronos_signal.py   Kronos forecaster and its IC ledger (offline only)
+  hft/               the fast (5m, experimental) book: config, fee tiers,
+                     cost floors, descriptive harness
+  lab.py             Strategy Lab backtests for both books
+  journal/           SQLite journal: schema.py, ledger.py (ownership, cash,
+                     reconciliation), trades.py, reads.py
+  chatbot.py, llm.py the journal chatbot (Extras); the LLM never trades
+  dashboard.py       FastAPI app, shared state, static files
+  engines.py         start/stop/auto-resume of both books' engines
+  api/               routers: standard.py, fast.py, account.py, lab.py,
+                     evidence.py, models.py
+  static/            index.html + app.css + app.js (the dashboard page)
+  cli/               research.py and operate.py (the CLI commands)
+  report.py          validate --report renderer
 scripts/
   parity_smoke.py    live-vs-backtest parity + causality + book separation
-                     (make verify)
   soak.py            drive the RUNNING dashboard in a loop, flag breakdowns
-                     (make soak)
-models/kronos/       vendored Kronos model source (upstream MIT license vendored;
-                     weights via HF Hub)
-tests/              300+ tests: indicators, strategies, causality, determinism,
-                     risk, broker fills/OCO, allocator, purged CV, Kronos gate,
-                     shadow, journal, backtest, live-engine regressions
-                     (cross-timeframe isolation, restart cash, bars_held)
-run_battery.py       full backtest battery across symbols/strategies
-scripts/pinned_runs.py  pinned Milestone-A windows (byte-identical reruns)
+  pinned_runs.py     pinned windows (byte-identical reruns)
+models/kronos/       vendored Kronos model source (MIT; weights via HF Hub)
+tests/               340+ tests: causality, determinism, fills, risk, the gate,
+                     experiments, ledger, journal, engines, dashboard
+run_battery.py       descriptive standard-book battery (no verdicts)
 LICENSE              MIT
-pyproject.toml       committed ruff + pytest config (the lint floor CI enforces)
-Makefile             make setup / test / lint / verify / backtest / validate / battery
+pyproject.toml       ruff + pytest config (the lint floor CI enforces)
+Makefile             setup / test / lint / verify / evidence / battery / ...
 CHANGELOG.md         dated changes
 ```
 

@@ -1680,7 +1680,7 @@ def test_engine_aborts_journal_row_when_fill_fails():
             summary = {"errors": [], "opened": [], "closed": [], "holds": 0}
             # emulate the orchestrator-approved path directly: journal row then
             # broker fill raises -> abort_trade must clean the row
-            from bot.engine import utc_now
+            from config import utc_now
             trade_id = eng.journal.open_trade(
                 spec.symbol, "long", 1.0, BoomDecision.price, None, None,
                 "turtle_trend", "r", mode="paper", opened_ts=utc_now(),

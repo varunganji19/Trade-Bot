@@ -149,7 +149,8 @@ def test_funding_strategy_cannot_vote_before_the_engine_has_funding_data():
     engine would leave it permanently 'no funding data' — a voter that can
     never vote, which looks exactly like a quiet market."""
     import bot.engine as engine_mod
-    wired = "attach_funding" in inspect.getsource(engine_mod)
+    import bot.positions as positions_mod   # the engine's per-market half
+    wired = any("attach_funding" in inspect.getsource(m) for m in (engine_mod, positions_mod))
     assert wired or "hft_funding_reversion" in CANDIDATE_STRATEGIES
 
 

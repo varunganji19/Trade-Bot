@@ -1,0 +1,120 @@
+# Promotion gate for the fast book (rule v2, bot/promotion.py).
+# Run with `make evidence`. 90 days of 5m bars on 15 liquid USDT pairs plus
+# six crosses (the cross-reversion strategy trades only crosses; funding
+# reversion only pairs with a perpetual). EUR/USD is not included: Yahoo
+# serves only 60 days of 5m forex history.
+id = "fast_gate"
+kind = "gate"
+book = "fast"
+tier = "perp"
+created = 2026-10-01
+hypothesis = "Each fast-book strategy, at its shipped settings, keeps a profit factor above 1.0 after perp-tier costs on 90 days of out-of-sample folds across 21 markets."
+strategies = ["hft_exhaustion_fade", "hft_micro_breakout", "hft_market_maker", "hft_ofi_momentum", "hft_cross_reversion", "hft_funding_reversion"]
+days = 90
+folds = 4
+regime_days = 1000
+
+[[markets]]
+kind = "crypto"
+symbol = "BTC/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ETH/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "XRP/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "DOGE/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ADA/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "AVAX/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "LINK/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "LTC/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "DOT/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "TRX/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BCH/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "NEAR/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SUI/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ETH/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "XRP/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/ETH"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/ETH"
+timeframes = ["5m"]

@@ -1,0 +1,47 @@
+# Promotion gate for the standard book (rule v2, bot/promotion.py).
+# Run with `make evidence`. A gate measures the shipped settings only;
+# parameter variants belong in a study.
+id = "standard_gate"
+kind = "gate"
+book = "standard"
+created = 2026-10-01
+hypothesis = "Each standard strategy, at its shipped settings, keeps a profit factor above 1.0 after full costs on two years of out-of-sample folds across trend-up, trend-down and range regimes."
+strategies = ["turtle_trend", "connors_meanrev", "vwap_scalper", "ts_momentum", "fx_regime_meanrev"]
+days = 730          # two years per market
+folds = 4           # walk-forward folds; each trades only its own slice
+regime_days = 1000  # daily history for the 200-day regime labels
+
+[[markets]]
+kind = "crypto"
+symbol = "BTC/USDT"
+timeframes = ["15m", "1h", "4h"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ETH/USDT"
+timeframes = ["15m", "1h", "4h"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/USDT"
+timeframes = ["15m", "1h", "4h"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/USDT"
+timeframes = ["15m", "1h", "4h"]
+
+[[markets]]
+kind = "crypto"
+symbol = "XRP/USDT"
+timeframes = ["15m", "1h", "4h"]
+
+[[markets]]
+kind = "forex"
+symbol = "EURUSD=X"
+timeframes = ["1h"]
+
+[[markets]]
+kind = "forex"
+symbol = "GBPUSD=X"
+timeframes = ["1h"]

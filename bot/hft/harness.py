@@ -44,7 +44,12 @@ def _round_trip_cost_bps(cfg, kind: str = "crypto") -> float:
 
 
 def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spot"),
-                out_path: str = "data/results/hft_battery.json", quiet: bool = False) -> dict:
+                out_path: str | None = None, quiet: bool = False) -> dict:
+    """Descriptive fee-sensitivity battery. It does not write promotion
+    verdicts: those come from `make evidence` (bot/experiments.py), so a
+    quick 14-day run here can never replace the gate's evidence."""
+    from config import db_dir
+    out_path = out_path or os.path.join(db_dir(), "results", "hft_battery.json")
     started = time.time()
     results = {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                "days": days, "warmup_bars": WARMUP_BARS, "cells": [],
@@ -107,27 +112,13 @@ def run_battery(days: int = DAYS_DEFAULT, tiers: tuple[str, ...] = ("perp", "spo
                     evidence_errors.append(
                         f"[{tier}] {spec.symbol} {strat}: {type(exc).__name__}: {exc}")
 
-    # Promotion may not publish a partial set: one failed fold would otherwise
-    # silently turn missing strategies back into permissive, unmeasured voters.
-    if evidence_errors:
-        raise RuntimeError("promotion evidence incomplete; verdicts NOT written:\n  "
-                           + "\n  ".join(evidence_errors))
-    from bot.hft import hft_fee_tier
-    from bot.promotion import save_verdicts, verdicts_from_cells
-    live_tier = hft_fee_tier()
-    verdicts = verdicts_from_cells(results["oos_cells"], live_tier)
-    results["promotions"] = verdicts
-    vpath = save_verdicts(verdicts, live_tier, book="fast")
-    if not quiet:
-        print(f"\n[promotion] OOS verdicts at the live tier ({live_tier}) -> {vpath}")
-        for name, v in sorted(verdicts.items()):
-            print(f"  {v['status']:9s} {name:22s} {v['why']}")
-
+    results["errors"] = evidence_errors
     results["runtime_s"] = round(time.time() - started, 1)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(results, f, indent=1, default=str)
     if not quiet:
         print(f"\n[hft-battery] {len(results['cells'])} cells -> {out_path} "
-              f"({results['runtime_s']}s)")
+              f"({results['runtime_s']}s); descriptive only — verdicts come from "
+              f"`make evidence`")
     return results

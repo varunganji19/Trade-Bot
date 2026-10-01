@@ -7,16 +7,26 @@ it was the WORST cell on the board (PF 0.39 / 0.43 / 0.0 on 81 trades) while
 strategies with smaller weights did better. Nothing in the code noticed,
 because nothing in the code ever compared a strategy's weight to its record.
 
-THE RULE (deliberately three states, not two):
+THE RULE (v2, written by `make evidence` — bot/experiments.py):
 
-  promoted   enough trades AND median profit factor >= PROMOTE_PF
-             -> votes, as configured
-  probation  too few trades to judge
-             -> votes, and says so: absence of evidence is not evidence of
-                absence, and a book whose strategies are all silenced
-                produces no new evidence either
-  demoted    enough trades AND median profit factor <= DEMOTE_PF
-             -> does NOT vote. This is a measured loser, not an unknown.
+  promoted   >= V2_MIN_TRADES out-of-sample trades, at least V2_MIN_PER_REGIME
+             of them in each of V2_MIN_REGIMES market regimes, AND the LOWER
+             end of the 90% bootstrap interval on profit factor >= 1.0
+             -> votes
+  demoted    >= V2_DEMOTE_MIN_TRADES trades AND even the UPPER end of the
+             interval is below 1.0 -> does not vote; a measured loser
+  probation  anything else (too few trades, too few regimes, or an
+             interval that straddles 1.0) -> does NOT vote under v2: the
+             bar is "proven", not "not yet disproven". This can leave a book
+             with nothing allowed to trade, and the dashboard says so.
+
+A median profit factor over a handful of folds (rule v1, below) cannot tell a
+lucky streak from an edge; an interval can, and a strategy that only ever saw
+one kind of market has not been tested on the others.
+
+RULE v1 (verdict files written before v2; shown as stale until regenerated):
+promoted = median fold PF >= PROMOTE_PF over >= MIN_TRADES trades; demoted =
+median <= DEMOTE_PF; probation in between, and probation still voted.
 
 Each book reads its own verdicts, written by that book's battery from the SAME
 backtests the docs quote. The fast book keeps the original
@@ -45,6 +55,19 @@ PROMOTE_PF = 1.0         # median profit factor to earn a vote
 DEMOTE_PF = 0.8          # ...and to lose one (the band between is probation)
 
 PROMOTED, PROBATION, DEMOTED = "promoted", "probation", "demoted"
+
+# Rule v2. A hundred trades over three regimes is the minimum at which a 90%
+# interval on profit factor is usually narrow enough to clear 1.0 for a
+# modest real edge; ten per regime keeps one regime from being a token.
+RULE_VERSION = 2
+V2_MIN_TRADES = 100
+V2_MIN_REGIMES = 3
+V2_MIN_PER_REGIME = 10
+V2_DEMOTE_MIN_TRADES = 30
+V2_RULE = {"version": RULE_VERSION, "min_trades": V2_MIN_TRADES,
+           "min_regimes": V2_MIN_REGIMES, "min_per_regime": V2_MIN_PER_REGIME,
+           "promote": "pf_lo >= 1.0", "demote": "pf_hi < 1.0",
+           "interval": "90% circular block bootstrap"}
 
 
 def _book_name(book: str) -> str:
@@ -114,16 +137,58 @@ def verdicts_from_cells(cells: list, tier: str) -> dict:
     return out
 
 
+def _fmt_interval(ev: dict) -> str:
+    pf, lo, hi = ev.get("pf"), ev.get("pf_lo"), ev.get("pf_hi")
+    if pf is None:
+        return "no OOS trades"
+    band = f" (90% interval {lo:.2f}–{hi:.2f})" if lo is not None else ""
+    return f"OOS PF {pf:.2f}{band}"
+
+
+def verdicts_from_evidence(evidence: dict) -> dict:
+    """Rule v2 verdicts from pooled out-of-sample evidence per strategy:
+    {name: {"trades", "pf", "pf_lo", "pf_hi", "regimes": {label: n}, ...}}
+    as produced by bot/experiments.py."""
+    from bot.evidence_stats import REGIMES
+    out = {}
+    for name, ev in evidence.items():
+        n = int(ev.get("trades") or 0)
+        regimes = ev.get("regimes") or {}
+        covered = [r for r in REGIMES if regimes.get(r, 0) >= V2_MIN_PER_REGIME]
+        lo, hi = ev.get("pf_lo"), ev.get("pf_hi")
+        head = f"{_fmt_interval(ev)}, {n} trades, {len(covered)} of {len(REGIMES)} regimes"
+        if n >= V2_DEMOTE_MIN_TRADES and hi is not None and hi < 1.0:
+            status, why = DEMOTED, f"{head} — even the top of the interval is below 1.0"
+        elif n < V2_MIN_TRADES:
+            status, why = PROBATION, f"{head} — need {V2_MIN_TRADES} trades to judge"
+        elif len(covered) < V2_MIN_REGIMES:
+            status, why = PROBATION, (f"{head} — need {V2_MIN_PER_REGIME}+ trades in each "
+                                      f"of {V2_MIN_REGIMES} regimes")
+        elif lo is not None and lo >= 1.0:
+            status, why = PROMOTED, head
+        else:
+            status, why = PROBATION, f"{head} — the interval straddles 1.0: not proven"
+        out[name] = {"status": status, "why": why, "trades": n,
+                     "pf": ev.get("pf"), "pf_lo": lo, "pf_hi": hi,
+                     "sharpe": ev.get("sharpe"), "sharpe_lo": ev.get("sharpe_lo"),
+                     "sharpe_hi": ev.get("sharpe_hi"), "regimes": regimes,
+                     "evidence": "walk_forward_oos", "rule": RULE_VERSION}
+    return out
+
+
 def save_verdicts(verdicts: dict, tier: str, path: str | None = None, *,
-                  book: str = "fast") -> str:
+                  book: str = "fast", experiment: str | None = None) -> str:
     book = _book_name(book)
     path = path or promotions_path(book)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = f"{path}.tmp.{os.getpid()}"
-    payload = {"book": book, "tier": tier,
-               "rule": {"min_trades": MIN_TRADES, "min_cells": MIN_CELLS,
-                                      "promote_pf": PROMOTE_PF, "demote_pf": DEMOTE_PF},
-               "strategies": verdicts}
+    v2 = any(v.get("rule") == RULE_VERSION for v in verdicts.values())
+    rule = V2_RULE if v2 else {"version": 1, "min_trades": MIN_TRADES,
+                               "min_cells": MIN_CELLS, "promote_pf": PROMOTE_PF,
+                               "demote_pf": DEMOTE_PF}
+    payload = {"book": book, "tier": tier, "rule": rule, "strategies": verdicts}
+    if experiment:
+        payload["experiment"] = experiment
     with open(tmp, "w") as fh:
         json.dump(payload, fh, indent=1)
     os.replace(tmp, path)
@@ -172,10 +237,9 @@ def gate_state(path: str | None = None, *, book: str = "fast") -> dict:
     try:
         mtime = os.path.getmtime(path)
     except OSError:
-        command = "python3 run_battery.py" if book == "standard" else "make hft-battery"
         return {"state": "no_evidence", "book": book, "path": path,
                 "why": f"no verdicts at {path} — every registered strategy "
-                       f"votes UNMEASURED; run `{command}` to gather them"}
+                       f"votes UNMEASURED; run `make evidence` to gather them"}
     verdicts = load_verdicts(path, book=book)
     demoted = [n for n, v in verdicts.items() if v.get("status") == DEMOTED]
     # WHICH EVIDENCE this verdict set rests on. Verdicts written before the
@@ -187,13 +251,22 @@ def gate_state(path: str | None = None, *, book: str = "fast") -> dict:
     bases = {v.get("evidence", "in_sample") for v in verdicts.values()}
     oos = bases == {"walk_forward_oos"}
     evidence = "walk_forward_oos" if oos else "in_sample"
-    why = f"{len(verdicts)} strategies measured, {len(demoted)} demoted"
+    rule = rule_version(verdicts)
+    if rule >= RULE_VERSION:
+        promoted = [n for n, v in verdicts.items() if v.get("status") == PROMOTED]
+        why = (f"rule v{rule}: {len(verdicts)} strategies measured, {len(promoted)} "
+               f"promoted, {len(demoted)} demoted")
+    else:
+        why = f"{len(verdicts)} strategies measured, {len(demoted)} demoted"
     if not oos:
         why += " — IN-SAMPLE evidence, predates walk-forward; regenerate it"
+    elif rule < RULE_VERSION:
+        why += (" — OLD RULE (median PF over 30 trades, probation votes); "
+                "run `make evidence` for the stricter bar")
     return {"state": "active", "book": book, "path": path,
             "generated_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime)),
-            "measured": len(verdicts), "demoted": demoted,
-            "evidence": evidence, "stale": not oos, "why": why}
+            "measured": len(verdicts), "demoted": demoted, "rule": rule,
+            "evidence": evidence, "stale": not oos or rule < RULE_VERSION, "why": why}
 
 
 def voting_strategies(book: str) -> dict:
@@ -217,7 +290,14 @@ def voting_strategies(book: str) -> dict:
             silent.append({"name": name,
                            "why": verdicts.get(name, {}).get("why", "demoted")})
         elif name in CANDIDATE_STRATEGIES:
-            silent.append({"name": name, "why": "candidate — not voting until measured"})
+            why = "candidate — not voting until measured"
+            if name in verdicts:
+                why = f"candidate ({verdicts[name]['status']}) — {verdicts[name].get('why', '')}"
+            silent.append({"name": name, "why": why})
+        elif not may_vote(name, verdicts):
+            v = verdicts.get(name)
+            silent.append({"name": name, "why": (f"{v['status']} — {v.get('why', '')}" if v
+                                                 else "not measured by the gate — no vote")})
         else:
             voting.append(name)
             # A voter on probation trades without proof; the UI has to be
@@ -228,6 +308,25 @@ def voting_strategies(book: str) -> dict:
     return {"voting": voting, "voters": voters, "silent": silent,
             "registered": len(voting) + len(silent),
             "gate": gate_state(book=want)}
+
+
+def rule_version(verdicts: dict) -> int:
+    """Which rule wrote this verdict set (v1 files carry no marker)."""
+    return max((int(v.get("rule") or 1) for v in verdicts.values()), default=1)
+
+
+def may_vote(name: str, verdicts: dict | None = None) -> bool:
+    """Does the gate let `name` vote?
+
+    No verdicts at all: yes — nothing has been measured, and the dashboard
+    shows the gate as UNMEASURED. Rule v1: everything but a measured loser.
+    Rule v2: only a promoted strategy; probation and unmeasured stay silent."""
+    verdicts = load_verdicts() if verdicts is None else verdicts
+    if not verdicts:
+        return True
+    if rule_version(verdicts) >= RULE_VERSION:
+        return (verdicts.get(name) or {}).get("status") == PROMOTED
+    return not is_demoted(name, verdicts)
 
 
 def is_demoted(name: str, verdicts: dict | None = None) -> bool:

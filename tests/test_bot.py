@@ -2724,7 +2724,7 @@ def test_dashboard_evidence_endpoint_smoke():
         assert k["verdict"]["promoted"] is False and k["verdict"]["ic"] < k["hurdle"]
 
 
-def test_cli_writers_create_results_dir_on_fresh_machine():
+def test_cli_writers_create_results_dir_on_fresh_machine(tmp_path, monkeypatch):
     """cmd_shadow's default output and run_battery's per-run JSON used to raise
     FileNotFoundError on a fresh clone (data/ is gitignored, data/results/ was
     never created) — AFTER the full fetch/backtest work, the worst moment.
@@ -2738,16 +2738,16 @@ def test_cli_writers_create_results_dir_on_fresh_machine():
         with open(out, "w") as fh:
             json.dump({"profile": {"n_trades": 0}}, fh)
         assert os.path.exists(out)
-    # (b) run_battery's module-level makedirs call — import must not have
-    # side effects, so simulate main()'s first line exactly as shipped
-    src = open("run_battery.py").read()
-    assert 'os.makedirs("data/results", exist_ok=True)' in src
+    # (b) run_battery on a fresh journal dir creates its results dir itself
+    _run_fake_standard_battery(tmp_path, monkeypatch, ["turtle_trend"])
+    assert (tmp_path / "results" / "standard_battery.json").exists()
+    monkeypatch.undo()
     src_m = open("main.py").read()
     assert 'os.makedirs(os.path.dirname(out) or ".", exist_ok=True)' in src_m
 
 
-def test_standard_battery_writes_all_standard_strategy_verdicts(tmp_path, monkeypatch):
-    """The standard battery used to finish with no promotion artifact at all."""
+def _run_fake_standard_battery(tmp_path, monkeypatch, strategies):
+    """run_battery.main() over two fake markets, journal dir = tmp_path."""
     import config as config_mod
     import run_battery as battery
     from config import MarketSpec
@@ -2775,8 +2775,6 @@ def test_standard_battery_writes_all_standard_strategy_verdicts(tmp_path, monkey
             return {"folds": [FakeResult(strategy).stats(),
                                FakeResult(strategy).stats()]}
 
-    strategies = ["turtle_trend", "connors_meanrev", "vwap_scalper",
-                  "ts_momentum", "fx_regime_meanrev"]
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config_mod.CONFIG, "db_path", str(tmp_path / "trading.db"))
     monkeypatch.setattr(battery, "Backtester", FakeBacktester)
@@ -2787,22 +2785,25 @@ def test_standard_battery_writes_all_standard_strategy_verdicts(tmp_path, monkey
     ])
     monkeypatch.setattr(battery, "STRATEGIES", strategies)
     monkeypatch.setattr(battery, "SKIP", set())
-
     battery.main()
 
-    path = tmp_path / "results" / "promotions_standard.json"
-    assert path.exists()
-    payload = json.loads(path.read_text())
-    assert payload["book"] == "standard" and payload["tier"] == "standard"
-    assert set(payload["strategies"]) == set(strategies)
-    assert {v["status"] for v in payload["strategies"].values()} == {"promoted"}
-    assert {v["evidence"] for v in payload["strategies"].values()} == {
-        "walk_forward_oos"}
-    assert not (tmp_path / "results" / "promotions.json").exists()
-    evidence = json.loads((tmp_path / "data" / "results" /
-                           "standard_battery.json").read_text())
+
+def test_standard_battery_is_descriptive_and_follows_the_journal_dir(tmp_path, monkeypatch):
+    """The battery's artifacts land in the ACTIVE journal directory (it used
+    to write to a hard-coded data/results/, i.e. the real journal's folder
+    even under BOT_DB_PATH), and it no longer writes promotion verdicts:
+    those come only from `make evidence` (tests/test_experiments.py), so a
+    quick battery run can never replace the gate's evidence with a weaker
+    rule."""
+    strategies = ["turtle_trend", "connors_meanrev", "vwap_scalper",
+                  "ts_momentum", "fx_regime_meanrev"]
+    _run_fake_standard_battery(tmp_path, monkeypatch, strategies)
+    evidence = json.loads((tmp_path / "results" / "standard_battery.json").read_text())
     assert evidence["oos_method"] == "4-fold walk-forward"
     assert len(evidence["oos_cells"]) == 2 * 2 * len(strategies)
+    assert not (tmp_path / "data").exists()
+    assert not (tmp_path / "results" / "promotions_standard.json").exists()
+    assert not (tmp_path / "results" / "promotions.json").exists()
 
 
 def test_reset_backup_is_wal_checkpointed_and_pruned():
@@ -3175,7 +3176,7 @@ def test_promotion_gate_announces_when_it_has_no_evidence(tmp_path, monkeypatch)
     assert gate["state"] == "no_evidence"
     assert gate["path"].endswith("results/promotions.json")
     assert "UNMEASURED" in gate["why"] or "votes UNMEASURED" in gate["why"]
-    assert "hft-battery" in gate["why"]          # names the fix
+    assert "make evidence" in gate["why"]        # names the fix
     # and the voting payload carries it, so every surface can show it
     assert promo.voting_strategies("hft")["gate"]["state"] == "no_evidence"
 

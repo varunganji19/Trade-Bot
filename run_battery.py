@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Run the full backtest battery across symbols/strategies and print a table.
 
-Writes each result JSON into data/results/ and prints a summary matrix.
+Descriptive only: writes each result JSON into the journal directory's
+results/ and prints a summary matrix. Promotion verdicts come from one place,
+`make evidence` (pre-registered gate experiments, bot/experiments.py), so
+this battery can never overwrite them with a weaker rule.
 """
 import json
 import os
@@ -12,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from bot.backtest import Backtester
 from bot.data import fetch_history
-from config import MarketSpec
+from config import MarketSpec, db_dir
 
 BATTERY = [
     # crypto 1h (turtle + ensemble)
@@ -51,7 +54,8 @@ SKIP = {(tf, name) for tf in _TFS for name, cls in STRATEGY_CLASSES.items()
 def main():
     # data/ is gitignored — a fresh clone has no results dir, and crashing at
     # the WRITE (after a full hour of fetching/backtesting) is the worst moment
-    os.makedirs("data/results", exist_ok=True)
+    out_dir = os.path.join(db_dir(), "results")
+    os.makedirs(out_dir, exist_ok=True)
     bt = Backtester()
     rows, oos_cells, evidence_errors = [], [], []
     t_start = time.time()
@@ -88,7 +92,7 @@ def main():
                                            "timeframe": spec.timeframe,
                                            "strategy": strat, "fold": fold})
                         oos_cells.append(fold_stats)
-                with open(f"data/results/{key}.json", "w") as f:
+                with open(os.path.join(out_dir, f"{key}.json"), "w") as f:
                     json.dump({"stats": s, "trades": res.trades,
                                "equity_curve": res.equity_curve}, f, indent=1, default=str)
                 print(f"  {spec.symbol:12s} {spec.timeframe} {strat:16s} "
@@ -108,27 +112,16 @@ def main():
               f"{s['return_pct']:+8.2f} {s['max_drawdown_pct']:7.2f} {s['trades']:6d} "
               f"{s['win_rate_pct']:6.1f} {str(s['profit_factor']):>6s} {str(s['sharpe']):>7s}")
 
-    # Do this only after every OOS fold has run: a partial verdict would look
-    # authoritative to the live engine. Ensemble consumes strategy votes; it
-    # does not own an independent voting right.
-    if evidence_errors:
-        raise RuntimeError("promotion evidence incomplete; verdicts NOT written:\n  "
-                           + "\n  ".join(evidence_errors))
-    from bot.promotion import save_verdicts, verdicts_from_cells
-    verdicts = verdicts_from_cells(oos_cells, "standard")
-    vpath = save_verdicts(verdicts, "standard", book="standard")
-    battery_path = "data/results/standard_battery.json"
+    battery_path = os.path.join(out_dir, "standard_battery.json")
     with open(battery_path, "w") as f:
         json.dump({
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "oos_method": "4-fold walk-forward", "cells": rows,
-            "oos_cells": oos_cells, "promotions": verdicts,
+            "oos_cells": oos_cells, "errors": evidence_errors,
             "runtime_s": round(time.time() - t_start, 1),
         }, f, indent=1, default=str)
-    print(f"\n[promotion] standard-book verdicts -> {vpath}")
-    for name, verdict in sorted(verdicts.items()):
-        print(f"  {verdict['status']:9s} {name:22s} {verdict['why']}")
-    print(f"[standard-battery] full + OOS evidence -> {battery_path}")
+    print(f"[standard-battery] full + OOS cells -> {battery_path}")
+    print("[standard-battery] descriptive only; promotion verdicts come from `make evidence`")
     return rows
 
 

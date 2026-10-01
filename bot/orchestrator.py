@@ -40,7 +40,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from bot.promotion import is_demoted, load_verdicts
+from bot.promotion import load_verdicts, may_vote
 from bot.strategies import CANDIDATE_STRATEGIES, get_strategies, Signal
 from bot.strategies.base import strategy_applies
 
@@ -96,8 +96,7 @@ class Orchestrator:
         # the promotion gate. load_verdicts is mtime-cached, so a battery run
         # mid-session takes effect without a restart (it used to be read once
         # at construction — a stale gate looks exactly like a working one).
-        # A strategy the harness measured as a loser does not vote; see
-        # bot/promotion.py for why it is three states.
+        # Who may vote is the gate's call (bot/promotion.py, may_vote).
 
     # ------------------------------------------------------------------ main
     def decide(self, df, i: int, spec) -> Decision:
@@ -122,9 +121,9 @@ class Orchestrator:
             # a strategy may cover only some markets (e.g. cross pairs)
             if name in CANDIDATE_STRATEGIES or not strategy_applies(strat, spec.symbol):
                 continue
-            # measured losers do not vote (promotion gate). Unmeasured ones
-            # do — the gate can only take a vote away on evidence.
-            if is_demoted(name, load_verdicts(book=self.book)):
+            # the promotion gate decides who votes (bot/promotion.py:
+            # may_vote — under rule v2 only a proven strategy does)
+            if not may_vote(name, load_verdicts(book=self.book)):
                 continue
             raw_signals[name] = strat.evaluate(df, i)
 

@@ -1,4 +1,4 @@
-.PHONY: setup setup-locked setup-kronos test lint verify config soak lock backtest validate battery run dashboard clean-cache ui hft-battery hft-status pinned shadow kronos
+.PHONY: setup setup-locked setup-kronos test lint verify config soak lock backtest validate battery evidence run dashboard clean-cache ui hft-battery hft-status pinned shadow kronos
 
 setup:
 	python3 -m pip install -r requirements.txt
@@ -52,6 +52,12 @@ validate:
 # Evidence tab reads these)
 battery:
 	python3 run_battery.py
+
+# Regenerate every promotion verdict, interval and the experiment registry
+# from the committed gate declarations (bot/experiments.py). Writes under the
+# journal directory: set BOT_DB_PATH to keep it away from your real data/.
+evidence:
+	python3 main.py experiment run experiments/standard_gate.toml experiments/fast_gate.toml
 
 run:
 	python3 main.py run

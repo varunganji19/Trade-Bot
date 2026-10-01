@@ -13,6 +13,7 @@ Usage:
   python3 main.py hft-run [--once]             # fast paper book (separate 5m account)
   python3 main.py hft-status                   # fast book (experimental) journal summary
   python3 main.py hft-battery [--days 3] [--tier perp|spot|both]
+  python3 main.py experiment run|list|registry [experiments/<id>.toml ...]
   python3 main.py kronos [--symbol BTC/USDT]   # offline Kronos IC evaluation (tracked non-voter verdict)
   python3 main.py shadow [--include-demo]      # journal-vs-own-rules Shadow Account report
   python3 main.py pause [note]                 # manual halt: blocks NEW entries only
@@ -270,6 +271,32 @@ def cmd_hft_status(args):
         print(f"  last equity point: {eq[-1]['equity']} (cash {eq[-1].get('cash')}) @ {eq[-1]['ts']}")
 
 
+def cmd_experiment(args):
+    """Pre-registered experiments (bot/experiments.py): run declarations,
+    list them, or rebuild the registry."""
+    from bot import experiments as ex
+    if args.action == "list":
+        for path in ex.declarations():
+            d = ex.load_declaration(path)
+            done = os.path.exists(ex.results_path(d))
+            print(f"  {d.id:28s} {d.kind:5s} {d.book:8s} "
+                  f"{'ran' if done else 'not run':7s} {d.hypothesis[:60]}")
+        return
+    if args.action == "registry":
+        path = ex.rebuild_registry()
+        print(f"[experiment] registry rebuilt -> {path} ({len(ex.load_registry(path))} records)")
+        return
+    if not args.files:
+        print("[experiment] name one or more declarations, e.g. experiments/standard_gate.toml")
+        sys.exit(2)
+    for path in args.files:
+        try:
+            ex.run_declaration(path, workers=args.workers)
+        except ex.DeclarationError as exc:
+            print(f"[experiment] {exc}")
+            sys.exit(1)
+
+
 def cmd_hft_battery(args):
     """The fast-book harness: every strategy x symbol x fee tier, plus
     the measured fee-sensitivity table (docs/archive/HFT.md)."""
@@ -350,11 +377,18 @@ def cmd_validate(args):
                   ">=8 traded paths each")
 
     # 3) Deflated Sharpe: how many configs did we try while shipping this?
-    #    docs/archive/BACKTESTS.md documents the tried configurations — keep this number
-    #    honest as the config history grows. The primary run's equity returns
-    #    feed the moment-aware SE (skew/kurtosis widen the SE on fat-tailed
-    #    assets; the normal-only SE overstated confidence there).
+    #    The experiment registry (bot/experiments.py) records every trial, so
+    #    the count is read, not typed; --trial-sharpes overrides it. The
+    #    primary run's equity returns feed the moment-aware SE (skew/kurtosis
+    #    widen the SE on fat-tailed assets).
     sharpes = list(args.trial_sharpes or [])
+    if not sharpes and args.strategy != "ensemble":
+        from bot.experiments import trials_for
+        trials = trials_for(args.strategy, spec.timeframe)
+        sharpes = trials["sharpes"]
+        print(f"[validate] registry: {trials['n_trials']} recorded trials of "
+              f"{args.strategy} {spec.timeframe}, {len(sharpes)} with an OOS Sharpe")
+        report["trials"] = trials
     if sharpes:
         import pandas as pd
         eq = pd.Series([p["equity"] for p in res.equity_curve]) if res.equity_curve else None
@@ -556,8 +590,7 @@ def cmd_config(args):
 
     from bot.promotion import gate_state, load_verdicts
     print("\n=== promotion gates ===")
-    for book, command in (("standard", "python3 run_battery.py"),
-                          ("fast", "make hft-battery")):
+    for book in ("standard", "fast"):
         gate = gate_state(book=book)
         verdicts = load_verdicts(book=book)
         print(f"  [{book}] file   {gate['path']}")
@@ -565,9 +598,9 @@ def cmd_config(args):
             # the exact state that let a strategy measured at PF 0.39 vote
             # again on another data directory, without a line of output
             print("             state  UNMEASURED — every registered strategy votes")
-            print(f"                    run `{command}` to gather verdicts here")
+            print("                    run `make evidence` to gather verdicts here")
         else:
-            label = "STALE (in-sample)" if gate.get("stale") else "active"
+            label = "STALE" if gate.get("stale") else "active"
             print(f"             state  {label} ({gate['why']}, "
                   f"generated {gate['generated_at']})")
             print(f"             basis  {gate.get('evidence', 'unknown')}")
@@ -787,10 +820,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     hbat = sub.add_parser("hft-battery",
                           help="fast-book harness: every strategy x symbol x fee tier "
-                               "-> data/results/hft_battery.json")
+                               "-> data/results/hft_battery.json (descriptive; "
+                               "verdicts come from `make evidence`)")
     hbat.add_argument("--days", type=int, default=3)
     hbat.add_argument("--tier", default="both", choices=["perp", "spot", "both"])
     hbat.set_defaults(fn=cmd_hft_battery)
+
+    exp = sub.add_parser("experiment", help="pre-registered experiments: run a committed "
+                                            "declaration, list them, rebuild the registry")
+    exp.add_argument("action", choices=["run", "list", "registry"])
+    exp.add_argument("files", nargs="*", help="declarations under experiments/ (for run)")
+    exp.add_argument("--workers", type=int, default=None,
+                     help="parallel backtest processes (default: CPUs - 2, max 8)")
+    exp.set_defaults(fn=cmd_experiment)
 
     pz = sub.add_parser("pause", help="manual halt: block NEW entries only "
                                       "(open positions stay managed, nothing is force-closed)")
@@ -818,8 +860,8 @@ def build_parser() -> argparse.ArgumentParser:
     va.add_argument("--cv-folds", type=int, default=8)
     va.add_argument("--purge-bars", type=int, default=24)
     va.add_argument("--trial-sharpes", type=float, nargs="*", default=None,
-                    help="the Sharpes of the documented config trials (docs/archive/BACKTESTS.md) "
-                         "for the Deflated Sharpe correction")
+                    help="override the trial Sharpes for the Deflated Sharpe correction "
+                         "(default: read from the experiment registry)")
     va.add_argument("--report", default=None,
                     help="also render the report as Markdown here (e.g. REPORT.md)")
     va.add_argument("--json", default=None)

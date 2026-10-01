@@ -152,3 +152,12 @@ def api_hft_engine_status():
             "alive": bool(th is not None and th.is_alive()),
             "last_error": core._last_hft_error, "health_note": None,
             "paused": is_paused()[0]}
+
+
+@router.post("/api/hft/engine/interval")
+def api_hft_engine_interval(body: HftEngineIn):
+    """Retune the HFT book's cadence (1s floor), running or stopped."""
+    core._hft_interval = body.interval
+    running = core._get_hft_engine() is not None
+    core._write_hft_state(running, body.interval)
+    return {"status": "ok", "interval": body.interval, "running": running}

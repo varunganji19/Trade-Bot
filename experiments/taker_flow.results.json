@@ -1,0 +1,2532 @@
+{
+ "id": "taker_flow",
+ "kind": "study",
+ "book": "fast",
+ "tier": "perp",
+ "hypothesis": "Real taker-flow imbalance (Binance aggressor split) predicts 5m continuation well enough to pass the rule-v2 gate after perp-tier costs, where the CLV x volume proxy failed.",
+ "declared": "2026-10-01",
+ "declaration_sha256": "a7ce29584f77f17ee267b91fd2e56ec2a002aef4cf890729f4327c31919aed94",
+ "declaration_commit": "3293da844afc4f661292ac715eb361358dfb6ec8",
+ "run_at": "2026-10-01T14:14:14Z",
+ "runtime_s": 909.5,
+ "days": 90,
+ "folds": 4,
+ "holdout_days": null,
+ "windows": {
+  "BTC/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "ETH/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "SOL/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "BNB/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "XRP/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "DOGE/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "ADA/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "AVAX/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "LINK/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "LTC/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "DOT/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "TRX/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "BCH/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "NEAR/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "SUI/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "ETH/BTC 5m": [
+   "2026-07-03 13:15:00+00:00",
+   "2026-10-01 13:05:00+00:00"
+  ],
+  "SOL/BTC 5m": [
+   "2026-07-03 13:15:00+00:00",
+   "2026-10-01 13:05:00+00:00"
+  ],
+  "BNB/BTC 5m": [
+   "2026-07-03 13:15:00+00:00",
+   "2026-10-01 13:05:00+00:00"
+  ],
+  "XRP/BTC 5m": [
+   "2026-07-03 13:15:00+00:00",
+   "2026-10-01 13:05:00+00:00"
+  ],
+  "SOL/ETH 5m": [
+   "2026-07-03 13:15:00+00:00",
+   "2026-10-01 13:05:00+00:00"
+  ],
+  "BNB/ETH 5m": [
+   "2026-07-03 13:15:00+00:00",
+   "2026-10-01 13:05:00+00:00"
+  ]
+ },
+ "skipped": [],
+ "summary": [
+  {
+   "variant": "default",
+   "params": {},
+   "strategy": "hft_taker_flow",
+   "markets": 21,
+   "oos": {
+    "trades": 9170,
+    "pf": 0.42,
+    "pf_lo": 0.392,
+    "pf_hi": 0.447,
+    "sharpe": -0.372,
+    "sharpe_lo": -0.403,
+    "sharpe_hi": -0.342,
+    "regimes": {
+     "trend_down": 5401,
+     "range": 2089,
+     "trend_up": 1680
+    },
+    "net_pnl": -35060.77
+   },
+   "rule_v2": {
+    "status": "demoted",
+    "why": "OOS PF 0.42 (90% interval 0.39\u20130.45), 9170 trades, 3 of 3 regimes \u2014 even the top of the interval is below 1.0"
+   }
+  },
+  {
+   "variant": "default",
+   "params": {},
+   "strategy": "hft_ofi_momentum",
+   "markets": 21,
+   "oos": {
+    "trades": 10138,
+    "pf": 0.444,
+    "pf_lo": 0.413,
+    "pf_hi": 0.476,
+    "sharpe": -0.3481,
+    "sharpe_lo": -0.382,
+    "sharpe_hi": -0.316,
+    "regimes": {
+     "trend_down": 6043,
+     "range": 2269,
+     "trend_up": 1826
+    },
+    "net_pnl": -37050.81
+   },
+   "rule_v2": {
+    "status": "demoted",
+    "why": "OOS PF 0.44 (90% interval 0.41\u20130.48), 10138 trades, 3 of 3 regimes \u2014 even the top of the interval is below 1.0"
+   }
+  },
+  {
+   "variant": "window_30m",
+   "params": {
+    "hft_ofi_window": 6
+   },
+   "strategy": "hft_taker_flow",
+   "markets": 21,
+   "oos": {
+    "trades": 9710,
+    "pf": 0.413,
+    "pf_lo": 0.388,
+    "pf_hi": 0.44,
+    "sharpe": -0.3748,
+    "sharpe_lo": -0.404,
+    "sharpe_hi": -0.347,
+    "regimes": {
+     "trend_down": 5661,
+     "range": 2276,
+     "trend_up": 1773
+    },
+    "net_pnl": -36800.54
+   },
+   "rule_v2": {
+    "status": "demoted",
+    "why": "OOS PF 0.41 (90% interval 0.39\u20130.44), 9710 trades, 3 of 3 regimes \u2014 even the top of the interval is below 1.0"
+   }
+  },
+  {
+   "variant": "window_30m",
+   "params": {
+    "hft_ofi_window": 6
+   },
+   "strategy": "hft_ofi_momentum",
+   "markets": 21,
+   "oos": {
+    "trades": 10652,
+    "pf": 0.432,
+    "pf_lo": 0.402,
+    "pf_hi": 0.466,
+    "sharpe": -0.3588,
+    "sharpe_lo": -0.392,
+    "sharpe_hi": -0.325,
+    "regimes": {
+     "trend_down": 6325,
+     "range": 2438,
+     "trend_up": 1889
+    },
+    "net_pnl": -39851.47
+   },
+   "rule_v2": {
+    "status": "demoted",
+    "why": "OOS PF 0.43 (90% interval 0.40\u20130.47), 10652 trades, 3 of 3 regimes \u2014 even the top of the interval is below 1.0"
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "params": {
+    "hft_ofi_z_entry": 2.0
+   },
+   "strategy": "hft_taker_flow",
+   "markets": 21,
+   "oos": {
+    "trades": 5951,
+    "pf": 0.422,
+    "pf_lo": 0.39,
+    "pf_hi": 0.454,
+    "sharpe": -0.3705,
+    "sharpe_lo": -0.406,
+    "sharpe_hi": -0.337,
+    "regimes": {
+     "trend_down": 3482,
+     "range": 1393,
+     "trend_up": 1076
+    },
+    "net_pnl": -23512.71
+   },
+   "rule_v2": {
+    "status": "demoted",
+    "why": "OOS PF 0.42 (90% interval 0.39\u20130.45), 5951 trades, 3 of 3 regimes \u2014 even the top of the interval is below 1.0"
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "params": {
+    "hft_ofi_z_entry": 2.0
+   },
+   "strategy": "hft_ofi_momentum",
+   "markets": 21,
+   "oos": {
+    "trades": 6432,
+    "pf": 0.45,
+    "pf_lo": 0.412,
+    "pf_hi": 0.49,
+    "sharpe": -0.3459,
+    "sharpe_lo": -0.387,
+    "sharpe_hi": -0.306,
+    "regimes": {
+     "trend_down": 3808,
+     "range": 1480,
+     "trend_up": 1144
+    },
+    "net_pnl": -24746.52
+   },
+   "rule_v2": {
+    "status": "demoted",
+    "why": "OOS PF 0.45 (90% interval 0.41\u20130.49), 6432 trades, 3 of 3 regimes \u2014 even the top of the interval is below 1.0"
+   }
+  }
+ ],
+ "markets": [
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 199,
+    "fold_pf": [
+     0.21,
+     0.11,
+     0.46,
+     0.3
+    ],
+    "sharpe": -11.89,
+    "total_pnl": -775.08,
+    "fees": 459.65
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 467,
+    "fold_pf": [
+     0.27,
+     0.21,
+     0.3,
+     0.3
+    ],
+    "sharpe": -5.47,
+    "total_pnl": -2159.38,
+    "fees": 1067.03
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 586,
+    "fold_pf": [
+     0.35,
+     0.34,
+     0.38,
+     0.3
+    ],
+    "sharpe": -8.06,
+    "total_pnl": -2394.79,
+    "fees": 1325.46
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 254,
+    "fold_pf": [
+     0.1,
+     0.37,
+     0.26,
+     0.35
+    ],
+    "sharpe": -7.01,
+    "total_pnl": -1066.04,
+    "fees": 584.12
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 562,
+    "fold_pf": [
+     0.17,
+     0.34,
+     0.63,
+     0.48
+    ],
+    "sharpe": -11.14,
+    "total_pnl": -1859.35,
+    "fees": 1286.26
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 551,
+    "fold_pf": [
+     0.27,
+     0.38,
+     0.61,
+     0.37
+    ],
+    "sharpe": -13.12,
+    "total_pnl": -1973.34,
+    "fees": 1236.62
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 985,
+    "fold_pf": [
+     0.36,
+     0.36,
+     0.53,
+     0.46
+    ],
+    "sharpe": -4.27,
+    "total_pnl": -3648.45,
+    "fees": 2202.89
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 712,
+    "fold_pf": [
+     0.3,
+     0.46,
+     0.38,
+     0.56
+    ],
+    "sharpe": -4.06,
+    "total_pnl": -2592.7,
+    "fees": 1601.48
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 653,
+    "fold_pf": [
+     0.21,
+     0.38,
+     0.58,
+     0.4
+    ],
+    "sharpe": -10.35,
+    "total_pnl": -2346.12,
+    "fees": 1488.67
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 597,
+    "fold_pf": [
+     0.3,
+     0.21,
+     0.39,
+     0.53
+    ],
+    "sharpe": -7.84,
+    "total_pnl": -2084.68,
+    "fees": 1355.11
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 825,
+    "fold_pf": [
+     0.19,
+     0.28,
+     0.43,
+     0.52
+    ],
+    "sharpe": -3.93,
+    "total_pnl": -3363.14,
+    "fees": 1869.86
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 1,
+    "fold_pf": [
+     null,
+     null,
+     null,
+     null
+    ],
+    "sharpe": null,
+    "total_pnl": 0.33,
+    "fees": 2.5
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 521,
+    "fold_pf": [
+     0.29,
+     0.26,
+     0.45,
+     0.25
+    ],
+    "sharpe": -12.79,
+    "total_pnl": -2596.94,
+    "fees": 1185.47
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 1002,
+    "fold_pf": [
+     0.33,
+     0.41,
+     0.56,
+     0.55
+    ],
+    "sharpe": -5.63,
+    "total_pnl": -3817.97,
+    "fees": 2243.04
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 701,
+    "fold_pf": [
+     0.28,
+     0.31,
+     0.45,
+     0.58
+    ],
+    "sharpe": -5.88,
+    "total_pnl": -2682.92,
+    "fees": 1588.76
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "ETH/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 38,
+    "fold_pf": [
+     0.34,
+     null,
+     0.71,
+     0.08
+    ],
+    "sharpe": -57.84,
+    "total_pnl": -117.23,
+    "fees": 90.41
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "SOL/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 121,
+    "fold_pf": [
+     0.0,
+     0.0,
+     0.46,
+     0.14
+    ],
+    "sharpe": -14.02,
+    "total_pnl": -501.45,
+    "fees": 282.49
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "BNB/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 43,
+    "fold_pf": [
+     0.75,
+     0.32,
+     0.46,
+     0.17
+    ],
+    "sharpe": -4.01,
+    "total_pnl": -120.05,
+    "fees": 99.77
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "XRP/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 188,
+    "fold_pf": [
+     null,
+     0.0,
+     0.62,
+     0.55
+    ],
+    "sharpe": -14.48,
+    "total_pnl": -514.93,
+    "fees": 431.71
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "SOL/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 92,
+    "fold_pf": [
+     0.39,
+     null,
+     0.55,
+     0.33
+    ],
+    "sharpe": -16.54,
+    "total_pnl": -271.99,
+    "fees": 213.18
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_taker_flow",
+   "symbol": "BNB/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 72,
+    "fold_pf": [
+     0.32,
+     0.21,
+     0.57,
+     0.41
+    ],
+    "sharpe": -14.22,
+    "total_pnl": -174.55,
+    "fees": 166.82
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 220,
+    "fold_pf": [
+     0.35,
+     0.13,
+     0.38,
+     0.67
+    ],
+    "sharpe": -4.14,
+    "total_pnl": -680.23,
+    "fees": 501.83
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 439,
+    "fold_pf": [
+     0.4,
+     0.38,
+     0.64,
+     0.32
+    ],
+    "sharpe": -12.2,
+    "total_pnl": -1395.73,
+    "fees": 1001.83
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 658,
+    "fold_pf": [
+     0.24,
+     0.31,
+     0.42,
+     0.31
+    ],
+    "sharpe": -7.02,
+    "total_pnl": -2665.17,
+    "fees": 1498.94
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 246,
+    "fold_pf": [
+     0.12,
+     0.71,
+     0.33,
+     0.37
+    ],
+    "sharpe": -8.58,
+    "total_pnl": -892.4,
+    "fees": 568.05
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 673,
+    "fold_pf": [
+     0.28,
+     0.42,
+     0.52,
+     0.52
+    ],
+    "sharpe": -5.52,
+    "total_pnl": -2317.78,
+    "fees": 1517.1
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 678,
+    "fold_pf": [
+     0.32,
+     0.43,
+     0.41,
+     0.41
+    ],
+    "sharpe": -6.99,
+    "total_pnl": -2697.08,
+    "fees": 1530.61
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 1022,
+    "fold_pf": [
+     0.38,
+     0.44,
+     0.57,
+     0.52
+    ],
+    "sharpe": -4.62,
+    "total_pnl": -3478.92,
+    "fees": 2269.86
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 755,
+    "fold_pf": [
+     0.55,
+     0.35,
+     0.42,
+     0.48
+    ],
+    "sharpe": -9.52,
+    "total_pnl": -2664.97,
+    "fees": 1694.22
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 718,
+    "fold_pf": [
+     0.31,
+     0.28,
+     0.46,
+     0.49
+    ],
+    "sharpe": -7.47,
+    "total_pnl": -2596.53,
+    "fees": 1620.49
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 647,
+    "fold_pf": [
+     0.33,
+     0.16,
+     0.35,
+     0.48
+    ],
+    "sharpe": -7.09,
+    "total_pnl": -2412.56,
+    "fees": 1468.89
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 917,
+    "fold_pf": [
+     0.33,
+     0.25,
+     0.58,
+     0.51
+    ],
+    "sharpe": -5.77,
+    "total_pnl": -3208.58,
+    "fees": 2062.53
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 0,
+    "fold_pf": [
+     null,
+     null,
+     null,
+     null
+    ],
+    "sharpe": null,
+    "total_pnl": 0,
+    "fees": 0
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 607,
+    "fold_pf": [
+     0.35,
+     0.2,
+     0.61,
+     0.31
+    ],
+    "sharpe": -14.7,
+    "total_pnl": -2529.19,
+    "fees": 1369.27
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 1105,
+    "fold_pf": [
+     0.36,
+     0.36,
+     0.53,
+     0.45
+    ],
+    "sharpe": -7.21,
+    "total_pnl": -4902.44,
+    "fees": 2448.72
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 850,
+    "fold_pf": [
+     0.29,
+     0.28,
+     0.49,
+     0.68
+    ],
+    "sharpe": -3.48,
+    "total_pnl": -2895.74,
+    "fees": 1901.63
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "ETH/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 43,
+    "fold_pf": [
+     0.37,
+     null,
+     0.4,
+     0.03
+    ],
+    "sharpe": -20.99,
+    "total_pnl": -153.75,
+    "fees": 102.85
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SOL/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 116,
+    "fold_pf": [
+     0.0,
+     0.0,
+     0.6,
+     0.12
+    ],
+    "sharpe": -22.04,
+    "total_pnl": -391.56,
+    "fees": 269.96
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BNB/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 35,
+    "fold_pf": [
+     null,
+     0.17,
+     0.42,
+     0.31
+    ],
+    "sharpe": -2.49,
+    "total_pnl": -115.0,
+    "fees": 82.1
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "XRP/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 228,
+    "fold_pf": [
+     0.0,
+     null,
+     0.66,
+     0.56
+    ],
+    "sharpe": -15.19,
+    "total_pnl": -536.6,
+    "fees": 523.09
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SOL/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 110,
+    "fold_pf": [
+     0.35,
+     null,
+     0.59,
+     0.28
+    ],
+    "sharpe": -12.23,
+    "total_pnl": -294.57,
+    "fees": 252.87
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BNB/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 71,
+    "fold_pf": [
+     0.46,
+     0.01,
+     0.38,
+     0.35
+    ],
+    "sharpe": -8.16,
+    "total_pnl": -222.01,
+    "fees": 166.16
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 223,
+    "fold_pf": [
+     0.23,
+     0.09,
+     0.33,
+     0.29
+    ],
+    "sharpe": -9.13,
+    "total_pnl": -934.16,
+    "fees": 520.24
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 491,
+    "fold_pf": [
+     0.4,
+     0.24,
+     0.41,
+     0.21
+    ],
+    "sharpe": -7.97,
+    "total_pnl": -1940.4,
+    "fees": 1134.06
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 602,
+    "fold_pf": [
+     0.33,
+     0.27,
+     0.42,
+     0.3
+    ],
+    "sharpe": -7.99,
+    "total_pnl": -2371.31,
+    "fees": 1367.18
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 267,
+    "fold_pf": [
+     0.29,
+     0.18,
+     0.29,
+     0.2
+    ],
+    "sharpe": -12.82,
+    "total_pnl": -1206.14,
+    "fees": 617.47
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 579,
+    "fold_pf": [
+     0.31,
+     0.28,
+     0.51,
+     0.52
+    ],
+    "sharpe": -6.93,
+    "total_pnl": -1930.05,
+    "fees": 1318.71
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 592,
+    "fold_pf": [
+     0.22,
+     0.49,
+     0.67,
+     0.39
+    ],
+    "sharpe": -11.78,
+    "total_pnl": -2005.29,
+    "fees": 1338.73
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 1033,
+    "fold_pf": [
+     0.43,
+     0.4,
+     0.52,
+     0.45
+    ],
+    "sharpe": -4.69,
+    "total_pnl": -3559.26,
+    "fees": 2321.4
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 734,
+    "fold_pf": [
+     0.34,
+     0.52,
+     0.38,
+     0.62
+    ],
+    "sharpe": -3.33,
+    "total_pnl": -2427.87,
+    "fees": 1651.22
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 726,
+    "fold_pf": [
+     0.21,
+     0.37,
+     0.57,
+     0.43
+    ],
+    "sharpe": -8.66,
+    "total_pnl": -2458.19,
+    "fees": 1651.49
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 591,
+    "fold_pf": [
+     0.37,
+     0.15,
+     0.49,
+     0.54
+    ],
+    "sharpe": -7.96,
+    "total_pnl": -1823.81,
+    "fees": 1348.09
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 875,
+    "fold_pf": [
+     0.22,
+     0.23,
+     0.36,
+     0.4
+    ],
+    "sharpe": -4.33,
+    "total_pnl": -3927.63,
+    "fees": 1978.17
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 2,
+    "fold_pf": [
+     null,
+     null,
+     0.0,
+     null
+    ],
+    "sharpe": null,
+    "total_pnl": -8.72,
+    "fees": 5.0
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 615,
+    "fold_pf": [
+     0.26,
+     0.28,
+     0.43,
+     0.43
+    ],
+    "sharpe": -7.18,
+    "total_pnl": -2578.49,
+    "fees": 1399.8
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 1054,
+    "fold_pf": [
+     0.33,
+     0.31,
+     0.49,
+     0.52
+    ],
+    "sharpe": -4.75,
+    "total_pnl": -4433.69,
+    "fees": 2360.23
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 740,
+    "fold_pf": [
+     0.3,
+     0.29,
+     0.38,
+     0.54
+    ],
+    "sharpe": -5.47,
+    "total_pnl": -3210.87,
+    "fees": 1658.45
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "ETH/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 46,
+    "fold_pf": [
+     0.77,
+     null,
+     0.86,
+     0.03
+    ],
+    "sharpe": -59.96,
+    "total_pnl": -119.36,
+    "fees": 108.98
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "SOL/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 124,
+    "fold_pf": [
+     0.0,
+     0.0,
+     0.31,
+     0.14
+    ],
+    "sharpe": -10.87,
+    "total_pnl": -599.82,
+    "fees": 291.85
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "BNB/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 44,
+    "fold_pf": [
+     0.4,
+     0.4,
+     0.39,
+     0.17
+    ],
+    "sharpe": -3.41,
+    "total_pnl": -143.1,
+    "fees": 101.4
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "XRP/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 189,
+    "fold_pf": [
+     null,
+     0.0,
+     0.54,
+     0.42
+    ],
+    "sharpe": -18.39,
+    "total_pnl": -672.24,
+    "fees": 434.58
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "SOL/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 106,
+    "fold_pf": [
+     0.77,
+     null,
+     0.53,
+     0.43
+    ],
+    "sharpe": -9.77,
+    "total_pnl": -262.86,
+    "fees": 247.91
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_taker_flow",
+   "symbol": "BNB/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 77,
+    "fold_pf": [
+     0.22,
+     0.42,
+     0.55,
+     0.37
+    ],
+    "sharpe": -17.0,
+    "total_pnl": -187.28,
+    "fees": 178.31
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 227,
+    "fold_pf": [
+     0.35,
+     0.29,
+     0.48,
+     0.41
+    ],
+    "sharpe": -10.78,
+    "total_pnl": -709.27,
+    "fees": 520.64
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 475,
+    "fold_pf": [
+     0.35,
+     0.23,
+     0.57,
+     0.27
+    ],
+    "sharpe": -10.35,
+    "total_pnl": -1822.85,
+    "fees": 1087.63
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 679,
+    "fold_pf": [
+     0.23,
+     0.28,
+     0.32,
+     0.3
+    ],
+    "sharpe": -5.73,
+    "total_pnl": -2996.55,
+    "fees": 1536.32
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 281,
+    "fold_pf": [
+     0.21,
+     0.25,
+     0.39,
+     0.3
+    ],
+    "sharpe": -9.67,
+    "total_pnl": -1058.07,
+    "fees": 646.25
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 692,
+    "fold_pf": [
+     0.25,
+     0.26,
+     0.57,
+     0.53
+    ],
+    "sharpe": -6.88,
+    "total_pnl": -2309.65,
+    "fees": 1566.73
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 709,
+    "fold_pf": [
+     0.3,
+     0.37,
+     0.5,
+     0.37
+    ],
+    "sharpe": -9.33,
+    "total_pnl": -2729.04,
+    "fees": 1600.01
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 1068,
+    "fold_pf": [
+     0.38,
+     0.41,
+     0.54,
+     0.52
+    ],
+    "sharpe": -4.2,
+    "total_pnl": -3709.91,
+    "fees": 2382.63
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 810,
+    "fold_pf": [
+     0.39,
+     0.32,
+     0.45,
+     0.53
+    ],
+    "sharpe": -7.51,
+    "total_pnl": -2848.77,
+    "fees": 1814.69
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 750,
+    "fold_pf": [
+     0.4,
+     0.31,
+     0.5,
+     0.49
+    ],
+    "sharpe": -7.08,
+    "total_pnl": -2601.79,
+    "fees": 1685.02
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 675,
+    "fold_pf": [
+     0.44,
+     0.13,
+     0.33,
+     0.51
+    ],
+    "sharpe": -6.34,
+    "total_pnl": -2395.49,
+    "fees": 1524.35
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 943,
+    "fold_pf": [
+     0.32,
+     0.26,
+     0.5,
+     0.38
+    ],
+    "sharpe": -6.75,
+    "total_pnl": -3871.76,
+    "fees": 2111.53
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 0,
+    "fold_pf": [
+     null,
+     null,
+     null,
+     null
+    ],
+    "sharpe": null,
+    "total_pnl": 0,
+    "fees": 0
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 667,
+    "fold_pf": [
+     0.3,
+     0.35,
+     0.51,
+     0.33
+    ],
+    "sharpe": -10.04,
+    "total_pnl": -2838.23,
+    "fees": 1500.5
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 1120,
+    "fold_pf": [
+     0.35,
+     0.37,
+     0.61,
+     0.48
+    ],
+    "sharpe": -6.94,
+    "total_pnl": -4645.42,
+    "fees": 2469.08
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 874,
+    "fold_pf": [
+     0.37,
+     0.26,
+     0.54,
+     0.61
+    ],
+    "sharpe": -5.31,
+    "total_pnl": -2983.4,
+    "fees": 1952.69
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "ETH/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 59,
+    "fold_pf": [
+     1.17,
+     null,
+     0.45,
+     0.11
+    ],
+    "sharpe": -24.56,
+    "total_pnl": -176.41,
+    "fees": 140.54
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SOL/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 134,
+    "fold_pf": [
+     0.0,
+     0.0,
+     0.34,
+     0.2
+    ],
+    "sharpe": -8.51,
+    "total_pnl": -590.97,
+    "fees": 317.08
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BNB/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 41,
+    "fold_pf": [
+     null,
+     0.25,
+     0.41,
+     0.12
+    ],
+    "sharpe": -7.8,
+    "total_pnl": -129.12,
+    "fees": 95.47
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "XRP/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 232,
+    "fold_pf": [
+     0.0,
+     null,
+     0.55,
+     0.52
+    ],
+    "sharpe": -12.53,
+    "total_pnl": -660.42,
+    "fees": 533.97
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SOL/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 132,
+    "fold_pf": [
+     0.1,
+     null,
+     0.51,
+     0.14
+    ],
+    "sharpe": -15.72,
+    "total_pnl": -463.47,
+    "fees": 311.6
+   }
+  },
+  {
+   "variant": "window_30m",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BNB/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 84,
+    "fold_pf": [
+     0.46,
+     0.07,
+     0.5,
+     0.0
+    ],
+    "sharpe": -21.26,
+    "total_pnl": -310.88,
+    "fees": 196.87
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 139,
+    "fold_pf": [
+     0.21,
+     0.04,
+     0.45,
+     0.57
+    ],
+    "sharpe": -6.09,
+    "total_pnl": -459.22,
+    "fees": 319.97
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 303,
+    "fold_pf": [
+     0.34,
+     0.32,
+     0.42,
+     0.27
+    ],
+    "sharpe": -9.33,
+    "total_pnl": -1242.92,
+    "fees": 695.72
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 373,
+    "fold_pf": [
+     0.35,
+     0.3,
+     0.45,
+     0.34
+    ],
+    "sharpe": -10.51,
+    "total_pnl": -1518.5,
+    "fees": 853.31
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 180,
+    "fold_pf": [
+     0.08,
+     0.27,
+     0.4,
+     0.3
+    ],
+    "sharpe": -15.59,
+    "total_pnl": -727.12,
+    "fees": 413.92
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 352,
+    "fold_pf": [
+     0.18,
+     0.26,
+     0.51,
+     0.5
+    ],
+    "sharpe": -11.71,
+    "total_pnl": -1372.02,
+    "fees": 802.77
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 366,
+    "fold_pf": [
+     0.24,
+     0.34,
+     0.66,
+     0.4
+    ],
+    "sharpe": -14.12,
+    "total_pnl": -1331.97,
+    "fees": 832.73
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 634,
+    "fold_pf": [
+     0.34,
+     0.43,
+     0.51,
+     0.38
+    ],
+    "sharpe": -6.82,
+    "total_pnl": -2546.02,
+    "fees": 1442.93
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 479,
+    "fold_pf": [
+     0.36,
+     0.31,
+     0.35,
+     0.69
+    ],
+    "sharpe": -2.85,
+    "total_pnl": -1715.29,
+    "fees": 1089.92
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 411,
+    "fold_pf": [
+     0.12,
+     0.4,
+     0.56,
+     0.32
+    ],
+    "sharpe": -14.18,
+    "total_pnl": -1677.82,
+    "fees": 944.05
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 366,
+    "fold_pf": [
+     0.35,
+     0.35,
+     0.43,
+     0.63
+    ],
+    "sharpe": -8.32,
+    "total_pnl": -1088.9,
+    "fees": 837.34
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 518,
+    "fold_pf": [
+     0.22,
+     0.3,
+     0.4,
+     0.5
+    ],
+    "sharpe": -5.14,
+    "total_pnl": -2208.19,
+    "fees": 1189.89
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 1,
+    "fold_pf": [
+     null,
+     null,
+     null,
+     null
+    ],
+    "sharpe": null,
+    "total_pnl": 0.33,
+    "fees": 2.5
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 369,
+    "fold_pf": [
+     0.31,
+     0.26,
+     0.48,
+     0.22
+    ],
+    "sharpe": -16.9,
+    "total_pnl": -1831.31,
+    "fees": 850.41
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 622,
+    "fold_pf": [
+     0.33,
+     0.49,
+     0.57,
+     0.41
+    ],
+    "sharpe": -11.15,
+    "total_pnl": -2835.31,
+    "fees": 1414.61
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 434,
+    "fold_pf": [
+     0.29,
+     0.4,
+     0.48,
+     0.58
+    ],
+    "sharpe": -7.04,
+    "total_pnl": -1695.92,
+    "fees": 991.58
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "ETH/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 30,
+    "fold_pf": [
+     0.68,
+     null,
+     0.98,
+     0.0
+    ],
+    "sharpe": -77.73,
+    "total_pnl": -84.69,
+    "fees": 71.22
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "SOL/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 84,
+    "fold_pf": [
+     0.0,
+     0.0,
+     0.45,
+     0.09
+    ],
+    "sharpe": -20.04,
+    "total_pnl": -385.94,
+    "fees": 197.31
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "BNB/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 32,
+    "fold_pf": [
+     0.75,
+     2.32,
+     0.47,
+     0.34
+    ],
+    "sharpe": -1.22,
+    "total_pnl": -71.41,
+    "fees": 73.11
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "XRP/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 129,
+    "fold_pf": [
+     null,
+     0.0,
+     0.7,
+     0.49
+    ],
+    "sharpe": -21.83,
+    "total_pnl": -361.5,
+    "fees": 296.12
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "SOL/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 77,
+    "fold_pf": [
+     0.39,
+     null,
+     0.53,
+     0.47
+    ],
+    "sharpe": -10.05,
+    "total_pnl": -210.26,
+    "fees": 178.27
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_taker_flow",
+   "symbol": "BNB/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 52,
+    "fold_pf": [
+     0.6,
+     0.21,
+     0.58,
+     0.19
+    ],
+    "sharpe": -26.26,
+    "total_pnl": -148.73,
+    "fees": 119.97
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 145,
+    "fold_pf": [
+     0.33,
+     0.1,
+     0.57,
+     0.7
+    ],
+    "sharpe": -6.79,
+    "total_pnl": -365.23,
+    "fees": 329.86
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 302,
+    "fold_pf": [
+     0.47,
+     0.18,
+     0.61,
+     0.33
+    ],
+    "sharpe": -14.14,
+    "total_pnl": -1108.15,
+    "fees": 689.94
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 422,
+    "fold_pf": [
+     0.21,
+     0.29,
+     0.41,
+     0.43
+    ],
+    "sharpe": -6.51,
+    "total_pnl": -1736.55,
+    "fees": 968.47
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 172,
+    "fold_pf": [
+     0.07,
+     0.51,
+     0.36,
+     0.42
+    ],
+    "sharpe": -9.24,
+    "total_pnl": -625.24,
+    "fees": 396.03
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 402,
+    "fold_pf": [
+     0.32,
+     0.3,
+     0.52,
+     0.56
+    ],
+    "sharpe": -8.29,
+    "total_pnl": -1470.2,
+    "fees": 914.27
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 415,
+    "fold_pf": [
+     0.35,
+     0.52,
+     0.43,
+     0.47
+    ],
+    "sharpe": -7.86,
+    "total_pnl": -1610.68,
+    "fees": 945.62
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 635,
+    "fold_pf": [
+     0.41,
+     0.48,
+     0.48,
+     0.57
+    ],
+    "sharpe": -4.77,
+    "total_pnl": -2331.29,
+    "fees": 1424.21
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 511,
+    "fold_pf": [
+     0.54,
+     0.38,
+     0.38,
+     0.52
+    ],
+    "sharpe": -9.73,
+    "total_pnl": -1897.52,
+    "fees": 1158.95
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 461,
+    "fold_pf": [
+     0.28,
+     0.3,
+     0.52,
+     0.53
+    ],
+    "sharpe": -8.93,
+    "total_pnl": -1654.06,
+    "fees": 1051.01
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 388,
+    "fold_pf": [
+     0.38,
+     0.13,
+     0.42,
+     0.6
+    ],
+    "sharpe": -7.52,
+    "total_pnl": -1302.46,
+    "fees": 889.13
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 545,
+    "fold_pf": [
+     0.37,
+     0.28,
+     0.49,
+     0.4
+    ],
+    "sharpe": -8.75,
+    "total_pnl": -2286.87,
+    "fees": 1242.99
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 0,
+    "fold_pf": [
+     null,
+     null,
+     null,
+     null
+    ],
+    "sharpe": null,
+    "total_pnl": 0,
+    "fees": 0
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 398,
+    "fold_pf": [
+     0.36,
+     0.3,
+     0.66,
+     0.39
+    ],
+    "sharpe": -15.86,
+    "total_pnl": -1490.54,
+    "fees": 903.94
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 671,
+    "fold_pf": [
+     0.32,
+     0.35,
+     0.57,
+     0.36
+    ],
+    "sharpe": -11.81,
+    "total_pnl": -3541.31,
+    "fees": 1514.73
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 526,
+    "fold_pf": [
+     0.31,
+     0.35,
+     0.42,
+     0.6
+    ],
+    "sharpe": -5.94,
+    "total_pnl": -2122.98,
+    "fees": 1188.46
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "ETH/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 34,
+    "fold_pf": [
+     0.36,
+     null,
+     0.72,
+     0.03
+    ],
+    "sharpe": -41.28,
+    "total_pnl": -94.67,
+    "fees": 79.77
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SOL/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 88,
+    "fold_pf": [
+     0.0,
+     0.0,
+     0.55,
+     0.27
+    ],
+    "sharpe": -12.72,
+    "total_pnl": -291.21,
+    "fees": 204.69
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BNB/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 29,
+    "fold_pf": [
+     null,
+     0.22,
+     0.74,
+     0.31
+    ],
+    "sharpe": -5.18,
+    "total_pnl": -51.38,
+    "fees": 66.47
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "XRP/BTC",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 161,
+    "fold_pf": [
+     0.0,
+     null,
+     0.82,
+     0.54
+    ],
+    "sharpe": -23.7,
+    "total_pnl": -330.38,
+    "fees": 366.89
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "SOL/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 80,
+    "fold_pf": [
+     0.0,
+     null,
+     0.57,
+     0.29
+    ],
+    "sharpe": -12.21,
+    "total_pnl": -240.74,
+    "fees": 182.14
+   }
+  },
+  {
+   "variant": "z_2.0",
+   "strategy": "hft_ofi_momentum",
+   "symbol": "BNB/ETH",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 47,
+    "fold_pf": [
+     0.6,
+     0.01,
+     0.27,
+     0.3
+    ],
+    "sharpe": -12.62,
+    "total_pnl": -195.06,
+    "fees": 111.05
+   }
+  }
+ ]
+}

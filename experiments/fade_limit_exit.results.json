@@ -1,0 +1,3960 @@
+{
+ "id": "fade_limit_exit",
+ "kind": "study",
+ "book": "fast",
+ "tier": "perp",
+ "hypothesis": "A resting limit exit at the mean cuts the fade's round trip enough to make it profitable after costs.",
+ "declared": "2026-10-01",
+ "declaration_sha256": "146f3814f226451619e86e149fffbe3017d898631205d973ad9a281d1189e14e",
+ "declaration_commit": "3716d4ce3e3e64cabaccbac8ba34d04f5c903405",
+ "run_at": "2026-10-01T13:36:46Z",
+ "runtime_s": 518.0,
+ "days": 90,
+ "folds": 4,
+ "holdout_days": 30,
+ "windows": {
+  "BTC/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "ETH/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "SOL/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "BNB/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "XRP/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "DOGE/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "ADA/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "AVAX/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "LINK/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "LTC/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "DOT/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "TRX/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "BCH/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "NEAR/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ],
+  "SUI/USDT 5m": [
+   "2026-07-03 11:00:00+00:00",
+   "2026-10-01 10:50:00+00:00"
+  ]
+ },
+ "skipped": [],
+ "summary": [
+  {
+   "variant": "live_market",
+   "params": {},
+   "strategy": "hft_exhaustion_fade",
+   "markets": 15,
+   "oos": {
+    "trades": 362,
+    "pf": 0.683,
+    "pf_lo": 0.493,
+    "pf_hi": 0.936,
+    "sharpe": -0.1472,
+    "sharpe_lo": -0.272,
+    "sharpe_hi": -0.026,
+    "regimes": {
+     "trend_down": 188,
+     "trend_up": 7,
+     "range": 167
+    },
+    "net_pnl": -901.84
+   },
+   "holdout": {
+    "trades": 278,
+    "pf": 0.855,
+    "pf_lo": 0.606,
+    "pf_hi": 1.156,
+    "sharpe": -0.0622,
+    "sharpe_lo": -0.201,
+    "sharpe_hi": 0.057,
+    "regimes": {
+     "trend_up": 123,
+     "trend_down": 149,
+     "range": 6
+    },
+    "net_pnl": -405.6,
+    "fees": 485.37,
+    "gross_pnl": 79.77
+   }
+  },
+  {
+   "variant": "live_touch",
+   "params": {
+    "hft_fade_limit_exit_bps": 0.0
+   },
+   "strategy": "hft_exhaustion_fade",
+   "markets": 15,
+   "oos": {
+    "trades": 362,
+    "pf": 0.701,
+    "pf_lo": 0.504,
+    "pf_hi": 0.963,
+    "sharpe": -0.1374,
+    "sharpe_lo": -0.266,
+    "sharpe_hi": -0.014,
+    "regimes": {
+     "trend_down": 188,
+     "trend_up": 7,
+     "range": 167
+    },
+    "net_pnl": -848.16
+   },
+   "holdout": {
+    "trades": 278,
+    "pf": 0.871,
+    "pf_lo": 0.617,
+    "pf_hi": 1.175,
+    "sharpe": -0.0547,
+    "sharpe_lo": -0.194,
+    "sharpe_hi": 0.064,
+    "regimes": {
+     "trend_up": 123,
+     "trend_down": 149,
+     "range": 6
+    },
+    "net_pnl": -360.7,
+    "fees": 472.02,
+    "gross_pnl": 111.32
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "params": {
+    "hft_fade_limit_exit_bps": 2.0
+   },
+   "strategy": "hft_exhaustion_fade",
+   "markets": 15,
+   "oos": {
+    "trades": 362,
+    "pf": 0.7,
+    "pf_lo": 0.498,
+    "pf_hi": 0.963,
+    "sharpe": -0.138,
+    "sharpe_lo": -0.268,
+    "sharpe_hi": -0.014,
+    "regimes": {
+     "trend_down": 188,
+     "trend_up": 7,
+     "range": 167
+    },
+    "net_pnl": -853.47
+   },
+   "holdout": {
+    "trades": 278,
+    "pf": 0.868,
+    "pf_lo": 0.613,
+    "pf_hi": 1.17,
+    "sharpe": -0.0564,
+    "sharpe_lo": -0.195,
+    "sharpe_hi": 0.062,
+    "regimes": {
+     "trend_up": 123,
+     "trend_down": 149,
+     "range": 6
+    },
+    "net_pnl": -370.48,
+    "fees": 472.75,
+    "gross_pnl": 102.27
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "params": {
+    "hft_fade_limit_exit_bps": 5.0
+   },
+   "strategy": "hft_exhaustion_fade",
+   "markets": 15,
+   "oos": {
+    "trades": 362,
+    "pf": 0.709,
+    "pf_lo": 0.505,
+    "pf_hi": 0.979,
+    "sharpe": -0.1329,
+    "sharpe_lo": -0.263,
+    "sharpe_hi": -0.008,
+    "regimes": {
+     "trend_down": 188,
+     "trend_up": 7,
+     "range": 167
+    },
+    "net_pnl": -827.3
+   },
+   "holdout": {
+    "trades": 278,
+    "pf": 0.864,
+    "pf_lo": 0.611,
+    "pf_hi": 1.164,
+    "sharpe": -0.0583,
+    "sharpe_lo": -0.199,
+    "sharpe_hi": 0.06,
+    "regimes": {
+     "trend_up": 123,
+     "trend_down": 149,
+     "range": 6
+    },
+    "net_pnl": -381.29,
+    "fees": 474.24,
+    "gross_pnl": 92.95
+   }
+  },
+  {
+   "variant": "loose_market",
+   "params": {
+    "hft_fade_z_entry": 2.25,
+    "hft_fade_vol_spike": 2.5
+   },
+   "strategy": "hft_exhaustion_fade",
+   "markets": 15,
+   "oos": {
+    "trades": 582,
+    "pf": 0.728,
+    "pf_lo": 0.559,
+    "pf_hi": 0.947,
+    "sharpe": -0.1239,
+    "sharpe_lo": -0.225,
+    "sharpe_hi": -0.021,
+    "regimes": {
+     "trend_down": 313,
+     "trend_up": 15,
+     "range": 254
+    },
+    "net_pnl": -1188.94
+   },
+   "holdout": {
+    "trades": 445,
+    "pf": 0.926,
+    "pf_lo": 0.716,
+    "pf_hi": 1.183,
+    "sharpe": -0.0304,
+    "sharpe_lo": -0.134,
+    "sharpe_hi": 0.066,
+    "regimes": {
+     "trend_up": 189,
+     "trend_down": 246,
+     "range": 10
+    },
+    "net_pnl": -317.99,
+    "fees": 777.97,
+    "gross_pnl": 459.98
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "params": {
+    "hft_fade_z_entry": 2.25,
+    "hft_fade_vol_spike": 2.5,
+    "hft_fade_limit_exit_bps": 0.0
+   },
+   "strategy": "hft_exhaustion_fade",
+   "markets": 15,
+   "oos": {
+    "trades": 583,
+    "pf": 0.745,
+    "pf_lo": 0.567,
+    "pf_hi": 0.977,
+    "sharpe": -0.1153,
+    "sharpe_lo": -0.222,
+    "sharpe_hi": -0.009,
+    "regimes": {
+     "trend_down": 314,
+     "trend_up": 15,
+     "range": 254
+    },
+    "net_pnl": -1113.8
+   },
+   "holdout": {
+    "trades": 445,
+    "pf": 0.96,
+    "pf_lo": 0.74,
+    "pf_hi": 1.228,
+    "sharpe": -0.0161,
+    "sharpe_lo": -0.119,
+    "sharpe_hi": 0.081,
+    "regimes": {
+     "trend_up": 189,
+     "trend_down": 246,
+     "range": 10
+    },
+    "net_pnl": -171.31,
+    "fees": 744.74,
+    "gross_pnl": 573.43
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "params": {
+    "hft_fade_z_entry": 2.25,
+    "hft_fade_vol_spike": 2.5,
+    "hft_fade_limit_exit_bps": 2.0
+   },
+   "strategy": "hft_exhaustion_fade",
+   "markets": 15,
+   "oos": {
+    "trades": 583,
+    "pf": 0.747,
+    "pf_lo": 0.569,
+    "pf_hi": 0.98,
+    "sharpe": -0.114,
+    "sharpe_lo": -0.22,
+    "sharpe_hi": -0.008,
+    "regimes": {
+     "trend_down": 314,
+     "trend_up": 15,
+     "range": 254
+    },
+    "net_pnl": -1104.94
+   },
+   "holdout": {
+    "trades": 445,
+    "pf": 0.96,
+    "pf_lo": 0.74,
+    "pf_hi": 1.229,
+    "sharpe": -0.016,
+    "sharpe_lo": -0.12,
+    "sharpe_hi": 0.081,
+    "regimes": {
+     "trend_up": 189,
+     "trend_down": 246,
+     "range": 10
+    },
+    "net_pnl": -170.33,
+    "fees": 746.25,
+    "gross_pnl": 575.92
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "params": {
+    "hft_fade_z_entry": 2.25,
+    "hft_fade_vol_spike": 2.5,
+    "hft_fade_limit_exit_bps": 5.0
+   },
+   "strategy": "hft_exhaustion_fade",
+   "markets": 15,
+   "oos": {
+    "trades": 583,
+    "pf": 0.755,
+    "pf_lo": 0.573,
+    "pf_hi": 0.989,
+    "sharpe": -0.1098,
+    "sharpe_lo": -0.217,
+    "sharpe_hi": -0.004,
+    "regimes": {
+     "trend_down": 314,
+     "trend_up": 15,
+     "range": 254
+    },
+    "net_pnl": -1071.06
+   },
+   "holdout": {
+    "trades": 445,
+    "pf": 0.959,
+    "pf_lo": 0.738,
+    "pf_hi": 1.226,
+    "sharpe": -0.0164,
+    "sharpe_lo": -0.122,
+    "sharpe_hi": 0.08,
+    "regimes": {
+     "trend_up": 189,
+     "trend_down": 246,
+     "range": 10
+    },
+    "net_pnl": -174.37,
+    "fees": 748.49,
+    "gross_pnl": 574.12
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "params": {
+    "hft_fade_z_entry": 2.25,
+    "hft_fade_vol_spike": 2.5,
+    "hft_fade_limit_exit_bps": 2.0,
+    "hft.maker_penetration_bps": 2.0
+   },
+   "strategy": "hft_exhaustion_fade",
+   "markets": 15,
+   "oos": {
+    "trades": 568,
+    "pf": 0.706,
+    "pf_lo": 0.539,
+    "pf_hi": 0.926,
+    "sharpe": -0.1377,
+    "sharpe_lo": -0.244,
+    "sharpe_hi": -0.03,
+    "regimes": {
+     "trend_down": 309,
+     "trend_up": 15,
+     "range": 244
+    },
+    "net_pnl": -1275.84
+   },
+   "holdout": {
+    "trades": 440,
+    "pf": 0.94,
+    "pf_lo": 0.722,
+    "pf_hi": 1.2,
+    "sharpe": -0.0244,
+    "sharpe_lo": -0.13,
+    "sharpe_hi": 0.072,
+    "regimes": {
+     "trend_up": 188,
+     "trend_down": 242,
+     "range": 10
+    },
+    "net_pnl": -256.38,
+    "fees": 737.47,
+    "gross_pnl": 481.09
+   }
+  }
+ ],
+ "markets": [
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 21,
+    "fold_pf": [
+     0.99,
+     2.78,
+     0.01,
+     0.53
+    ],
+    "sharpe": -5.34,
+    "total_pnl": -29.81,
+    "fees": 36.69
+   },
+   "holdout": {
+    "trades": 19,
+    "profit_factor": 1.23,
+    "sharpe": 10.0,
+    "net_pnl": 25.25,
+    "fees": 33.3,
+    "gross_pnl": 58.55
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 25,
+    "fold_pf": [
+     1.03,
+     1.09,
+     0.0,
+     0.19
+    ],
+    "sharpe": -25.41,
+    "total_pnl": -77.88,
+    "fees": 43.72
+   },
+   "holdout": {
+    "trades": 24,
+    "profit_factor": 0.9,
+    "sharpe": -3.58,
+    "net_pnl": -18.22,
+    "fees": 42.02,
+    "gross_pnl": 23.8
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 26,
+    "fold_pf": [
+     2.2,
+     5.34,
+     0.42,
+     0.4
+    ],
+    "sharpe": -25.69,
+    "total_pnl": -39.95,
+    "fees": 45.53
+   },
+   "holdout": {
+    "trades": 18,
+    "profit_factor": 1.07,
+    "sharpe": -1.75,
+    "net_pnl": 8.22,
+    "fees": 31.53,
+    "gross_pnl": 39.75
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 27,
+    "fold_pf": [
+     0.57,
+     1.87,
+     1.42,
+     0.53
+    ],
+    "sharpe": -13.28,
+    "total_pnl": -52.33,
+    "fees": 47.15
+   },
+   "holdout": {
+    "trades": 25,
+    "profit_factor": 0.53,
+    "sharpe": -37.99,
+    "net_pnl": -77.25,
+    "fees": 43.57,
+    "gross_pnl": -33.68
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 21,
+    "fold_pf": [
+     0.78,
+     1.06,
+     3.09,
+     0.0
+    ],
+    "sharpe": -27.64,
+    "total_pnl": -39.72,
+    "fees": 36.76
+   },
+   "holdout": {
+    "trades": 23,
+    "profit_factor": 0.57,
+    "sharpe": -25.22,
+    "net_pnl": -96.69,
+    "fees": 40.07,
+    "gross_pnl": -56.62
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 24,
+    "fold_pf": [
+     3.33,
+     0.15,
+     0.62,
+     0.08
+    ],
+    "sharpe": -23.78,
+    "total_pnl": -33.6,
+    "fees": 42.07
+   },
+   "holdout": {
+    "trades": 17,
+    "profit_factor": 1.58,
+    "sharpe": 16.1,
+    "net_pnl": 71.47,
+    "fees": 29.9,
+    "gross_pnl": 101.37
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 23,
+    "fold_pf": [
+     0.26,
+     0.47,
+     0.88,
+     3.23
+    ],
+    "sharpe": 19.88,
+    "total_pnl": 39.72,
+    "fees": 40.42
+   },
+   "holdout": {
+    "trades": 29,
+    "profit_factor": 0.79,
+    "sharpe": -5.77,
+    "net_pnl": -71.31,
+    "fees": 50.58,
+    "gross_pnl": -20.73
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 28,
+    "fold_pf": [
+     3.95,
+     2.23,
+     0.63,
+     0.08
+    ],
+    "sharpe": -24.84,
+    "total_pnl": -43.36,
+    "fees": 48.9
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.24,
+    "sharpe": -70.04,
+    "net_pnl": -148.71,
+    "fees": 26.17,
+    "gross_pnl": -122.54
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 27,
+    "fold_pf": [
+     0.98,
+     0.38,
+     0.75,
+     0.02
+    ],
+    "sharpe": -33.8,
+    "total_pnl": -183.42,
+    "fees": 47.18
+   },
+   "holdout": {
+    "trades": 20,
+    "profit_factor": 1.05,
+    "sharpe": 4.09,
+    "net_pnl": 9.64,
+    "fees": 34.92,
+    "gross_pnl": 44.56
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 17,
+    "fold_pf": [
+     3.67,
+     null,
+     0.87,
+     0.32
+    ],
+    "sharpe": -29.98,
+    "total_pnl": -33.66,
+    "fees": 29.71
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.48,
+    "sharpe": -30.82,
+    "net_pnl": -108.24,
+    "fees": 26.29,
+    "gross_pnl": -81.95
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 28,
+    "fold_pf": [
+     1.76,
+     0.87,
+     1.69,
+     0.14
+    ],
+    "sharpe": -44.28,
+    "total_pnl": -112.25,
+    "fees": 49.0
+   },
+   "holdout": {
+    "trades": 16,
+    "profit_factor": 0.56,
+    "sharpe": -26.66,
+    "net_pnl": -106.72,
+    "fees": 27.79,
+    "gross_pnl": -78.93
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 4,
+    "fold_pf": [
+     0.31,
+     null,
+     null,
+     1.76
+    ],
+    "sharpe": 7.37,
+    "total_pnl": 1.84,
+    "fees": 7.0
+   },
+   "holdout": {
+    "trades": 4,
+    "profit_factor": 0.24,
+    "sharpe": -74.88,
+    "net_pnl": -19.52,
+    "fees": 6.99,
+    "gross_pnl": -12.53
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 31,
+    "fold_pf": [
+     1.99,
+     0.25,
+     0.92,
+     0.54
+    ],
+    "sharpe": -14.97,
+    "total_pnl": -92.64,
+    "fees": 53.91
+   },
+   "holdout": {
+    "trades": 21,
+    "profit_factor": 1.06,
+    "sharpe": 2.63,
+    "net_pnl": 11.81,
+    "fees": 36.78,
+    "gross_pnl": 48.59
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 23,
+    "fold_pf": [
+     2.09,
+     0.62,
+     0.0,
+     0.4
+    ],
+    "sharpe": -18.65,
+    "total_pnl": -97.51,
+    "fees": 39.8
+   },
+   "holdout": {
+    "trades": 17,
+    "profit_factor": 2.45,
+    "sharpe": 37.33,
+    "net_pnl": 238.42,
+    "fees": 29.21,
+    "gross_pnl": 267.63
+   }
+  },
+  {
+   "variant": "live_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 37,
+    "fold_pf": [
+     2.1,
+     0.74,
+     0.78,
+     0.19
+    ],
+    "sharpe": -22.86,
+    "total_pnl": -107.27,
+    "fees": 63.66
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.57,
+    "sharpe": -32.15,
+    "net_pnl": -123.75,
+    "fees": 26.25,
+    "gross_pnl": -97.5
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 21,
+    "fold_pf": [
+     0.91,
+     2.85,
+     0.01,
+     0.52
+    ],
+    "sharpe": -5.89,
+    "total_pnl": -33.69,
+    "fees": 33.7
+   },
+   "holdout": {
+    "trades": 19,
+    "profit_factor": 1.14,
+    "sharpe": 5.6,
+    "net_pnl": 15.27,
+    "fees": 33.3,
+    "gross_pnl": 48.57
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 25,
+    "fold_pf": [
+     1.06,
+     1.06,
+     0.0,
+     0.19
+    ],
+    "sharpe": -25.73,
+    "total_pnl": -77.8,
+    "fees": 42.23
+   },
+   "holdout": {
+    "trades": 24,
+    "profit_factor": 0.92,
+    "sharpe": -2.9,
+    "net_pnl": -15.63,
+    "fees": 41.28,
+    "gross_pnl": 25.65
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 26,
+    "fold_pf": [
+     2.32,
+     4.74,
+     0.45,
+     0.64
+    ],
+    "sharpe": -17.94,
+    "total_pnl": -4.89,
+    "fees": 41.05
+   },
+   "holdout": {
+    "trades": 18,
+    "profit_factor": 1.17,
+    "sharpe": 2.46,
+    "net_pnl": 19.73,
+    "fees": 29.29,
+    "gross_pnl": 49.02
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 27,
+    "fold_pf": [
+     0.67,
+     2.02,
+     1.42,
+     0.58
+    ],
+    "sharpe": -11.36,
+    "total_pnl": -41.64,
+    "fees": 44.19
+   },
+   "holdout": {
+    "trades": 25,
+    "profit_factor": 0.56,
+    "sharpe": -36.63,
+    "net_pnl": -72.99,
+    "fees": 42.09,
+    "gross_pnl": -30.9
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 21,
+    "fold_pf": [
+     0.78,
+     1.06,
+     2.55,
+     0.0
+    ],
+    "sharpe": -29.78,
+    "total_pnl": -49.47,
+    "fees": 35.26
+   },
+   "holdout": {
+    "trades": 23,
+    "profit_factor": 0.58,
+    "sharpe": -24.92,
+    "net_pnl": -95.04,
+    "fees": 39.34,
+    "gross_pnl": -55.7
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 24,
+    "fold_pf": [
+     3.39,
+     0.15,
+     0.74,
+     0.08
+    ],
+    "sharpe": -23.58,
+    "total_pnl": -28.2,
+    "fees": 39.84
+   },
+   "holdout": {
+    "trades": 17,
+    "profit_factor": 1.62,
+    "sharpe": 17.67,
+    "net_pnl": 77.49,
+    "fees": 29.17,
+    "gross_pnl": 106.66
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 23,
+    "fold_pf": [
+     0.26,
+     0.49,
+     0.88,
+     3.02
+    ],
+    "sharpe": 18.16,
+    "total_pnl": 28.3,
+    "fees": 38.16
+   },
+   "holdout": {
+    "trades": 29,
+    "profit_factor": 0.81,
+    "sharpe": -4.26,
+    "net_pnl": -62.83,
+    "fees": 49.12,
+    "gross_pnl": -13.71
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 28,
+    "fold_pf": [
+     4.09,
+     3.26,
+     0.64,
+     0.08
+    ],
+    "sharpe": -24.35,
+    "total_pnl": -25.54,
+    "fees": 45.17
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.24,
+    "sharpe": -70.04,
+    "net_pnl": -148.71,
+    "fees": 26.17,
+    "gross_pnl": -122.54
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 27,
+    "fold_pf": [
+     0.95,
+     0.38,
+     0.85,
+     0.02
+    ],
+    "sharpe": -34.52,
+    "total_pnl": -181.52,
+    "fees": 45.69
+   },
+   "holdout": {
+    "trades": 20,
+    "profit_factor": 1.08,
+    "sharpe": 5.68,
+    "net_pnl": 15.52,
+    "fees": 34.16,
+    "gross_pnl": 49.68
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 17,
+    "fold_pf": [
+     3.67,
+     null,
+     0.87,
+     0.32
+    ],
+    "sharpe": -29.99,
+    "total_pnl": -32.54,
+    "fees": 28.97
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.5,
+    "sharpe": -29.01,
+    "net_pnl": -103.26,
+    "fees": 24.81,
+    "gross_pnl": -78.45
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 28,
+    "fold_pf": [
+     1.76,
+     1.16,
+     1.6,
+     0.14
+    ],
+    "sharpe": -46.48,
+    "total_pnl": -112.94,
+    "fees": 46.73
+   },
+   "holdout": {
+    "trades": 16,
+    "profit_factor": 0.6,
+    "sharpe": -24.19,
+    "net_pnl": -97.76,
+    "fees": 26.34,
+    "gross_pnl": -71.42
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 4,
+    "fold_pf": [
+     0.31,
+     null,
+     null,
+     1.76
+    ],
+    "sharpe": 7.37,
+    "total_pnl": 1.84,
+    "fees": 7.0
+   },
+   "holdout": {
+    "trades": 4,
+    "profit_factor": 0.24,
+    "sharpe": -74.88,
+    "net_pnl": -19.52,
+    "fees": 6.99,
+    "gross_pnl": -12.53
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 31,
+    "fold_pf": [
+     1.99,
+     0.25,
+     0.92,
+     0.54
+    ],
+    "sharpe": -14.97,
+    "total_pnl": -92.64,
+    "fees": 53.91
+   },
+   "holdout": {
+    "trades": 21,
+    "profit_factor": 1.06,
+    "sharpe": 2.82,
+    "net_pnl": 12.59,
+    "fees": 34.5,
+    "gross_pnl": 47.09
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 23,
+    "fold_pf": [
+     2.31,
+     0.62,
+     0.0,
+     0.4
+    ],
+    "sharpe": -18.15,
+    "total_pnl": -90.02,
+    "fees": 39.06
+   },
+   "holdout": {
+    "trades": 17,
+    "profit_factor": 2.45,
+    "sharpe": 37.33,
+    "net_pnl": 238.42,
+    "fees": 29.21,
+    "gross_pnl": 267.63
+   }
+  },
+  {
+   "variant": "live_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 37,
+    "fold_pf": [
+     2.08,
+     0.74,
+     0.81,
+     0.19
+    ],
+    "sharpe": -23.15,
+    "total_pnl": -107.41,
+    "fees": 62.17
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.57,
+    "sharpe": -31.65,
+    "net_pnl": -123.98,
+    "fees": 26.25,
+    "gross_pnl": -97.73
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 21,
+    "fold_pf": [
+     0.93,
+     2.93,
+     0.01,
+     0.53
+    ],
+    "sharpe": -5.59,
+    "total_pnl": -31.69,
+    "fees": 33.7
+   },
+   "holdout": {
+    "trades": 19,
+    "profit_factor": 1.14,
+    "sharpe": 5.6,
+    "net_pnl": 15.27,
+    "fees": 33.3,
+    "gross_pnl": 48.57
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 25,
+    "fold_pf": [
+     1.07,
+     1.08,
+     0.0,
+     0.19
+    ],
+    "sharpe": -25.67,
+    "total_pnl": -76.78,
+    "fees": 42.23
+   },
+   "holdout": {
+    "trades": 24,
+    "profit_factor": 0.92,
+    "sharpe": -2.76,
+    "net_pnl": -15.11,
+    "fees": 41.28,
+    "gross_pnl": 26.17
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 26,
+    "fold_pf": [
+     2.35,
+     4.91,
+     0.46,
+     0.65
+    ],
+    "sharpe": -17.52,
+    "total_pnl": -1.93,
+    "fees": 41.05
+   },
+   "holdout": {
+    "trades": 18,
+    "profit_factor": 1.18,
+    "sharpe": 2.98,
+    "net_pnl": 21.16,
+    "fees": 29.3,
+    "gross_pnl": 50.46
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 27,
+    "fold_pf": [
+     0.69,
+     2.08,
+     1.42,
+     0.59
+    ],
+    "sharpe": -10.94,
+    "total_pnl": -39.64,
+    "fees": 44.19
+   },
+   "holdout": {
+    "trades": 25,
+    "profit_factor": 0.56,
+    "sharpe": -36.15,
+    "net_pnl": -71.98,
+    "fees": 42.09,
+    "gross_pnl": -29.89
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 21,
+    "fold_pf": [
+     0.79,
+     1.06,
+     2.58,
+     0.0
+    ],
+    "sharpe": -29.65,
+    "total_pnl": -48.54,
+    "fees": 35.26
+   },
+   "holdout": {
+    "trades": 23,
+    "profit_factor": 0.58,
+    "sharpe": -24.84,
+    "net_pnl": -94.69,
+    "fees": 39.34,
+    "gross_pnl": -55.35
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 24,
+    "fold_pf": [
+     3.43,
+     0.15,
+     0.76,
+     0.08
+    ],
+    "sharpe": -23.38,
+    "total_pnl": -26.7,
+    "fees": 39.84
+   },
+   "holdout": {
+    "trades": 17,
+    "profit_factor": 1.63,
+    "sharpe": 17.78,
+    "net_pnl": 78.0,
+    "fees": 29.17,
+    "gross_pnl": 107.17
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 23,
+    "fold_pf": [
+     0.26,
+     0.49,
+     0.88,
+     3.03
+    ],
+    "sharpe": 18.31,
+    "total_pnl": 29.25,
+    "fees": 38.16
+   },
+   "holdout": {
+    "trades": 29,
+    "profit_factor": 0.82,
+    "sharpe": -4.08,
+    "net_pnl": -61.89,
+    "fees": 49.12,
+    "gross_pnl": -12.77
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 28,
+    "fold_pf": [
+     4.12,
+     2.26,
+     0.67,
+     0.08
+    ],
+    "sharpe": -24.89,
+    "total_pnl": -38.22,
+    "fees": 45.92
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.24,
+    "sharpe": -70.04,
+    "net_pnl": -148.71,
+    "fees": 26.17,
+    "gross_pnl": -122.54
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 27,
+    "fold_pf": [
+     0.96,
+     0.38,
+     0.58,
+     0.02
+    ],
+    "sharpe": -33.64,
+    "total_pnl": -189.06,
+    "fees": 46.44
+   },
+   "holdout": {
+    "trades": 20,
+    "profit_factor": 1.08,
+    "sharpe": 5.82,
+    "net_pnl": 16.07,
+    "fees": 34.16,
+    "gross_pnl": 50.23
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 17,
+    "fold_pf": [
+     3.67,
+     null,
+     0.87,
+     0.32
+    ],
+    "sharpe": -29.85,
+    "total_pnl": -32.0,
+    "fees": 28.97
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.51,
+    "sharpe": -28.67,
+    "net_pnl": -102.27,
+    "fees": 24.81,
+    "gross_pnl": -77.46
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 28,
+    "fold_pf": [
+     1.76,
+     1.21,
+     1.62,
+     0.14
+    ],
+    "sharpe": -46.17,
+    "total_pnl": -111.47,
+    "fees": 46.73
+   },
+   "holdout": {
+    "trades": 16,
+    "profit_factor": 0.52,
+    "sharpe": -28.3,
+    "net_pnl": -115.36,
+    "fees": 27.06,
+    "gross_pnl": -88.3
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 4,
+    "fold_pf": [
+     0.31,
+     null,
+     null,
+     1.76
+    ],
+    "sharpe": 7.37,
+    "total_pnl": 1.84,
+    "fees": 7.0
+   },
+   "holdout": {
+    "trades": 4,
+    "profit_factor": 0.24,
+    "sharpe": -74.88,
+    "net_pnl": -19.52,
+    "fees": 6.99,
+    "gross_pnl": -12.53
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 31,
+    "fold_pf": [
+     1.99,
+     0.25,
+     0.92,
+     0.54
+    ],
+    "sharpe": -14.97,
+    "total_pnl": -92.64,
+    "fees": 53.91
+   },
+   "holdout": {
+    "trades": 21,
+    "profit_factor": 1.07,
+    "sharpe": 3.12,
+    "net_pnl": 14.11,
+    "fees": 34.5,
+    "gross_pnl": 48.61
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 23,
+    "fold_pf": [
+     2.32,
+     0.62,
+     0.0,
+     0.4
+    ],
+    "sharpe": -18.12,
+    "total_pnl": -89.51,
+    "fees": 39.06
+   },
+   "holdout": {
+    "trades": 17,
+    "profit_factor": 2.45,
+    "sharpe": 37.33,
+    "net_pnl": 238.42,
+    "fees": 29.21,
+    "gross_pnl": 267.63
+   }
+  },
+  {
+   "variant": "live_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 37,
+    "fold_pf": [
+     2.09,
+     0.74,
+     0.83,
+     0.19
+    ],
+    "sharpe": -23.07,
+    "total_pnl": -106.38,
+    "fees": 62.17
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.57,
+    "sharpe": -31.65,
+    "net_pnl": -123.98,
+    "fees": 26.25,
+    "gross_pnl": -97.73
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 21,
+    "fold_pf": [
+     0.96,
+     3.05,
+     0.01,
+     0.55
+    ],
+    "sharpe": -5.13,
+    "total_pnl": -28.7,
+    "fees": 33.7
+   },
+   "holdout": {
+    "trades": 19,
+    "profit_factor": 1.14,
+    "sharpe": 5.6,
+    "net_pnl": 15.27,
+    "fees": 33.3,
+    "gross_pnl": 48.57
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 25,
+    "fold_pf": [
+     1.09,
+     1.1,
+     0.0,
+     0.19
+    ],
+    "sharpe": -25.51,
+    "total_pnl": -75.3,
+    "fees": 42.23
+   },
+   "holdout": {
+    "trades": 24,
+    "profit_factor": 0.93,
+    "sharpe": -2.53,
+    "net_pnl": -14.37,
+    "fees": 41.29,
+    "gross_pnl": 26.92
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 26,
+    "fold_pf": [
+     2.39,
+     5.17,
+     0.48,
+     0.66
+    ],
+    "sharpe": -16.98,
+    "total_pnl": 2.52,
+    "fees": 41.05
+   },
+   "holdout": {
+    "trades": 18,
+    "profit_factor": 1.17,
+    "sharpe": 2.23,
+    "net_pnl": 19.15,
+    "fees": 30.05,
+    "gross_pnl": 49.2
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 27,
+    "fold_pf": [
+     0.71,
+     2.16,
+     1.42,
+     0.61
+    ],
+    "sharpe": -10.38,
+    "total_pnl": -36.63,
+    "fees": 44.19
+   },
+   "holdout": {
+    "trades": 25,
+    "profit_factor": 0.57,
+    "sharpe": -35.45,
+    "net_pnl": -70.49,
+    "fees": 42.09,
+    "gross_pnl": -28.4
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 21,
+    "fold_pf": [
+     0.81,
+     1.06,
+     2.62,
+     0.0
+    ],
+    "sharpe": -29.55,
+    "total_pnl": -47.09,
+    "fees": 35.26
+   },
+   "holdout": {
+    "trades": 23,
+    "profit_factor": 0.59,
+    "sharpe": -24.62,
+    "net_pnl": -93.81,
+    "fees": 39.34,
+    "gross_pnl": -54.47
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 24,
+    "fold_pf": [
+     3.47,
+     0.15,
+     0.78,
+     0.08
+    ],
+    "sharpe": -23.09,
+    "total_pnl": -24.49,
+    "fees": 39.84
+   },
+   "holdout": {
+    "trades": 17,
+    "profit_factor": 1.63,
+    "sharpe": 17.96,
+    "net_pnl": 78.75,
+    "fees": 29.17,
+    "gross_pnl": 107.92
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 23,
+    "fold_pf": [
+     0.26,
+     0.49,
+     0.88,
+     3.06
+    ],
+    "sharpe": 18.54,
+    "total_pnl": 30.68,
+    "fees": 38.16
+   },
+   "holdout": {
+    "trades": 29,
+    "profit_factor": 0.82,
+    "sharpe": -3.81,
+    "net_pnl": -60.44,
+    "fees": 49.13,
+    "gross_pnl": -11.31
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 28,
+    "fold_pf": [
+     4.16,
+     2.29,
+     0.71,
+     0.08
+    ],
+    "sharpe": -24.73,
+    "total_pnl": -35.14,
+    "fees": 45.92
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.24,
+    "sharpe": -70.04,
+    "net_pnl": -148.71,
+    "fees": 26.17,
+    "gross_pnl": -122.54
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 27,
+    "fold_pf": [
+     0.98,
+     0.38,
+     0.58,
+     0.02
+    ],
+    "sharpe": -33.7,
+    "total_pnl": -188.28,
+    "fees": 46.44
+   },
+   "holdout": {
+    "trades": 20,
+    "profit_factor": 1.09,
+    "sharpe": 6.02,
+    "net_pnl": 16.8,
+    "fees": 34.16,
+    "gross_pnl": 50.96
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 17,
+    "fold_pf": [
+     3.67,
+     null,
+     0.87,
+     0.32
+    ],
+    "sharpe": -29.83,
+    "total_pnl": -31.26,
+    "fees": 28.97
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.52,
+    "sharpe": -28.17,
+    "net_pnl": -100.77,
+    "fees": 24.81,
+    "gross_pnl": -75.96
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 28,
+    "fold_pf": [
+     1.76,
+     1.27,
+     1.66,
+     0.14
+    ],
+    "sharpe": -45.68,
+    "total_pnl": -109.19,
+    "fees": 46.73
+   },
+   "holdout": {
+    "trades": 16,
+    "profit_factor": 0.44,
+    "sharpe": -32.91,
+    "net_pnl": -133.91,
+    "fees": 27.77,
+    "gross_pnl": -106.14
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 4,
+    "fold_pf": [
+     0.31,
+     null,
+     null,
+     1.76
+    ],
+    "sharpe": 7.37,
+    "total_pnl": 1.84,
+    "fees": 7.0
+   },
+   "holdout": {
+    "trades": 4,
+    "profit_factor": 0.24,
+    "sharpe": -74.88,
+    "net_pnl": -19.52,
+    "fees": 6.99,
+    "gross_pnl": -12.53
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 31,
+    "fold_pf": [
+     1.99,
+     0.25,
+     0.92,
+     0.54
+    ],
+    "sharpe": -14.97,
+    "total_pnl": -92.64,
+    "fees": 53.91
+   },
+   "holdout": {
+    "trades": 21,
+    "profit_factor": 1.08,
+    "sharpe": 3.57,
+    "net_pnl": 16.32,
+    "fees": 34.51,
+    "gross_pnl": 50.83
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 23,
+    "fold_pf": [
+     2.34,
+     0.62,
+     0.0,
+     0.4
+    ],
+    "sharpe": -18.06,
+    "total_pnl": -88.73,
+    "fees": 39.06
+   },
+   "holdout": {
+    "trades": 17,
+    "profit_factor": 2.45,
+    "sharpe": 37.33,
+    "net_pnl": 238.42,
+    "fees": 29.21,
+    "gross_pnl": 267.63
+   }
+  },
+  {
+   "variant": "live_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 37,
+    "fold_pf": [
+     2.1,
+     0.74,
+     0.84,
+     0.19
+    ],
+    "sharpe": -23.02,
+    "total_pnl": -104.89,
+    "fees": 62.17
+   },
+   "holdout": {
+    "trades": 15,
+    "profit_factor": 0.57,
+    "sharpe": -31.65,
+    "net_pnl": -123.98,
+    "fees": 26.25,
+    "gross_pnl": -97.73
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 36,
+    "fold_pf": [
+     0.58,
+     1.25,
+     0.01,
+     0.7
+    ],
+    "sharpe": -3.43,
+    "total_pnl": -73.55,
+    "fees": 62.88
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 1.09,
+    "sharpe": 3.83,
+    "net_pnl": 12.96,
+    "fees": 45.56,
+    "gross_pnl": 58.52
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 38,
+    "fold_pf": [
+     1.13,
+     1.87,
+     0.21,
+     0.33
+    ],
+    "sharpe": -13.76,
+    "total_pnl": -69.59,
+    "fees": 66.44
+   },
+   "holdout": {
+    "trades": 35,
+    "profit_factor": 1.11,
+    "sharpe": 6.38,
+    "net_pnl": 24.14,
+    "fees": 61.44,
+    "gross_pnl": 85.58
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     1.18,
+     0.83,
+     0.79,
+     0.54
+    ],
+    "sharpe": -20.97,
+    "total_pnl": -78.58,
+    "fees": 68.18
+   },
+   "holdout": {
+    "trades": 34,
+    "profit_factor": 1.67,
+    "sharpe": 23.51,
+    "net_pnl": 124.08,
+    "fees": 60.17,
+    "gross_pnl": 184.25
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     0.35,
+     0.82,
+     1.33,
+     0.43
+    ],
+    "sharpe": -19.5,
+    "total_pnl": -123.48,
+    "fees": 69.76
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.63,
+    "sharpe": -28.27,
+    "net_pnl": -73.77,
+    "fees": 55.7,
+    "gross_pnl": -18.07
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 33,
+    "fold_pf": [
+     1.78,
+     0.55,
+     2.75,
+     0.17
+    ],
+    "sharpe": -32.48,
+    "total_pnl": -94.13,
+    "fees": 57.63
+   },
+   "holdout": {
+    "trades": 38,
+    "profit_factor": 0.85,
+    "sharpe": -8.58,
+    "net_pnl": -50.47,
+    "fees": 66.12,
+    "gross_pnl": 15.65
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 41,
+    "fold_pf": [
+     1.85,
+     0.06,
+     0.46,
+     0.39
+    ],
+    "sharpe": -13.32,
+    "total_pnl": -88.65,
+    "fees": 71.7
+   },
+   "holdout": {
+    "trades": 34,
+    "profit_factor": 1.64,
+    "sharpe": 17.46,
+    "net_pnl": 132.32,
+    "fees": 59.89,
+    "gross_pnl": 192.21
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     0.67,
+     1.6,
+     0.27,
+     1.31
+    ],
+    "sharpe": 3.75,
+    "total_pnl": 7.16,
+    "fees": 68.28
+   },
+   "holdout": {
+    "trades": 41,
+    "profit_factor": 1.03,
+    "sharpe": 6.73,
+    "net_pnl": 15.22,
+    "fees": 72.09,
+    "gross_pnl": 87.31
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 46,
+    "fold_pf": [
+     2.46,
+     1.65,
+     0.39,
+     0.42
+    ],
+    "sharpe": -12.73,
+    "total_pnl": -57.88,
+    "fees": 80.29
+   },
+   "holdout": {
+    "trades": 30,
+    "profit_factor": 0.54,
+    "sharpe": -31.0,
+    "net_pnl": -158.88,
+    "fees": 52.14,
+    "gross_pnl": -106.74
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     0.67,
+     0.54,
+     0.99,
+     0.17
+    ],
+    "sharpe": -23.16,
+    "total_pnl": -205.14,
+    "fees": 69.88
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.58,
+    "sharpe": -25.85,
+    "net_pnl": -174.29,
+    "fees": 55.52,
+    "gross_pnl": -118.77
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 33,
+    "fold_pf": [
+     1.54,
+     2.76,
+     0.12,
+     1.3
+    ],
+    "sharpe": 4.29,
+    "total_pnl": 26.97,
+    "fees": 57.76
+   },
+   "holdout": {
+    "trades": 24,
+    "profit_factor": 0.62,
+    "sharpe": -20.87,
+    "net_pnl": -100.95,
+    "fees": 41.91,
+    "gross_pnl": -59.04
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 50,
+    "fold_pf": [
+     1.21,
+     0.66,
+     0.85,
+     0.17
+    ],
+    "sharpe": -30.6,
+    "total_pnl": -211.01,
+    "fees": 87.05
+   },
+   "holdout": {
+    "trades": 31,
+    "profit_factor": 1.01,
+    "sharpe": 0.33,
+    "net_pnl": 4.38,
+    "fees": 54.21,
+    "gross_pnl": 58.59
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 5,
+    "fold_pf": [
+     3.21,
+     null,
+     null,
+     1.76
+    ],
+    "sharpe": 4.71,
+    "total_pnl": 6.91,
+    "fees": 8.74
+   },
+   "holdout": {
+    "trades": 4,
+    "profit_factor": 0.24,
+    "sharpe": -74.88,
+    "net_pnl": -19.52,
+    "fees": 6.99,
+    "gross_pnl": -12.53
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     1.43,
+     0.12,
+     0.6,
+     0.7
+    ],
+    "sharpe": -6.69,
+    "total_pnl": -138.39,
+    "fees": 78.3
+   },
+   "holdout": {
+    "trades": 27,
+    "profit_factor": 1.1,
+    "sharpe": 4.85,
+    "net_pnl": 25.65,
+    "fees": 47.39,
+    "gross_pnl": 73.04
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     1.68,
+     0.98,
+     1.55,
+     0.82
+    ],
+    "sharpe": -4.23,
+    "total_pnl": 46.22,
+    "fees": 78.27
+   },
+   "holdout": {
+    "trades": 31,
+    "profit_factor": 1.22,
+    "sharpe": 11.56,
+    "net_pnl": 94.3,
+    "fees": 53.66,
+    "gross_pnl": 147.96
+   }
+  },
+  {
+   "variant": "loose_market",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 52,
+    "fold_pf": [
+     2.16,
+     0.63,
+     0.81,
+     0.3
+    ],
+    "sharpe": -19.46,
+    "total_pnl": -135.8,
+    "fees": 89.78
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 0.6,
+    "sharpe": -28.84,
+    "net_pnl": -173.16,
+    "fees": 45.18,
+    "gross_pnl": -127.98
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 36,
+    "fold_pf": [
+     0.54,
+     1.36,
+     0.01,
+     0.69
+    ],
+    "sharpe": -3.59,
+    "total_pnl": -75.02,
+    "fees": 59.15
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 1.03,
+    "sharpe": 0.62,
+    "net_pnl": 3.6,
+    "fees": 44.81,
+    "gross_pnl": 48.41
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 38,
+    "fold_pf": [
+     1.15,
+     1.84,
+     0.24,
+     0.33
+    ],
+    "sharpe": -13.98,
+    "total_pnl": -68.32,
+    "fees": 64.2
+   },
+   "holdout": {
+    "trades": 35,
+    "profit_factor": 1.13,
+    "sharpe": 7.47,
+    "net_pnl": 28.93,
+    "fees": 59.97,
+    "gross_pnl": 88.9
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     1.25,
+     0.77,
+     0.9,
+     0.75
+    ],
+    "sharpe": -14.03,
+    "total_pnl": -36.18,
+    "fees": 62.26
+   },
+   "holdout": {
+    "trades": 34,
+    "profit_factor": 1.72,
+    "sharpe": 25.87,
+    "net_pnl": 133.37,
+    "fees": 54.89,
+    "gross_pnl": 188.26
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     0.41,
+     0.88,
+     1.33,
+     0.47
+    ],
+    "sharpe": -18.43,
+    "total_pnl": -111.92,
+    "fees": 66.07
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.65,
+    "sharpe": -27.09,
+    "net_pnl": -68.81,
+    "fees": 53.48,
+    "gross_pnl": -15.33
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 34,
+    "fold_pf": [
+     1.93,
+     0.55,
+     2.05,
+     0.14
+    ],
+    "sharpe": -33.33,
+    "total_pnl": -106.56,
+    "fees": 57.13
+   },
+   "holdout": {
+    "trades": 38,
+    "profit_factor": 1.0,
+    "sharpe": -1.56,
+    "net_pnl": 0.7,
+    "fees": 64.08,
+    "gross_pnl": 64.78
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 41,
+    "fold_pf": [
+     1.88,
+     0.06,
+     0.55,
+     0.59
+    ],
+    "sharpe": -9.63,
+    "total_pnl": -58.44,
+    "fees": 68.0
+   },
+   "holdout": {
+    "trades": 34,
+    "profit_factor": 1.65,
+    "sharpe": 18.17,
+    "net_pnl": 136.01,
+    "fees": 56.92,
+    "gross_pnl": 192.93
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     0.67,
+     1.63,
+     0.27,
+     1.22
+    ],
+    "sharpe": 2.35,
+    "total_pnl": -3.65,
+    "fees": 65.28
+   },
+   "holdout": {
+    "trades": 41,
+    "profit_factor": 1.06,
+    "sharpe": 8.14,
+    "net_pnl": 26.18,
+    "fees": 69.15,
+    "gross_pnl": 95.33
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 46,
+    "fold_pf": [
+     2.53,
+     2.14,
+     0.4,
+     0.45
+    ],
+    "sharpe": -11.96,
+    "total_pnl": -33.67,
+    "fees": 73.61
+   },
+   "holdout": {
+    "trades": 30,
+    "profit_factor": 0.63,
+    "sharpe": -25.98,
+    "net_pnl": -128.79,
+    "fees": 50.67,
+    "gross_pnl": -78.12
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     0.65,
+     0.54,
+     1.06,
+     0.16
+    ],
+    "sharpe": -23.79,
+    "total_pnl": -206.0,
+    "fees": 66.9
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.64,
+    "sharpe": -22.19,
+    "net_pnl": -151.26,
+    "fees": 54.09,
+    "gross_pnl": -97.17
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 33,
+    "fold_pf": [
+     1.54,
+     3.25,
+     0.12,
+     1.28
+    ],
+    "sharpe": 3.82,
+    "total_pnl": 30.04,
+    "fees": 54.01
+   },
+   "holdout": {
+    "trades": 24,
+    "profit_factor": 0.64,
+    "sharpe": -19.6,
+    "net_pnl": -95.07,
+    "fees": 39.7,
+    "gross_pnl": -55.37
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 50,
+    "fold_pf": [
+     1.12,
+     0.65,
+     0.81,
+     0.17
+    ],
+    "sharpe": -31.09,
+    "total_pnl": -219.72,
+    "fees": 83.27
+   },
+   "holdout": {
+    "trades": 31,
+    "profit_factor": 1.02,
+    "sharpe": 0.6,
+    "net_pnl": 6.09,
+    "fees": 49.01,
+    "gross_pnl": 55.1
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 5,
+    "fold_pf": [
+     3.21,
+     null,
+     null,
+     1.76
+    ],
+    "sharpe": 4.71,
+    "total_pnl": 6.91,
+    "fees": 8.74
+   },
+   "holdout": {
+    "trades": 4,
+    "profit_factor": 0.24,
+    "sharpe": -74.88,
+    "net_pnl": -19.52,
+    "fees": 6.99,
+    "gross_pnl": -12.53
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     1.25,
+     0.12,
+     0.6,
+     0.72
+    ],
+    "sharpe": -6.22,
+    "total_pnl": -144.48,
+    "fees": 77.55
+   },
+   "holdout": {
+    "trades": 27,
+    "profit_factor": 1.13,
+    "sharpe": 6.08,
+    "net_pnl": 32.03,
+    "fees": 43.62,
+    "gross_pnl": 75.65
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     1.71,
+     0.97,
+     1.46,
+     0.84
+    ],
+    "sharpe": -3.77,
+    "total_pnl": 47.63,
+    "fees": 72.28
+   },
+   "holdout": {
+    "trades": 31,
+    "profit_factor": 1.23,
+    "sharpe": 11.99,
+    "net_pnl": 98.62,
+    "fees": 52.18,
+    "gross_pnl": 150.8
+   }
+  },
+  {
+   "variant": "loose_touch",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 52,
+    "fold_pf": [
+     2.14,
+     0.7,
+     0.83,
+     0.3
+    ],
+    "sharpe": -19.66,
+    "total_pnl": -134.42,
+    "fees": 87.55
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 0.6,
+    "sharpe": -28.6,
+    "net_pnl": -173.39,
+    "fees": 45.18,
+    "gross_pnl": -128.21
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 36,
+    "fold_pf": [
+     0.55,
+     1.4,
+     0.01,
+     0.7
+    ],
+    "sharpe": -3.46,
+    "total_pnl": -72.52,
+    "fees": 59.15
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 1.03,
+    "sharpe": 0.79,
+    "net_pnl": 4.11,
+    "fees": 44.82,
+    "gross_pnl": 48.93
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 38,
+    "fold_pf": [
+     1.16,
+     1.86,
+     0.25,
+     0.33
+    ],
+    "sharpe": -13.94,
+    "total_pnl": -66.81,
+    "fees": 64.21
+   },
+   "holdout": {
+    "trades": 35,
+    "profit_factor": 1.13,
+    "sharpe": 7.69,
+    "net_pnl": 29.9,
+    "fees": 59.97,
+    "gross_pnl": 89.87
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     1.26,
+     0.79,
+     0.92,
+     0.75
+    ],
+    "sharpe": -13.65,
+    "total_pnl": -32.23,
+    "fees": 62.26
+   },
+   "holdout": {
+    "trades": 34,
+    "profit_factor": 1.74,
+    "sharpe": 26.56,
+    "net_pnl": 136.96,
+    "fees": 54.9,
+    "gross_pnl": 191.86
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     0.42,
+     0.91,
+     1.33,
+     0.48
+    ],
+    "sharpe": -18.12,
+    "total_pnl": -109.4,
+    "fees": 66.07
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.66,
+    "sharpe": -26.5,
+    "net_pnl": -67.27,
+    "fees": 53.48,
+    "gross_pnl": -13.79
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 34,
+    "fold_pf": [
+     1.96,
+     0.55,
+     2.07,
+     0.14
+    ],
+    "sharpe": -33.14,
+    "total_pnl": -105.17,
+    "fees": 57.13
+   },
+   "holdout": {
+    "trades": 38,
+    "profit_factor": 1.01,
+    "sharpe": -1.36,
+    "net_pnl": 2.12,
+    "fees": 64.08,
+    "gross_pnl": 66.2
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 41,
+    "fold_pf": [
+     1.9,
+     0.06,
+     0.56,
+     0.59
+    ],
+    "sharpe": -9.43,
+    "total_pnl": -55.93,
+    "fees": 68.01
+   },
+   "holdout": {
+    "trades": 34,
+    "profit_factor": 1.66,
+    "sharpe": 18.43,
+    "net_pnl": 137.97,
+    "fees": 56.93,
+    "gross_pnl": 194.9
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     0.67,
+     1.63,
+     0.27,
+     1.23
+    ],
+    "sharpe": 2.45,
+    "total_pnl": -2.24,
+    "fees": 65.28
+   },
+   "holdout": {
+    "trades": 41,
+    "profit_factor": 1.06,
+    "sharpe": 8.35,
+    "net_pnl": 28.02,
+    "fees": 69.16,
+    "gross_pnl": 97.18
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 46,
+    "fold_pf": [
+     2.54,
+     1.74,
+     0.41,
+     0.45
+    ],
+    "sharpe": -12.02,
+    "total_pnl": -44.43,
+    "fees": 74.35
+   },
+   "holdout": {
+    "trades": 30,
+    "profit_factor": 0.63,
+    "sharpe": -25.76,
+    "net_pnl": -127.86,
+    "fees": 50.67,
+    "gross_pnl": -77.19
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     0.66,
+     0.54,
+     0.85,
+     0.16
+    ],
+    "sharpe": -23.47,
+    "total_pnl": -212.63,
+    "fees": 67.65
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.64,
+    "sharpe": -22.03,
+    "net_pnl": -150.3,
+    "fees": 54.09,
+    "gross_pnl": -96.21
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 33,
+    "fold_pf": [
+     1.54,
+     3.34,
+     0.12,
+     1.3
+    ],
+    "sharpe": 4.13,
+    "total_pnl": 32.51,
+    "fees": 54.01
+   },
+   "holdout": {
+    "trades": 24,
+    "profit_factor": 0.65,
+    "sharpe": -19.27,
+    "net_pnl": -93.57,
+    "fees": 39.7,
+    "gross_pnl": -53.87
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 50,
+    "fold_pf": [
+     1.13,
+     0.68,
+     0.82,
+     0.17
+    ],
+    "sharpe": -31.17,
+    "total_pnl": -217.28,
+    "fees": 83.27
+   },
+   "holdout": {
+    "trades": 31,
+    "profit_factor": 0.98,
+    "sharpe": -1.77,
+    "net_pnl": -9.09,
+    "fees": 49.72,
+    "gross_pnl": 40.63
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 5,
+    "fold_pf": [
+     3.21,
+     null,
+     null,
+     1.76
+    ],
+    "sharpe": 4.71,
+    "total_pnl": 6.91,
+    "fees": 8.74
+   },
+   "holdout": {
+    "trades": 4,
+    "profit_factor": 0.24,
+    "sharpe": -74.88,
+    "net_pnl": -19.52,
+    "fees": 6.99,
+    "gross_pnl": -12.53
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     1.25,
+     0.12,
+     0.6,
+     0.72
+    ],
+    "sharpe": -6.17,
+    "total_pnl": -144.01,
+    "fees": 77.55
+   },
+   "holdout": {
+    "trades": 27,
+    "profit_factor": 1.13,
+    "sharpe": 5.98,
+    "net_pnl": 32.0,
+    "fees": 44.38,
+    "gross_pnl": 76.38
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     1.73,
+     0.98,
+     1.47,
+     0.85
+    ],
+    "sharpe": -3.63,
+    "total_pnl": 51.63,
+    "fees": 72.28
+   },
+   "holdout": {
+    "trades": 31,
+    "profit_factor": 1.23,
+    "sharpe": 12.07,
+    "net_pnl": 99.59,
+    "fees": 52.18,
+    "gross_pnl": 151.77
+   }
+  },
+  {
+   "variant": "loose_plus2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 52,
+    "fold_pf": [
+     2.15,
+     0.7,
+     0.84,
+     0.3
+    ],
+    "sharpe": -19.6,
+    "total_pnl": -133.34,
+    "fees": 87.55
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 0.6,
+    "sharpe": -28.6,
+    "net_pnl": -173.39,
+    "fees": 45.18,
+    "gross_pnl": -128.21
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 36,
+    "fold_pf": [
+     0.57,
+     1.46,
+     0.01,
+     0.71
+    ],
+    "sharpe": -3.27,
+    "total_pnl": -68.79,
+    "fees": 59.15
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 1.03,
+    "sharpe": 1.04,
+    "net_pnl": 4.85,
+    "fees": 44.82,
+    "gross_pnl": 49.67
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 38,
+    "fold_pf": [
+     1.17,
+     1.88,
+     0.15,
+     0.33
+    ],
+    "sharpe": -13.54,
+    "total_pnl": -70.0,
+    "fees": 64.95
+   },
+   "holdout": {
+    "trades": 35,
+    "profit_factor": 1.14,
+    "sharpe": 7.95,
+    "net_pnl": 31.44,
+    "fees": 59.98,
+    "gross_pnl": 91.42
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     1.28,
+     0.82,
+     0.84,
+     0.77
+    ],
+    "sharpe": -13.14,
+    "total_pnl": -31.21,
+    "fees": 63.02
+   },
+   "holdout": {
+    "trades": 34,
+    "profit_factor": 1.75,
+    "sharpe": 26.66,
+    "net_pnl": 138.19,
+    "fees": 55.67,
+    "gross_pnl": 193.86
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     0.44,
+     0.95,
+     1.33,
+     0.49
+    ],
+    "sharpe": -17.74,
+    "total_pnl": -105.7,
+    "fees": 66.07
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.67,
+    "sharpe": -25.65,
+    "net_pnl": -65.04,
+    "fees": 53.49,
+    "gross_pnl": -11.55
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 34,
+    "fold_pf": [
+     1.99,
+     0.55,
+     2.1,
+     0.14
+    ],
+    "sharpe": -32.93,
+    "total_pnl": -103.04,
+    "fees": 57.13
+   },
+   "holdout": {
+    "trades": 38,
+    "profit_factor": 1.01,
+    "sharpe": -1.02,
+    "net_pnl": 4.56,
+    "fees": 64.09,
+    "gross_pnl": 68.65
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 41,
+    "fold_pf": [
+     1.92,
+     0.06,
+     0.58,
+     0.6
+    ],
+    "sharpe": -9.13,
+    "total_pnl": -52.25,
+    "fees": 68.01
+   },
+   "holdout": {
+    "trades": 34,
+    "profit_factor": 1.68,
+    "sharpe": 18.82,
+    "net_pnl": 141.0,
+    "fees": 56.94,
+    "gross_pnl": 197.94
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     0.67,
+     1.64,
+     0.27,
+     1.24
+    ],
+    "sharpe": 2.61,
+    "total_pnl": -0.11,
+    "fees": 65.28
+   },
+   "holdout": {
+    "trades": 41,
+    "profit_factor": 1.07,
+    "sharpe": 8.72,
+    "net_pnl": 31.09,
+    "fees": 69.17,
+    "gross_pnl": 100.26
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 46,
+    "fold_pf": [
+     2.57,
+     1.79,
+     0.44,
+     0.46
+    ],
+    "sharpe": -11.68,
+    "total_pnl": -38.37,
+    "fees": 74.36
+   },
+   "holdout": {
+    "trades": 30,
+    "profit_factor": 0.64,
+    "sharpe": -25.36,
+    "net_pnl": -126.24,
+    "fees": 50.67,
+    "gross_pnl": -75.57
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     0.67,
+     0.54,
+     0.85,
+     0.17
+    ],
+    "sharpe": -23.43,
+    "total_pnl": -210.28,
+    "fees": 67.65
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.64,
+    "sharpe": -21.81,
+    "net_pnl": -148.99,
+    "fees": 54.09,
+    "gross_pnl": -94.9
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 33,
+    "fold_pf": [
+     1.54,
+     3.49,
+     0.12,
+     1.32
+    ],
+    "sharpe": 4.63,
+    "total_pnl": 36.36,
+    "fees": 54.02
+   },
+   "holdout": {
+    "trades": 24,
+    "profit_factor": 0.66,
+    "sharpe": -18.78,
+    "net_pnl": -91.38,
+    "fees": 39.71,
+    "gross_pnl": -51.67
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 50,
+    "fold_pf": [
+     1.15,
+     0.71,
+     0.84,
+     0.17
+    ],
+    "sharpe": -31.26,
+    "total_pnl": -213.52,
+    "fees": 83.27
+   },
+   "holdout": {
+    "trades": 31,
+    "profit_factor": 0.94,
+    "sharpe": -4.06,
+    "net_pnl": -24.2,
+    "fees": 50.41,
+    "gross_pnl": 26.21
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 5,
+    "fold_pf": [
+     3.21,
+     null,
+     null,
+     1.76
+    ],
+    "sharpe": 4.71,
+    "total_pnl": 6.91,
+    "fees": 8.74
+   },
+   "holdout": {
+    "trades": 4,
+    "profit_factor": 0.24,
+    "sharpe": -74.88,
+    "net_pnl": -19.52,
+    "fees": 6.99,
+    "gross_pnl": -12.53
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     1.25,
+     0.12,
+     0.6,
+     0.7
+    ],
+    "sharpe": -6.58,
+    "total_pnl": -147.68,
+    "fees": 78.3
+   },
+   "holdout": {
+    "trades": 27,
+    "profit_factor": 1.14,
+    "sharpe": 6.48,
+    "net_pnl": 35.01,
+    "fees": 44.38,
+    "gross_pnl": 79.39
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     1.77,
+     0.99,
+     1.48,
+     0.86
+    ],
+    "sharpe": -3.39,
+    "total_pnl": 57.72,
+    "fees": 72.29
+   },
+   "holdout": {
+    "trades": 31,
+    "profit_factor": 1.2,
+    "sharpe": 10.97,
+    "net_pnl": 88.25,
+    "fees": 52.9,
+    "gross_pnl": 141.15
+   }
+  },
+  {
+   "variant": "loose_plus5bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 52,
+    "fold_pf": [
+     2.16,
+     0.73,
+     0.86,
+     0.3
+    ],
+    "sharpe": -19.57,
+    "total_pnl": -131.1,
+    "fees": 87.55
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 0.6,
+    "sharpe": -28.6,
+    "net_pnl": -173.39,
+    "fees": 45.18,
+    "gross_pnl": -128.21
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 36,
+    "fold_pf": [
+     0.59,
+     1.4,
+     0.01,
+     0.7
+    ],
+    "sharpe": -3.53,
+    "total_pnl": -69.41,
+    "fees": 59.15
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 1.03,
+    "sharpe": 0.79,
+    "net_pnl": 4.11,
+    "fees": 44.82,
+    "gross_pnl": 48.93
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ETH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 37,
+    "fold_pf": [
+     0.96,
+     1.86,
+     0.25,
+     0.33
+    ],
+    "sharpe": -14.74,
+    "total_pnl": -77.56,
+    "fees": 62.44
+   },
+   "holdout": {
+    "trades": 35,
+    "profit_factor": 1.17,
+    "sharpe": 9.39,
+    "net_pnl": 37.56,
+    "fees": 59.25,
+    "gross_pnl": 96.81
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SOL/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     1.26,
+     0.79,
+     0.92,
+     0.75
+    ],
+    "sharpe": -13.65,
+    "total_pnl": -32.23,
+    "fees": 62.26
+   },
+   "holdout": {
+    "trades": 34,
+    "profit_factor": 1.8,
+    "sharpe": 29.25,
+    "net_pnl": 149.01,
+    "fees": 54.96,
+    "gross_pnl": 203.97
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BNB/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 38,
+    "fold_pf": [
+     0.42,
+     0.91,
+     0.24,
+     0.42
+    ],
+    "sharpe": -22.5,
+    "total_pnl": -128.12,
+    "fees": 62.57
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.65,
+    "sharpe": -27.21,
+    "net_pnl": -69.66,
+    "fees": 53.48,
+    "gross_pnl": -16.18
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "XRP/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 33,
+    "fold_pf": [
+     1.96,
+     0.11,
+     2.07,
+     0.16
+    ],
+    "sharpe": -30.71,
+    "total_pnl": -105.13,
+    "fees": 55.39
+   },
+   "holdout": {
+    "trades": 38,
+    "profit_factor": 0.99,
+    "sharpe": -2.16,
+    "net_pnl": -3.73,
+    "fees": 64.07,
+    "gross_pnl": 60.34
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOGE/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     2.02,
+     0.06,
+     0.56,
+     0.59
+    ],
+    "sharpe": -9.53,
+    "total_pnl": -52.39,
+    "fees": 66.25
+   },
+   "holdout": {
+    "trades": 33,
+    "profit_factor": 1.65,
+    "sharpe": 18.72,
+    "net_pnl": 135.29,
+    "fees": 55.15,
+    "gross_pnl": 190.44
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "ADA/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 38,
+    "fold_pf": [
+     0.67,
+     1.62,
+     0.27,
+     0.65
+    ],
+    "sharpe": -6.51,
+    "total_pnl": -87.41,
+    "fees": 64.14
+   },
+   "holdout": {
+    "trades": 41,
+    "profit_factor": 1.06,
+    "sharpe": 8.35,
+    "net_pnl": 28.02,
+    "fees": 69.16,
+    "gross_pnl": 97.18
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "AVAX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     2.26,
+     1.46,
+     0.41,
+     0.45
+    ],
+    "sharpe": -12.57,
+    "total_pnl": -62.12,
+    "fees": 73.35
+   },
+   "holdout": {
+    "trades": 29,
+    "profit_factor": 0.47,
+    "sharpe": -38.51,
+    "net_pnl": -183.38,
+    "fees": 49.66,
+    "gross_pnl": -133.72
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LINK/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 40,
+    "fold_pf": [
+     0.66,
+     0.54,
+     0.85,
+     0.16
+    ],
+    "sharpe": -23.47,
+    "total_pnl": -212.63,
+    "fees": 67.65
+   },
+   "holdout": {
+    "trades": 32,
+    "profit_factor": 0.64,
+    "sharpe": -22.03,
+    "net_pnl": -150.3,
+    "fees": 54.09,
+    "gross_pnl": -96.21
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "LTC/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 31,
+    "fold_pf": [
+     1.54,
+     3.34,
+     0.0,
+     1.31
+    ],
+    "sharpe": 4.47,
+    "total_pnl": 28.22,
+    "fees": 50.52
+   },
+   "holdout": {
+    "trades": 23,
+    "profit_factor": 0.65,
+    "sharpe": -19.72,
+    "net_pnl": -91.09,
+    "fees": 37.97,
+    "gross_pnl": -53.12
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "DOT/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 46,
+    "fold_pf": [
+     1.13,
+     0.68,
+     0.47,
+     0.15
+    ],
+    "sharpe": -32.18,
+    "total_pnl": -244.69,
+    "fees": 76.98
+   },
+   "holdout": {
+    "trades": 30,
+    "profit_factor": 0.94,
+    "sharpe": -4.28,
+    "net_pnl": -24.43,
+    "fees": 47.98,
+    "gross_pnl": 23.55
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "TRX/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 5,
+    "fold_pf": [
+     3.21,
+     null,
+     null,
+     1.76
+    ],
+    "sharpe": 4.71,
+    "total_pnl": 6.91,
+    "fees": 8.74
+   },
+   "holdout": {
+    "trades": 4,
+    "profit_factor": 0.24,
+    "sharpe": -74.88,
+    "net_pnl": -19.52,
+    "fees": 6.99,
+    "gross_pnl": -12.53
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "BCH/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 44,
+    "fold_pf": [
+     1.25,
+     0.14,
+     0.6,
+     0.72
+    ],
+    "sharpe": -6.33,
+    "total_pnl": -141.5,
+    "fees": 75.8
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 1.02,
+    "sharpe": 1.28,
+    "net_pnl": 5.54,
+    "fees": 42.53,
+    "gross_pnl": 48.07
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "NEAR/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 45,
+    "fold_pf": [
+     1.73,
+     0.98,
+     1.47,
+     0.85
+    ],
+    "sharpe": -3.63,
+    "total_pnl": 51.63,
+    "fees": 72.28
+   },
+   "holdout": {
+    "trades": 31,
+    "profit_factor": 1.23,
+    "sharpe": 12.07,
+    "net_pnl": 99.59,
+    "fees": 52.18,
+    "gross_pnl": 151.77
+   }
+  },
+  {
+   "variant": "loose_plus2bp_entry_through_2bp",
+   "strategy": "hft_exhaustion_fade",
+   "symbol": "SUI/USDT",
+   "timeframe": "5m",
+   "oos": {
+    "trades": 51,
+    "fold_pf": [
+     1.77,
+     0.98,
+     0.84,
+     0.3
+    ],
+    "sharpe": -21.27,
+    "total_pnl": -149.41,
+    "fees": 85.79
+   },
+   "holdout": {
+    "trades": 26,
+    "profit_factor": 0.6,
+    "sharpe": -28.6,
+    "net_pnl": -173.39,
+    "fees": 45.18,
+    "gross_pnl": -128.21
+   }
+  }
+ ]
+}

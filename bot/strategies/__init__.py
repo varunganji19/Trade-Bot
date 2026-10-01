@@ -8,7 +8,8 @@ from .scalper import VWAPScalper
 from .fx_regime_meanrev import FXRegimeMeanRev
 from .ts_momentum import TimeSeriesMomentum
 from .hft import (HFTMicroBreakout, HFTExhaustionFade, HFTMarketMaker,
-                  HFTOFIMomentum, HFTCrossReversion, HFTFundingReversion)
+                  HFTOFIMomentum, HFTCrossReversion, HFTFundingReversion,
+                  HFTTakerFlow)
 
 STRATEGY_CLASSES = {
     TurtleTrend.name: TurtleTrend,
@@ -22,11 +23,13 @@ STRATEGY_CLASSES = {
     HFTOFIMomentum.name: HFTOFIMomentum,
     HFTCrossReversion.name: HFTCrossReversion,
     HFTFundingReversion.name: HFTFundingReversion,
+    HFTTakerFlow.name: HFTTakerFlow,
 }
 
 HFT_STRATEGY_NAMES = ("hft_micro_breakout", "hft_exhaustion_fade",
                       "hft_market_maker", "hft_ofi_momentum",
-                      "hft_cross_reversion", "hft_funding_reversion")
+                      "hft_cross_reversion", "hft_funding_reversion",
+                      "hft_taker_flow")
 
 # CANDIDATES: registered, backtestable and available in the Lab and the
 # battery, but NEVER voting in the live ensemble, whatever a gate measures:
@@ -45,6 +48,8 @@ CANDIDATE_NOTES = {
                            "(docs/RESULTS.md §1)",
     "hft_funding_reversion": "candidate — the live engine has no funding data, and it "
                              "loses before fees; never votes (docs/RESULTS.md §1)",
+    "hft_taker_flow": "candidate — real Binance taker flow, which the live engine "
+                      "does not fetch; never votes (experiments/taker_flow)",
 }
 CANDIDATE_STRATEGIES = tuple(CANDIDATE_NOTES)
 
@@ -77,6 +82,6 @@ def get_strategy(name: str, params=None) -> BaseStrategy:
 __all__ = ["BaseStrategy", "Signal", "TurtleTrend", "ConnorsMeanReversion",
            "VWAPScalper", "FXRegimeMeanRev", "TimeSeriesMomentum",
            "HFTMicroBreakout", "HFTExhaustionFade", "HFTMarketMaker",
-           "HFTOFIMomentum", "HFTCrossReversion", "HFTFundingReversion",
+           "HFTOFIMomentum", "HFTCrossReversion", "HFTFundingReversion", "HFTTakerFlow",
            "HFT_STRATEGY_NAMES", "CANDIDATE_STRATEGIES", "CANDIDATE_NOTES",
            "STRATEGY_CLASSES", "get_strategies", "get_strategy"]

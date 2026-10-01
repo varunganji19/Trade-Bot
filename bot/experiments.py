@@ -257,8 +257,9 @@ def _fetch_frames(decl: Declaration, quiet: bool) -> tuple[dict, dict, list]:
         try:
             df = fetch_history(spec, days=decl.days)
             if decl.book == "fast" and kind == "crypto":
+                from bot.flow import attach_taker_flow
                 from bot.funding import attach_funding
-                df = attach_funding(df, symbol)
+                df = attach_taker_flow(attach_funding(df, symbol), symbol, tf)
             frames[(kind, symbol, tf)] = (spec, df)
         except Exception as exc:
             errors.append(f"{symbol} {tf}: data error {type(exc).__name__}: {exc}")
@@ -355,6 +356,11 @@ def run_declaration(path: str, *, workers: int | None = None, quiet: bool = Fals
                     and u["strategy"] == strat and "error" not in u]
             entry = {"variant": v["name"], "params": v["params"], "strategy": strat,
                      "markets": len(mine), "oos": _pooled(mine, regimes)}
+            if decl.kind == "study":
+                # what the gate's rule would say — reported, never written
+                from bot.promotion import verdicts_from_evidence
+                rule = verdicts_from_evidence({strat: entry["oos"]})[strat]
+                entry["rule_v2"] = {"status": rule["status"], "why": rule["why"]}
             if decl.holdout_days:
                 entry["holdout"] = _pooled(mine, regimes, key="holdout_trades")
                 entry["holdout"]["fees"] = round(sum(u["holdout"]["fees"] or 0 for u in mine), 2)
@@ -406,6 +412,8 @@ def _print_summary(result: dict) -> None:
         line = f"  {e['variant']:16s} {e['strategy']:22s} OOS {_fmt_ci(e['oos'])}"
         if "holdout" in e:
             line += f" | holdout net ${e['holdout']['net_pnl']:+,.0f}"
+        if "rule_v2" in e:
+            line += f" | rule v2: {e['rule_v2']['status']}"
         print(line)
     for name, v in sorted((result.get("verdicts") or {}).items()):
         print(f"  verdict {v['status']:9s} {name:22s} {v['why']}")

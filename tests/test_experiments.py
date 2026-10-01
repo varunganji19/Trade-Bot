@@ -377,3 +377,11 @@ def test_gate_header_counts_voters_not_promoted_candidates(tmp_path):
     why = promo.gate_state(path)["why"]
     assert "0 may vote" in why and "promoted" not in why
     promo._CACHE.update(path=None, mtime=None, verdicts={})
+
+
+def test_a_study_reports_what_the_gate_rule_would_say(tmp_path, monkeypatch):
+    _fake_world(tmp_path, monkeypatch, edge=-6.0)
+    path = _write(tmp_path, eid="s2", kind="study", strategies='["turtle_trend"]')
+    res = ex.run_declaration(path, workers=1, quiet=True, require_preregistered=False)
+    assert res["summary"][0]["rule_v2"]["status"] == promo.DEMOTED
+    assert not (tmp_path / "db" / "results" / "promotions_standard.json").exists()

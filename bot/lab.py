@@ -235,9 +235,11 @@ def run_lab(spec: LabSpec) -> dict:
     df = fetch_history(kind_spec, days=spec.days or None,
                        start=spec.start, end=spec.end)
     if spec.book == "hft":
-        # the fast book's funding strategy reads the perpetual's funding rate
+        # the fast book's funding strategy reads the perpetual's funding rate,
+        # and the taker-flow strategy Binance's aggressor split
+        from bot.flow import attach_taker_flow
         from bot.funding import attach_funding
-        df = attach_funding(df, spec.symbol)
+        df = attach_taker_flow(attach_funding(df, spec.symbol), spec.symbol, spec.timeframe)
     _MAX_BARS = 100_000
     if df is not None and len(df) > _MAX_BARS:
         raise LabError(f"only {len(df)} bars returned — exceeds the {_MAX_BARS}-bar lab cap "

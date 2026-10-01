@@ -380,6 +380,39 @@ class HFTOFIMomentum(BaseStrategy):
         return None, None
 
 
+class HFTTakerFlow(HFTOFIMomentum):
+    """The order-flow continuation of `hft_ofi_momentum`, on REAL taker flow.
+
+    Same entry, stop, target and exits; only the imbalance changes. Instead
+    of guessing direction from where a bar closed in its range, it uses the
+    aggressor split Binance reports for every kline (bot/flow.py): signed
+    flow = (2 x taker-buy fraction - 1) x volume, i.e. volume bought by takers
+    minus volume sold by takers — the quantity Cont, Kukanov & Stoikov
+    actually describe. Without that column (forex, a failed fetch, the live
+    engine, which does not fetch it) it stays flat and says why."""
+    name = "hft_taker_flow"
+    preferred_timeframes = ("5m",)
+    book = "fast"
+
+    def _imbalance_z(self, df, i: int) -> float:
+        if "taker_buy_frac" not in df.columns:
+            return float("nan")
+        p = self.p
+        signed = (2.0 * df["taker_buy_frac"] - 1.0) * df["volume"]
+        imb = signed.rolling(p.hft_ofi_window).sum()
+        sigma = imb.rolling(100, min_periods=60).std()
+        mu = imb.rolling(100, min_periods=60).mean()
+        z = (imb - mu) / sigma
+        return float(z.iloc[i])
+
+    def evaluate(self, df, i: int) -> Signal:
+        if "taker_buy_frac" not in df.columns or not self._ok(
+                self._at(df, "taker_buy_frac", i)):
+            return Signal(self.name, "FLAT", 0.0,
+                          rationale="no taker-flow data (Binance klines) for this bar")
+        return super().evaluate(df, i)
+
+
 class HFTCrossReversion(BaseStrategy):
     """Spread reversion on a cross pair (pairs trading in one instrument).
 

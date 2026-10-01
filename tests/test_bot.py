@@ -2718,6 +2718,10 @@ def test_dashboard_evidence_endpoint_smoke():
     # the real machine's ledger (if present) either loads or reports why not
     k = payload["kronos"]
     assert ("n" in k) or ("error" in k)
+    # the pooled IC is context; the per-market verdict that decides the vote
+    # travels with it so the page can lead with it
+    if "n" in k:
+        assert k["verdict"]["promoted"] is False and k["verdict"]["ic"] < k["hurdle"]
 
 
 def test_cli_writers_create_results_dir_on_fresh_machine():

@@ -1098,11 +1098,15 @@ async function refreshEvidence() {
   const S = k.series || [];
   const labels = S.map(p => p.i);
   if (kronosChart) { kronosChart.destroy(); kronosChart = null; }
-  /* the ledger pools every market and timeframe ever forecast; the voting
-     decision is per market (main.py kronos), and Kronos runs offline only */
+  /* the ledger pools every market and timeframe ever forecast, which can
+     manufacture rank correlation, so the pooled IC is shown as context and
+     the per-market verdict (main.py kronos) leads */
+  const v = k.verdict;
+  const verdictTxt = v ? 'Verdict: ' + v.market + ', ' + v.forecasts + ' forecasts, IC ' +
+    Number(v.ic).toFixed(3) + ' → ' + (v.promoted ? 'promoted' : 'not promoted') + ' (' + v.date + '). ' : '';
   $('#krMeta').textContent = k.error ? 'Ledger unavailable: ' + k.error
-    : k.n ? k.n + ' resolved forecasts, all markets pooled · rolling IC ' +
-      (k.ic == null ? '—' : Number(k.ic).toFixed(3)) + ' (hurdle ' + (k.hurdle ?? 0.02) + ') · ' +
+    : k.n ? verdictTxt + 'Chart: ' + k.n + ' resolved forecasts, all markets and horizons pooled · pooled IC ' +
+      (k.ic == null ? '—' : Number(k.ic).toFixed(3)) + ' is context, not a verdict (pooling unlike markets inflates rank IC) · ' +
       'offline research only — it does not vote in live trading' + (k.note ? '. Note: ' + k.note : '')
     : 'Rolling rank-IC against its promotion hurdle';
   $('#krEmpty').innerHTML = KR_EMPTY_HTML;      // restore after a failure render

@@ -823,6 +823,14 @@ def _voting_payload(book: str) -> dict:
                 "error": f"{type(exc).__name__}: {exc}"}
 
 
+# The pooled ledger mixes markets and horizons (legacy records carry no market
+# key), and pooling unlike series can manufacture rank correlation — its IC is
+# not the vote. The vote is decided per market by `main.py kronos`; this is
+# the last such run (README "Kronos", CHANGELOG 2026-09-19).
+KRONOS_LAST_VERDICT = {"market": "BTC/USDT 1h", "forecasts": 128, "ic": -0.0754,
+                       "promoted": False, "date": "2026-09-19"}
+
+
 def _evidence_kronos() -> dict:
     """The Kronos IC ledger as a series: rolling rank-IC (same math as
     promoted()'s gate) computed over the persisted records, so the UI can draw
@@ -855,7 +863,8 @@ def _evidence_kronos() -> dict:
         return {"n": len(recs), "pending": pending, "ic": _ic_of(recs, cfg),
                 "hurdle": cfg.ic_hurdle, "demote_below": cfg.demote_below,
                 "min_observations": cfg.min_observations, "series": series,
-                "note": "records resolved before 2026-09 predate per-market keying"}
+                "note": "records resolved before 2026-09 predate per-market keying",
+                "verdict": KRONOS_LAST_VERDICT}
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
 

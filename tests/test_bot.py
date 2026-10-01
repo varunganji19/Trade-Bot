@@ -2605,7 +2605,7 @@ def test_validation_report_renderer():
     assert "| 1 | 3 | +2.00 | 33.3 |" in md   # path table
 
 
-def test_engine_interval_is_changeable_while_running():
+def test_engine_interval_is_changeable_while_running(tmp_path, monkeypatch):
     """REGRESSION: the loop captured its interval as a thread argument and the
     UI disabled the Interval select whenever the engine ran — the cadence
     could only be changed by stopping and restarting the engine (which
@@ -2629,15 +2629,14 @@ def test_engine_interval_is_changeable_while_running():
         assert r.status_code == 200 and r.json()["interval"] == 300
         assert dash._engine_interval == 300
         # the select follows /api/stats — the endpoint the UI actually polls
-        # (asserted on the source: /api/stats reads the journal, whose test
-        # tmp dirs are gone by the time the full suite reaches this test)
-        assert 'stats["interval"] = _engine_interval' in code
+        monkeypatch.setattr(dash, "journal", dash.Journal(str(tmp_path / "t.db")))
+        assert client.get("/api/stats").json()["interval"] == 300
         # ...and a STOPPED engine reports the chosen cadence, not the config
         # default (which snapped the control back after every change)
         assert client.get("/api/engine/status").json()["interval"] == 300
         r = client.post("/api/hft/engine/interval", json={"interval": 5})
         assert r.status_code == 200 and dash._hft_interval == 5
-        assert 'stats["interval"] = _hft_interval' in code
+        assert client.get("/api/hft/stats").json()["interval"] == 5
         # the validated floors still hold (interval=0 was a hot loop)
         assert client.post("/api/engine/interval", json={"interval": 0}).status_code == 422
         assert client.post("/api/hft/engine/interval", json={"interval": 0}).status_code == 422
@@ -3748,7 +3747,7 @@ def test_cycle_budget_is_measured_and_surfaced():
     assert "4 slow so far" in eng.health_note
 
 
-def test_veto_counts_are_served_to_the_dashboard():
+def test_veto_counts_are_served_to_the_dashboard(tmp_path, monkeypatch):
     """The counts have to reach the UI — an aggregate nobody can see is the
     same as no aggregate."""
     import bot.dashboard as dash
@@ -3759,10 +3758,14 @@ def test_veto_counts_are_served_to_the_dashboard():
     # ordered by count, so the UI's first row IS the top blocker
     assert payload["by_reason"][0] == {"reason": "tiny_stop_dust", "count": 7}
     assert dash._veto_payload(None)["attempts"] == 0
-    with open(dash.__file__) as f:
-        code = f.read()
-    assert 'stats["vetoes"] = _veto_payload(eng)' in code       # both books
-    assert code.count('stats["vetoes"] = _veto_payload(eng)') == 2
+    # both books' stats polls serve it (behaviour, not source text: the
+    # endpoints live in different modules since the dashboard split)
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(dash, "journal", dash.Journal(str(tmp_path / "t.db")))
+    monkeypatch.setattr(dash, "_veto_payload", lambda e: {"served": True})
+    client = TestClient(dash.app, base_url="http://127.0.0.1")
+    for url in ("/api/stats", "/api/hft/stats"):
+        assert client.get(url).json()["vetoes"] == {"served": True}, url
     # the UI half lives in the SERVED files now (bot/static/), so the test
     # reads what the app actually sends rather than a module-source copy
     js = open(dash.static_path("app.js")).read()

@@ -819,7 +819,7 @@ def _voting_payload(book: str) -> dict:
         from bot.promotion import voting_strategies
         return voting_strategies(book)
     except Exception as exc:
-        return {"voting": [], "silent": [], "registered": 0, "gate": {},
+        return {"voting": [], "voters": [], "silent": [], "registered": 0, "gate": {},
                 "error": f"{type(exc).__name__}: {exc}"}
 
 
@@ -1314,11 +1314,11 @@ def _auto_resume_hft_engine():
         return
     result = _spawn_hft_engine(interval)
     if result["status"] == "owned":
-        print(f"[dashboard] HFT book NOT auto-resumed — {result['detail']}")
+        print(f"[dashboard] fast book NOT auto-resumed — {result['detail']}")
         return
     if result["status"] == "started":
         _HFT_AUTO_RESUMED_AT_BOOT = True
-        print(f"[dashboard] HFT book auto-resumed (interval {interval}s)")
+        print(f"[dashboard] fast book auto-resumed (interval {interval}s)")
 
 
 @app.post("/api/engine/interval")
@@ -1450,7 +1450,7 @@ def api_hft_candles(symbol: str = Query(default=""),
     sym = symbol or next(iter(specs))
     spec = specs.get(sym)
     if spec is None:
-        raise HTTPException(404, f"{sym} is not on the HFT watchlist")
+        raise HTTPException(404, f"{sym} is not on the fast-book watchlist")
     eng = _get_hft_engine()
     md = eng.market_data if eng is not None else MarketData(ttl_seconds=2.0)
     try:
@@ -1473,7 +1473,7 @@ def api_hft_candles(symbol: str = Query(default=""),
 @app.post("/api/hft/engine/start")
 def api_hft_engine_start(body: HftEngineIn):
     if not CONFIG.hft.enabled:
-        raise HTTPException(409, "HFT book disabled via HFT_ENABLED=0")
+        raise HTTPException(409, "fast book disabled via HFT_ENABLED=0")
     existing = _get_hft_engine()
     if existing is not None:
         return {"status": "already_running", "cycles": existing.cycles}
@@ -1481,7 +1481,7 @@ def api_hft_engine_start(body: HftEngineIn):
     if result["status"] == "owned":
         raise HTTPException(409, result["detail"])
     if result["status"] == "started":
-        _state_warning(result, _write_hft_state(True, body.interval), "HFT engine started")
+        _state_warning(result, _write_hft_state(True, body.interval), "fast book engine started")
     return result
 
 
@@ -1491,7 +1491,7 @@ def api_hft_engine_stop(body: EmptyIn):
     with _hft_lock:
         if _hft_engine is None:
             ok = _write_hft_state(False, CONFIG.hft.live_interval_seconds)
-            return _state_warning({"status": "not_running"}, ok, "HFT engine stopped")
+            return _state_warning({"status": "not_running"}, ok, "fast book engine stopped")
         _hft_engine = None
         stop_interval = _hft_interval
     th = _hft_thread
@@ -1499,9 +1499,9 @@ def api_hft_engine_stop(body: EmptyIn):
         ok = _write_hft_state(False, stop_interval)
         _join_in_background(th, lambda iv: _write_hft_state(False, iv),
                             stop_interval)
-        return _state_warning({"status": "stopping"}, ok, "HFT engine stopped")
+        return _state_warning({"status": "stopping"}, ok, "fast book engine stopped")
     ok = _write_hft_state(False, stop_interval)
-    return _state_warning({"status": "stopped"}, ok, "HFT engine stopped")
+    return _state_warning({"status": "stopped"}, ok, "fast book engine stopped")
 
 
 @app.get("/api/hft/engine/status")

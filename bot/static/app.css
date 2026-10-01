@@ -273,6 +273,7 @@ select { appearance: none; -webkit-appearance: none; padding-right: 34px; cursor
 .veto-row .n { flex: 1 1 0; min-width: 0; text-align: right; font-variant-numeric: tabular-nums;
   font-weight: 600; overflow-wrap: anywhere; }
 .veto-row.top { background: var(--color-neg-soft); color: var(--color-neg); }
+.veto-row.warn { background: var(--color-warn-soft); color: var(--color-warn); }
 .veto-row .quiet { color: var(--color-muted); font-weight: 400; }
 
 /* ---------------------------------------------------------------- charts */
@@ -310,7 +311,8 @@ canvas.is-empty { visibility: hidden; }
 .tag.close, .tag.reset, .tag.crypto { background: var(--color-accent-soft); color: var(--color-accent); }
 .tag.forex { background: var(--color-warn-soft); color: var(--color-warn); }
 .tag.tf { text-transform: none; font-family: var(--font-mono); font-weight: 500; background: none; border: 1px solid var(--color-border); }
-.tag.demo { text-transform: none; background: none; border: 1px dashed var(--color-warn); color: var(--color-warn); }
+.tag.demo, .tag.exp { text-transform: none; background: none; border: 1px dashed var(--color-warn); color: var(--color-warn); }
+.tab .tag.exp { margin-left: auto; font-size: 10px; }
 
 /* ---------------------------------------------------------------- tables */
 .tbl-wrap { overflow-x: auto; margin: 0 -20px; padding: 0 20px; }

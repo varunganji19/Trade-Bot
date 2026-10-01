@@ -3224,6 +3224,26 @@ def test_a_book_with_no_voting_strategy_says_so(tmp_path, monkeypatch):
     assert 'id="hftStratBox"' in html and 'id="stratBox"' in html
 
 
+def test_measured_loser_is_not_shown_as_an_unmeasured_candidate(monkeypatch):
+    """A candidate the battery measured as a loser was listed as "not voting
+    until measured" — the measured verdict must win, and a voter on probation
+    must carry its status so the UI can say it is unproven."""
+    import bot.promotion as promo
+    from bot.strategies import CANDIDATE_STRATEGIES
+    cand = CANDIDATE_STRATEGIES[0]
+    monkeypatch.setattr(promo, "load_verdicts", lambda path=None, **kwargs: {
+        cand: {"status": promo.DEMOTED, "why": "median OOS PF 0.5 — measured loser"},
+        "hft_exhaustion_fade": {"status": promo.PROBATION, "why": "only 21 OOS trades"},
+    })
+    st = promo.voting_strategies("fast")
+    silent = {x["name"]: x["why"] for x in st["silent"]}
+    assert silent[cand] == "median OOS PF 0.5 — measured loser"
+    voters = {v["name"]: v for v in st["voters"]}
+    assert voters["hft_exhaustion_fade"]["status"] == promo.PROBATION
+    assert voters["hft_exhaustion_fade"]["why"] == "only 21 OOS trades"
+    assert [v["name"] for v in st["voters"]] == st["voting"]
+
+
 def test_promotion_verdicts_reload_without_a_restart(tmp_path, monkeypatch):
     """A long-running engine read the verdicts ONCE at construction, so a
     battery run mid-session changed nothing until a restart — a stale gate

@@ -207,18 +207,25 @@ def voting_strategies(book: str) -> dict:
     from bot.strategies import CANDIDATE_STRATEGIES, STRATEGY_CLASSES
     want = _book_name(book)
     verdicts = load_verdicts(book=want)
-    voting, silent = [], []
+    voting, voters, silent = [], [], []
     for name, cls in sorted(STRATEGY_CLASSES.items()):
         if getattr(cls, "book", "standard") != want:
             continue
-        if name in CANDIDATE_STRATEGIES:
-            silent.append({"name": name, "why": "candidate — not voting until measured"})
-        elif is_demoted(name, verdicts):
+        # A measured loss outranks "candidate": both are silent, but only one
+        # of them is an unknown.
+        if is_demoted(name, verdicts):
             silent.append({"name": name,
                            "why": verdicts.get(name, {}).get("why", "demoted")})
+        elif name in CANDIDATE_STRATEGIES:
+            silent.append({"name": name, "why": "candidate — not voting until measured"})
         else:
             voting.append(name)
-    return {"voting": voting, "silent": silent,
+            # A voter on probation trades without proof; the UI has to be
+            # able to say so next to its name.
+            v = verdicts.get(name) or {}
+            voters.append({"name": name, "status": v.get("status", "unmeasured"),
+                           "why": v.get("why", "no verdict yet — votes unmeasured")})
+    return {"voting": voting, "voters": voters, "silent": silent,
             "registered": len(voting) + len(silent),
             "gate": gate_state(book=want)}
 

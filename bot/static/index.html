@@ -61,7 +61,7 @@ document.documentElement.setAttribute('data-theme',t);})();
     <span class="nav-label">Trade</span>
     <button class="tab active" data-view="overview" id="tab-overview"><svg class="ic" aria-hidden="true"><use href="#i-overview"/></svg>Overview</button>
     <button class="tab" data-view="portfolio" id="tab-portfolio"><svg class="ic" aria-hidden="true"><use href="#i-portfolio"/></svg>Portfolio</button>
-    <button class="tab" data-view="hft" id="tab-hft"><svg class="ic" aria-hidden="true"><use href="#i-bolt"/></svg>Fast book</button>
+    <button class="tab" data-view="hft" id="tab-hft"><svg class="ic" aria-hidden="true"><use href="#i-bolt"/></svg>Fast book <span class="tag exp" title="Experimental: no strategy here has proven an edge">exp</span></button>
     <button class="tab" data-view="watchlist" id="tab-watchlist"><svg class="ic" aria-hidden="true"><use href="#i-list"/></svg>Watchlist</button>
     <span class="nav-label">Research</span>
     <button class="tab" data-view="lab" id="tab-lab"><svg class="ic" aria-hidden="true"><use href="#i-flask"/></svg>Strategy Lab</button>
@@ -230,7 +230,7 @@ document.documentElement.setAttribute('data-theme',t);})();
       <div><h2>Fast book engine</h2><p class="hint" id="hftFeeHint"></p></div>
       <span class="engine-pill"><span class="dot" id="hftEngineDot"></span><span id="hftPillText">Checking…</span></span>
     </div>
-    <p class="lede">A second paper account on <b>5-minute</b> bars with its own capital, risk limits and fee tier. Every strategy here refuses a setup whose stop cannot pay for the round-trip fees. The research and fee math are in <code>HFT.md</code>.</p>
+    <p class="lede"><b>Experimental — no proven edge.</b> A second paper account on <b>5-minute</b> bars with its own capital, risk limits and fee tier. Every strategy here refuses a setup whose stop cannot pay for the round-trip fees. Most of its strategies are measured losers after fees, and a strategy that may still trade here has not proven an edge either (its status is listed below). The research and fee math are in <code>HFT.md</code> and <code>docs/HFT_TRADE_FREQUENCY.md</code>.</p>
     <div class="control-row" id="hftEngineControls">
       <button class="btn btn-primary" id="hftStartBtn"><svg class="ic ic-fill" aria-hidden="true"><use href="#i-play"/></svg>Start fast book</button>
       <button class="btn btn-secondary" id="hftStopBtn" disabled><svg class="ic ic-fill" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button>

@@ -155,7 +155,7 @@ const VIEWS = ['overview', 'portfolio', 'hft', 'watchlist', 'lab', 'evidence', '
 const VIEW_COPY = {
   overview: ['Standard book · paper', 'Overview', 'Performance, positions and the engine at a glance.'],
   portfolio: ['Standard book · paper', 'Portfolio', 'Open exposure and every trade the bot has taken.'],
-  hft: ['Fast book · paper', 'Fast book', 'A separate 5-minute account with its own capital and fees.'],
+  hft: ['Fast book · paper · experimental', 'Fast book (experimental)', 'A separate 5-minute account with its own capital and fees. No proven edge.'],
   watchlist: ['Standard book · paper', 'Watchlist', 'The markets and timeframes the engine trades.'],
   lab: ['Research', 'Strategy Lab', 'Backtest any strategy on real data before trusting it.'],
   evidence: ['Research', 'Evidence', 'Validation, forecast quality and rule adherence — measured, not claimed.'],
@@ -327,8 +327,12 @@ function renderStrategies(boxSel, listSel, st) {
             '<span class="quiet">' + esc(g.why || '') + ' · ' + esc(g.generated_at || '') + '</span>',
             g.stale ? 'top' : '')
         : '');
-  const head = voting.length
-    ? vetoRow('voting', esc(voting.join(', ')))
+  /* a vote on probation is a vote without proof; say so next to the name */
+  const voters = st.voters || voting.map(n => ({name: n, status: 'promoted', why: ''}));
+  const head = voters.length
+    ? voters.map(v => v.status === 'promoted'
+        ? vetoRow('voting: ' + esc(v.name), '<span class="quiet">' + esc(v.why) + '</span>')
+        : vetoRow('voting, unproven: ' + esc(v.name), esc(v.status) + ' — ' + esc(v.why), 'warn')).join('')
     : vetoRow('NO strategy can trade this book', '0 / ' + st.registered, 'top');
   const rest = silent.map(x => vetoRow('<span class="quiet">' + esc(x.name) + '</span>',
     '<span class="quiet">' + esc(x.why) + '</span>')).join('');
@@ -604,7 +608,7 @@ async function togglePause() {
 $('#btnPause').addEventListener('click', togglePause);
 
 /* ===================================================== fast book
-   The separate high-frequency paper account: its own stats poll, equity
+   The separate fast (5m, experimental) paper account: its own stats poll, equity
    chart, ALL-trades history table and decision feed — mode='hft' rows only,
    so the standard book's views never mix in fast-book records. */
 let hftAutoResumeToasted = false;
@@ -714,7 +718,7 @@ async function refreshHft() {
     if (eq.length > 1) setSeries(hftChart, eq.map(p => fmtTs(p.ts)), eq.map(p => p.equity));
   }
 
-  /* ALL fast-book trades — the one place for the high-frequency history */
+  /* ALL fast-book trades — the one place for the fast-book history */
   let trades;
   try { trades = await jget('/api/hft/trades?limit=1000'); } catch { trades = []; }
   /* the picker lists every strategy REGISTERED for the fast book, not just the

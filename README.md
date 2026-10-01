@@ -7,9 +7,11 @@ An autonomous paper-trading bot for **crypto and forex** that decides
 **buy / sell / hold** with written reasoning, sizes and manages positions by
 itself — plus a live **dashboard** (equity curve, trade history, strategy
 attribution, decision feed, **evidence view**) and a chatbot that answers
-questions about its own trading record. A **separate fast book**
-(`mode='hft'`) trades 5-minute bars with maker-fill simulation and its own fee
-tier — see [HFT.md](HFT.md).
+questions about its own trading record. A **separate, experimental fast
+book** (`mode='hft'`) trades 5-minute bars with maker-fill simulation and its
+own fee tier. It has **no proven edge**: most of its strategies are measured
+losers after fees, and the one still allowed to trade is on probation — see
+[HFT.md](HFT.md) and [docs/HFT_TRADE_FREQUENCY.md](docs/HFT_TRADE_FREQUENCY.md).
 
 The decision path is **deterministic**: no LLM and no news sentiment sit
 between the strategy vote and the risk manager. Both used to, and because the
@@ -126,15 +128,15 @@ python3 main.py dashboard            # → http://127.0.0.1:8000/#lab
 #    "Compare all" runs every registered strategy on one fetched frame;
 #    async runs poll /api/lab/status; artifacts land in data/results/lab_*.json
 
-# 3b. the high-frequency paper book (separate account + dashboard tab)
+# 3b. the fast paper book — EXPERIMENTAL, no proven edge (separate account + dashboard tab)
 python3 main.py hft-backtest --symbol BTC/USDT --days 14 \
   --strategy hft_micro_breakout          # 5m bars, perp fee tier
 python3 main.py hft-battery             # every strategy x symbol x fee tier,
                                         # and it writes the promotion verdicts
 python3 main.py hft-run                 # live 5m paper engine (mode='hft')
-python3 main.py hft-status              # ALL high-frequency trades, one place
-#   (the dashboard's HFT tab has its own engine controls, equity curve,
-#    full HFT trade history and decision feed)
+python3 main.py hft-status              # ALL fast-book trades, one place
+#   (the dashboard's Fast book tab has its own engine controls, equity curve,
+#    full fast-book trade history and decision feed)
 
 # 4. other commands
 python3 main.py status              # journal summary (+ pause state)
@@ -156,7 +158,7 @@ python3 -m pytest tests/ -q         # 300+ tests
 | **Connors Mean Reversion** | Larry Connors RSI(2) + EMA(200) trend filter (documented ~75% win rate on indices) + Chan AR(1)/OU half-life gate | buy deep pullbacks in uptrends *while pullbacks are actually reverting* (measured half-life ≤ 12 bars), snapback exits, 3×ATR stop + time stop | 4h / 1d |
 | **TS Momentum** | Momentum papers (SSRN 3345280/3510433/4587697) | long-only absolute momentum: 240-bar return >8% + near 52-week high + EMA200 | 1h / 4h |
 | **FX Regime Mean-Rev** | Regime-conditioned FX reversion (SSRN 6087107) | z-score stretch fade with AR(1) half-life regime gate | 1h |
-| **Fast book** (separate account) | Carver 2025, Zarattini-Aziz 2023 (see HFT.md) | exhaustion fade, micro-breakout; market-making and OFI are measured CANDIDATES that do not vote | 5m |
+| **Fast book** (separate account, **experimental**) | Carver 2025, Zarattini-Aziz 2023 (see HFT.md) | exhaustion fade (on probation: too few out-of-sample trades to judge, and every tuned variant lost out of sample); micro-breakout, market-making and OFI are measured losers that do not vote | 5m |
 | **VWAP Scalper** | Opening Range Breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP institutional benchmark + team's earlier VWAP prototype | VWAP reclaim/loss with momentum + volume confirmation, rolling-range breakout, breakeven trail, time stop; optional time-of-day RVOL filter (tested, off by default — measured neutral on 24/7 crypto, BACKTESTS.md) | 5m / 15m |
 
 **Orchestrator**: classifies each market's regime (ADX + EMA structure) and runs
@@ -388,7 +390,7 @@ scripts/
                      (make soak)
 models/kronos/       vendored Kronos model source (upstream MIT license vendored;
                      weights via HF Hub)
-HFT.md               the high-frequency paper book: research grounding,
+HFT.md               the fast (5m) paper book: research grounding,
                      fee math, strategies, harness, measured results
 tests/              300+ tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,

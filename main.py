@@ -11,7 +11,7 @@ Usage:
   python3 main.py run [--once]                 # paper-trade (live loop or one cycle)
   python3 main.py hft-backtest [--symbol BTC/USDT] [--strategy hft_micro_breakout|hft_exhaustion_fade|hft_ofi_momentum]
   python3 main.py hft-run [--once]             # fast paper book (separate 5m account)
-  python3 main.py hft-status                   # HFT book journal summary
+  python3 main.py hft-status                   # fast book (experimental) journal summary
   python3 main.py hft-battery [--days 3] [--tier perp|spot|both]
   python3 main.py kronos [--symbol BTC/USDT]   # offline Kronos IC evaluation (tracked non-voter verdict)
   python3 main.py shadow [--include-demo]      # journal-vs-own-rules Shadow Account report
@@ -235,7 +235,7 @@ def _run_owned(engine, once: bool, interval: int, label: str):
 
 
 def cmd_hft_run(args):
-    """Run the HFT paper engine (the separate high-frequency book)."""
+    """Run the fast-book paper engine (the separate, experimental 5m book)."""
     from bot.hft import build_hft_engine
     from config import apply_saved_watchlist
     apply_saved_watchlist()   # data/watchlist.json -> CONFIG.watchlist
@@ -247,11 +247,11 @@ def cmd_hft_run(args):
 
 
 def cmd_hft_status(args):
-    """The HFT book's journal summary: separate account, separate history."""
+    """The fast book's journal summary: separate account, separate history."""
     from bot.journal import Journal
     j = Journal()
     s = j.stats(mode="hft")
-    print("[hft] high-frequency paper book (mode='hft' journal rows):")
+    print("[hft] fast paper book — experimental, no proven edge (mode='hft' journal rows):")
     print(f"  return {s['return_pct']:+.2f}%  |  pnl ${s['total_pnl']:+,.2f}  |  "
           f"closed trades {s['closed_trades']}  |  win rate {s['win_rate']}%  |  "
           f"pf {s['profit_factor']}  |  max dd {s['max_drawdown_pct']}%")
@@ -271,7 +271,7 @@ def cmd_hft_status(args):
 
 
 def cmd_hft_battery(args):
-    """The HFT harness: every strategy x symbol x fee tier, plus the
+    """The fast-book harness: every strategy x symbol x fee tier, plus
     the measured fee-sensitivity table (HFT.md)."""
     from bot.hft.harness import run_battery
     tiers = ("perp", "spot") if args.tier == "both" else (args.tier,)
@@ -782,11 +782,11 @@ def build_parser() -> argparse.ArgumentParser:
     hr.add_argument("--interval", type=int, default=None, help="seconds between cycles")
     hr.set_defaults(fn=cmd_hft_run)
 
-    hs = sub.add_parser("hft-status", help="HFT book journal summary (all high-frequency trades)")
+    hs = sub.add_parser("hft-status", help="fast book (experimental) journal summary (all fast-book trades)")
     hs.set_defaults(fn=cmd_hft_status)
 
     hbat = sub.add_parser("hft-battery",
-                          help="HFT harness: every strategy x symbol x fee tier "
+                          help="fast-book harness: every strategy x symbol x fee tier "
                                "-> data/results/hft_battery.json")
     hbat.add_argument("--days", type=int, default=3)
     hbat.add_argument("--tier", default="both", choices=["perp", "spot", "both"])

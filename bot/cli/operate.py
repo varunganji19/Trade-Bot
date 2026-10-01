@@ -1,0 +1,242 @@
+"""Operating commands: run the paper engines, pause and resume, the
+dashboard, the journal summary, the chatbot and `config` (what the process
+actually believes, and where each setting came from)."""
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+from config import CONFIG
+
+
+def _run_owned(engine, once: bool, interval: int, label: str):
+    """Run a live engine holding its book's lease, with a readable refusal.
+
+    A second engine on one book would fork the account, so the lease is not
+    advisory — but the operator's fix is simply to stop the other one, which
+    deserves a sentence rather than a traceback.
+    """
+    from bot.journal import BookOwnedError
+    try:
+        if once:
+            # a single cycle owns the book for its duration too — it writes
+            # the same checkpoints a continuous loop does
+            with engine.own_book():
+                return engine.run_cycle()
+        engine.run_forever(interval=interval)   # claims the lease itself
+    except BookOwnedError as exc:
+        print(f"[{label}] refusing to start — {exc}")
+        sys.exit(1)
+    return None
+
+
+def cmd_hft_run(args):
+    """Run the fast-book paper engine (the separate, experimental 5m book)."""
+    from bot.hft import build_hft_engine
+    from config import apply_saved_watchlist
+    apply_saved_watchlist()   # data/watchlist.json -> CONFIG.watchlist
+    engine = build_hft_engine()
+    interval = args.interval or CONFIG.hft.live_interval_seconds
+    summary = _run_owned(engine, args.once, interval, "hft")
+    if args.once:
+        print(json.dumps(summary, indent=1, default=str))
+
+
+def cmd_hft_status(args):
+    """The fast book's journal summary: separate account, separate history."""
+    from bot.journal import Journal
+    j = Journal()
+    s = j.stats(mode="hft")
+    print("[hft] fast paper book — experimental, no proven edge (mode='hft' journal rows):")
+    print(f"  return {s['return_pct']:+.2f}%  |  pnl ${s['total_pnl']:+,.2f}  |  "
+          f"closed trades {s['closed_trades']}  |  win rate {s['win_rate']}%  |  "
+          f"pf {s['profit_factor']}  |  max dd {s['max_drawdown_pct']}%")
+    print(f"  equity ${s['current_equity']:,.2f} (start ${s['start_equity']:,.2f})")
+    if s.get("by_strategy"):
+        for name, v in s["by_strategy"].items():
+            print(f"   · {name}: {v['trades']} trades, {v['wins']} wins, "
+                  f"pnl ${v['pnl']:+,.2f}")
+    open_rows = j.open_trades(mode="hft")
+    print(f"  open positions: {len(open_rows)}")
+    for r in open_rows:
+        print(f"   - {r['side']} {r['symbol']} {r.get('timeframe') or '1m'} "
+              f"qty {r['qty']} @ {r['entry_price']} via {r['strategy']}")
+    eq = j.equity_curve(limit=1, mode="hft")
+    if eq:
+        print(f"  last equity point: {eq[-1]['equity']} (cash {eq[-1].get('cash')}) @ {eq[-1]['ts']}")
+
+
+def cmd_run(args):
+    from bot.engine import TradingEngine
+    from config import apply_saved_watchlist
+    apply_saved_watchlist()   # data/watchlist.json -> CONFIG.watchlist
+    engine = TradingEngine(mode="paper")
+    interval = args.interval or CONFIG.live_interval_seconds
+    summary = _run_owned(engine, args.once, interval, "engine")
+    if args.once:
+        print(json.dumps(summary, indent=1, default=str))
+
+
+def cmd_pause(args):
+    from bot.pause import set_paused
+    if not set_paused(True, args.note):
+        print("[pause] could not write the pause flag (disk error?) — trading is NOT paused")
+        sys.exit(1)
+    print("[pause] trading paused."
+          + (f" Note: {args.note}" if args.note else ""))
+    print("[pause] New entries are now blocked. Open positions (if any) are still "
+          "managed — nothing is force-closed.")
+    print("[pause] This stays until you run: python3 main.py resume")
+
+
+def cmd_resume(args):
+    from bot.pause import set_paused
+    if not set_paused(False):
+        print("[resume] could not write the pause flag (disk error?) — trading is still paused")
+        sys.exit(1)
+    print("[resume] trading resumed — new entries are allowed again (all other "
+          "risk gates still apply).")
+
+
+def cmd_dashboard(args):
+    import errno
+    import socket
+    import uvicorn
+    from config import apply_saved_watchlist
+    from bot.dashboard import app
+    apply_saved_watchlist()   # data/watchlist.json -> CONFIG.watchlist
+
+    # bind check BEFORE uvicorn starts: a second dashboard on the same port
+    # used to surface as a raw "[Errno 48] address already in use" traceback
+    # that read like a crash — name the squatter and the two real outs instead.
+    # SO_REUSEADDR matches uvicorn's own socket settings so TIME_WAIT remnants
+    # from a just-killed server don't read as a false "in use".
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        probe.bind(("127.0.0.1", args.port))
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise
+        who = _port_owner(args.port)
+        print(f"[dashboard] port {args.port} is already in use"
+              + (f" by {who}" if who else "") + ".\n"
+              f"[dashboard]   · an existing dashboard may already be live at "
+              f"http://127.0.0.1:{args.port} — open it in your browser\n"
+              f"[dashboard]   · or start this one on another port: "
+              f"python3 main.py dashboard --port {args.port + 1}")
+        # non-zero exit: `make demo` used to report success with nothing served
+        # (the operator opens the squatter's page instead of the dashboard)
+        sys.exit(1)
+    finally:
+        probe.close()
+
+    print(f"[dashboard] http://127.0.0.1:{args.port}  (Ctrl-C to stop)")
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+
+
+def _port_owner(port: int) -> str | None:
+    """Best-effort PID+command of whatever holds `port` (for the bind-failure
+    message); returns None when nothing can be identified — never raises."""
+    import subprocess
+    try:
+        out = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"],
+                             capture_output=True, text=True, timeout=5).stdout
+        line = out.strip().splitlines()[-1]  # header first, listener last
+        pid, cmd = line.split()[1], line.split()[0]
+        return f"PID {pid} ({cmd})"
+    except Exception:
+        return None
+
+
+def cmd_status(args):
+    from bot.journal import Journal
+    from bot.pause import is_paused
+    j = Journal()
+    stats = j.stats()
+    print(json.dumps(stats, indent=1))
+    paused, pause_note = is_paused()
+    if paused:
+        print("trading: PAUSED (manual flag) — blocks new entries only; open positions "
+              "are still managed, nothing is force-closed"
+              + (f" · note: {pause_note}" if pause_note else ""))
+    else:
+        print("trading: active (no manual pause)")
+    open_trades = j.open_trades()
+    if open_trades:
+        print(f"open positions: {len(open_trades)}")
+        for t in open_trades:
+            print(f"  {t['side'].upper()} {t['symbol']} qty {t['qty']} @ {t['entry_price']} ({t['strategy']})")
+
+
+def cmd_chat(args):
+    from bot.chatbot import ChatBot
+    print(ChatBot().answer(args.question))
+
+
+def cmd_config(args):
+    """Print the EFFECTIVE configuration and where each value came from.
+
+    A wrong env var fails silently in this system: the documented `.env`
+    workflow never loaded the file for months, so DASHBOARD_TOKEN never
+    reached the process and the dashboard ran with auth OFF while every
+    document said it was on. Nothing surfaced it because nothing ever printed
+    what the process actually believed. This does."""
+    import config as cfg_mod
+    from bot.hft import build_hft_config, hft_fee_tier
+
+    c = cfg_mod.CONFIG
+    print("=== effective configuration ===")
+    print(f"journal        {os.path.abspath(c.db_path)}")
+    print(f"cache          {cfg_mod.cache_dir()}")
+    print(f"watchlist      {len(c.watchlist)} specs "
+          f"({', '.join(sorted({s.timeframe for s in c.watchlist}))})")
+    for spec in c.watchlist:
+        print(f"    {spec.kind:6s} {spec.symbol:12s} {spec.timeframe}")
+    hft = build_hft_config()
+    print(f"fast book      {len(hft.watchlist)} specs @ "
+          f"{ {s.timeframe for s in hft.watchlist} } · tier {hft_fee_tier()} · "
+          f"{hft.live_interval_seconds}s cadence · capital ${hft.paper_capital:,.0f}")
+    rt = (hft.costs.fee('crypto') + hft.costs.slippage('crypto')) * 2 * 1e4
+    print(f"cost floors    taker round trip {rt:.1f}bp "
+          f"(stop floor {hft.params.hft_cost_floor_bps * hft.params.hft_cost_buffer:.1f}bp)")
+    print(f"risk           risk/trade {c.risk.risk_per_trade:.2%} · "
+          f"gross {c.risk.max_gross_leverage:.2f}x · "
+          f"cluster {c.risk.max_cluster_leverage:.2f}x · "
+          f"max positions {c.risk.max_open_positions}")
+    llm_on = c.llm.provider not in ("", "none")
+    print(f"llm            {c.llm.provider if llm_on else 'quant mode'}"
+          f"{' (chatbot only — it does not vote)' if llm_on else ''}")
+    auth = os.environ.get("DASHBOARD_TOKEN")
+    print(f"dashboard auth {'ON' if auth else 'OFF — anyone on this host can drive the bot'}")
+
+    print("\n=== environment (value <- source) ===")
+    if not cfg_mod.ENV_PROVENANCE:
+        print("  (nothing read yet)")
+    for name in sorted(cfg_mod.ENV_PROVENANCE):
+        p_ = cfg_mod.ENV_PROVENANCE[name]
+        mark = "  " if p_["source"] == "default" else "->"
+        bad = "" if p_["ok"] else "   !! UNREADABLE, fell back to the default"
+        print(f" {mark} {name:24s} {str(p_['value']):22s} <- {p_['source']}"
+              f" (default {p_['default']}){bad}")
+
+    from bot.promotion import gate_state, load_verdicts
+    print("\n=== promotion gates ===")
+    for book in ("standard", "fast"):
+        gate = gate_state(book=book)
+        verdicts = load_verdicts(book=book)
+        print(f"  [{book}] file   {gate['path']}")
+        if gate["state"] == "no_evidence":
+            # the exact state that let a strategy measured at PF 0.39 vote
+            # again on another data directory, without a line of output
+            print("             state  UNMEASURED — every registered strategy votes")
+            print("                    run `make evidence` to gather verdicts here")
+        else:
+            label = "STALE" if gate.get("stale") else "active"
+            print(f"             state  {label} ({gate['why']}, "
+                  f"generated {gate['generated_at']})")
+            print(f"             basis  {gate.get('evidence', 'unknown')}")
+        for name in sorted(verdicts):
+            v = verdicts[name]
+            print(f"             {v['status']:9s} {name:22s} {v.get('why', '')}")

@@ -3168,7 +3168,7 @@ def test_kronos_ledger_quarantines_torn_file_and_survives_restart():
         assert tr2.n() == 1 and tr2.records == tr.records
 
 
-def test_promotion_gate_announces_when_it_has_no_evidence(tmp_path, monkeypatch):
+def test_promotion_gate_announces_when_it_has_no_evidence(tmp_path, monkeypatch, capsys):
     """THE HOLE THIS CLOSES: the verdicts file resolves under db_dir(), so
     pointing the app at a different data directory returned the gate to its
     permissive state IN SILENCE — hft_micro_breakout, measured at median PF
@@ -3204,9 +3204,11 @@ def test_promotion_gate_announces_when_it_has_no_evidence(tmp_path, monkeypatch)
     js = open(dash.static_path("app.js")).read()
     assert "promotion gate: UNMEASURED" in js
     assert "gateRow + head + rest" in js
-    with open("main.py") as f:
-        cli = f.read()
-    assert 'print(f"  [{book}] file   {gate[\'path\']}")' in cli
+    import main as cli
+    capsys.readouterr()
+    cli.cmd_config(type("A", (), {})())
+    printed = capsys.readouterr().out
+    assert f"[fast] file   {gate['path']}" in printed      # says where it looked
 
 
 def test_a_book_with_no_voting_strategy_says_so(tmp_path, monkeypatch):

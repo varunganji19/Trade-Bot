@@ -332,3 +332,48 @@ def test_experiment_log_shows_runs_and_history_newest_first(tmp_path, monkeypatc
     payload = TestClient(dash.app, base_url="http://127.0.0.1").get("/api/evidence").json()
     assert payload["experiments"]["n"] == len(rows)
     promo._CACHE.update(path=None, mtime=None, verdicts={})
+
+
+def test_every_silent_v2_strategy_names_its_status(monkeypatch):
+    """Under rule v2 a silent row says whether it is demoted or on probation,
+    so the two kinds of "not trading" cannot be confused on the dashboard."""
+    names = ["turtle_trend", "connors_meanrev"]
+    v2 = promo.verdicts_from_evidence({names[0]: _ev(150, 0.6, 0.5, 0.7, ALL3),
+                                       names[1]: _ev(150, 1.1, 0.9, 1.3, ALL3)})
+    monkeypatch.setattr(promo, "load_verdicts", lambda path=None, **kw: v2)
+    silent = {x["name"]: x["why"] for x in promo.voting_strategies("standard")["silent"]}
+    assert silent[names[0]].startswith("demoted — ")
+    assert silent[names[1]].startswith("probation — ")
+
+
+def test_a_candidate_is_never_presented_as_promoted(monkeypatch):
+    """The fast gate measured the candidate market maker at PF 1.41 under
+    touch fills, an artefact of the fill model. Neither the Strategies box
+    nor the Experiment log may present a candidate as promoted."""
+    from bot.strategies import CANDIDATE_NOTES
+    mm = "hft_market_maker"
+    v2 = promo.verdicts_from_evidence({mm: _ev(36000, 1.41, 1.36, 1.47, ALL3)})
+    assert v2[mm]["status"] == promo.PROMOTED
+    monkeypatch.setattr(promo, "load_verdicts", lambda path=None, **kw: v2)
+    st = promo.voting_strategies("fast")
+    row = {x["name"]: x["why"] for x in st["silent"]}[mm]
+    assert row == CANDIDATE_NOTES[mm] and "promoted" not in row
+    assert mm not in st["voting"]
+
+    rec = {"experiment": "fast_gate", "strategy": mm, "level": "pooled", "variant": "default",
+           "book": "fast", "run_at": "2026-10-01", "verdict": "promoted",
+           "oos": {"pf": 1.41, "pf_lo": 1.36, "pf_hi": 1.47, "trades": 36094}}
+    log = ex.experiment_log([rec])
+    assert log[0]["verdict"] == "candidate — never votes"
+    assert "not an edge" in log[0]["result"]
+
+
+def test_gate_header_counts_voters_not_promoted_candidates(tmp_path):
+    path = str(tmp_path / "p.json")
+    promo.save_verdicts(promo.verdicts_from_evidence(
+        {"hft_market_maker": _ev(36000, 1.41, 1.36, 1.47, ALL3),
+         "hft_exhaustion_fade": _ev(880, 0.67, 0.53, 0.82, ALL3)}), "perp", path=path)
+    promo._CACHE.update(path=None, mtime=None, verdicts={})
+    why = promo.gate_state(path)["why"]
+    assert "0 may vote" in why and "promoted" not in why
+    promo._CACHE.update(path=None, mtime=None, verdicts={})

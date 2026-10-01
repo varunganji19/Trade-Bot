@@ -490,10 +490,18 @@ def experiment_log(records: list | None = None) -> list:
             band = f" [{lo:.2f}–{hi:.2f}]" if lo is not None else ""
             result = f"OOS PF {oos['pf']:.2f}{band}, {oos['trades']} trades"
             if len(rs) > 1:
-                result = f"best of {len(rs)} ({best['variant']}): " + result
+                pfs = [r["oos"]["pf"] for r in rs if r["oos"].get("pf") is not None]
+                result = (f"{len(rs)} variants, OOS PF {min(pfs):.2f}–{max(pfs):.2f}; "
+                          f"best ({best['variant']}): " + result)
         if best.get("holdout"):
             result += f"; holdout net ${best['holdout']['net_pnl']:+,.0f}"
-        if best.get("verdict"):
+        from bot.strategies import CANDIDATE_NOTES
+        if strat in CANDIDATE_NOTES and best.get("verdict") != "demoted":
+            # a candidate's gate result can rest on assumptions the gate
+            # cannot check; it never votes and must not read as an edge
+            verdict = "candidate — never votes"
+            result += f" — {CANDIDATE_NOTES[strat]}"
+        elif best.get("verdict"):
             verdict = best["verdict"]
         elif any((r["oos"].get("pf_lo") or 0) >= 1.0 for r in rs):
             verdict = "a variant cleared 1.0"

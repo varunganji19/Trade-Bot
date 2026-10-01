@@ -29,25 +29,24 @@ HFT_STRATEGY_NAMES = ("hft_micro_breakout", "hft_exhaustion_fade",
                       "hft_cross_reversion", "hft_funding_reversion")
 
 # CANDIDATES: registered, backtestable and available in the Lab and the
-# battery, but NOT voting in the live ensemble — the same evidence standard
-# the bot applies to Kronos (earn the vote, never vote on faith). A candidate
-# graduates by beating the incumbents in the harness, which is a measurement,
-# not an opinion.
-#   hft_ofi_momentum — measured 2026-09-19 (3d, perp tier): PF 0.32 (BTC) /
-#   0.68 (ETH), 7-12 trades, negative return on both. It does not beat the
-#   incumbents it was written to replace, so it does not get a vote.
-#   hft_market_maker — PF 0.57 even after the cost-floor fix, and the design
-#   cannot be rescued on this data: an OHLCV "market maker" has no order
-#   book, so its quote fills precisely when the market runs through it
-#   (adverse selection is invisible to the backtest AND to the live engine).
-#   Retired from the live vote when the fast book moved to 5m, where
-#   liquidity provision on 5m candles is not a thing that exists.
-#   hft_cross_reversion, hft_funding_reversion — added 2026-10-01 as the
-#   replacements researched in docs/archive/HFT_TRADE_FREQUENCY.md; unmeasured until
-#   the battery runs them. The funding one also needs funding data wired
-#   into the live engine before it could ever vote (tests pin this).
-CANDIDATE_STRATEGIES = ("hft_ofi_momentum", "hft_market_maker",
-                        "hft_cross_reversion", "hft_funding_reversion")
+# battery, but NEVER voting in the live ensemble, whatever a gate measures:
+# graduating one is a deliberate code change. Each carries the reason, which
+# the dashboard shows in place of the gate's status word — a candidate's
+# gate result can rest on assumptions the gate cannot check (the market
+# maker below), and must not read as an edge.
+CANDIDATE_NOTES = {
+    "hft_ofi_momentum": "candidate — its order flow is a CLV x volume guess, not "
+                        "real taker flow; never votes (docs/RESULTS.md §1)",
+    "hft_market_maker": "candidate, not an edge — profitable only with touch fills; "
+                        "loses (PF 0.96) once quotes must trade through by 5 bp, "
+                        "and candles cannot show queue position; never votes "
+                        "(experiments/market_maker_fill_model)",
+    "hft_cross_reversion": "candidate — loses before fees on most pairs; never votes "
+                           "(docs/RESULTS.md §1)",
+    "hft_funding_reversion": "candidate — the live engine has no funding data, and it "
+                             "loses before fees; never votes (docs/RESULTS.md §1)",
+}
+CANDIDATE_STRATEGIES = tuple(CANDIDATE_NOTES)
 
 _INSTANCE_CACHE: dict = {}   # id(params) -> (params_ref, {name: instance})
 
@@ -79,5 +78,5 @@ __all__ = ["BaseStrategy", "Signal", "TurtleTrend", "ConnorsMeanReversion",
            "VWAPScalper", "FXRegimeMeanRev", "TimeSeriesMomentum",
            "HFTMicroBreakout", "HFTExhaustionFade", "HFTMarketMaker",
            "HFTOFIMomentum", "HFTCrossReversion", "HFTFundingReversion",
-           "HFT_STRATEGY_NAMES", "CANDIDATE_STRATEGIES",
+           "HFT_STRATEGY_NAMES", "CANDIDATE_STRATEGIES", "CANDIDATE_NOTES",
            "STRATEGY_CLASSES", "get_strategies", "get_strategy"]

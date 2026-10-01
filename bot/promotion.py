@@ -252,9 +252,12 @@ def gate_state(path: str | None = None, *, book: str = "fast") -> dict:
     evidence = "walk_forward_oos" if oos else "in_sample"
     rule = rule_version(verdicts)
     if rule >= RULE_VERSION:
-        promoted = [n for n, v in verdicts.items() if v.get("status") == PROMOTED]
-        why = (f"rule v{rule}: {len(verdicts)} strategies measured, {len(promoted)} "
-               f"promoted, {len(demoted)} demoted")
+        # count what may actually vote: a promoted candidate never does
+        from bot.strategies import CANDIDATE_STRATEGIES
+        voters = [n for n, v in verdicts.items()
+                  if v.get("status") == PROMOTED and n not in CANDIDATE_STRATEGIES]
+        why = (f"rule v{rule}: {len(verdicts)} strategies measured, {len(voters)} "
+               f"may vote, {len(demoted)} demoted")
     else:
         why = f"{len(verdicts)} strategies measured, {len(demoted)} demoted"
     if not oos:
@@ -276,7 +279,7 @@ def voting_strategies(book: str) -> dict:
     voter left (two strategies demoted on their record, one a candidate) and
     nothing in the UI said so — a book that cannot trade would have looked
     identical to a quiet market."""
-    from bot.strategies import CANDIDATE_STRATEGIES, STRATEGY_CLASSES
+    from bot.strategies import CANDIDATE_NOTES, CANDIDATE_STRATEGIES, STRATEGY_CLASSES
     want = _book_name(book)
     verdicts = load_verdicts(book=want)
     voting, voters, silent = [], [], []
@@ -286,13 +289,13 @@ def voting_strategies(book: str) -> dict:
         # A measured loss outranks "candidate": both are silent, but only one
         # of them is an unknown.
         if is_demoted(name, verdicts):
-            silent.append({"name": name,
-                           "why": verdicts.get(name, {}).get("why", "demoted")})
-        elif name in CANDIDATE_STRATEGIES:
-            why = "candidate — not voting until measured"
-            if name in verdicts:
-                why = f"candidate ({verdicts[name]['status']}) — {verdicts[name].get('why', '')}"
+            why = verdicts.get(name, {}).get("why", "demoted")
+            if verdicts[name].get("rule", 1) >= RULE_VERSION:
+                why = f"demoted — {why}"
             silent.append({"name": name, "why": why})
+        elif name in CANDIDATE_STRATEGIES:
+            silent.append({"name": name, "why": CANDIDATE_NOTES.get(
+                name, "candidate — never votes")})
         elif not may_vote(name, verdicts):
             v = verdicts.get(name)
             silent.append({"name": name, "why": (f"{v['status']} — {v.get('why', '')}" if v

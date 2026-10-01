@@ -691,6 +691,10 @@ def api_stats():
         paused = paused or bool(getattr(eng.risk, "paused", False))
     stats["paused"] = paused
     stats["paused_note"] = pause_note
+    # the books' cash must reconcile with their own history on every poll
+    # (Journal.ledger_check); a gap is shown, never averaged away
+    stats["ledger"] = {book: _ledger_payload(mode) for book, mode in
+                       (("standard", "paper"), ("fast", "hft"))}
     if eng is not None:
         stats["llm_mode"] = eng.llm.provider if eng.llm.enabled else "quant"
         # live-state trio via the shared helper (marks come from the engine's
@@ -806,6 +810,13 @@ def _veto_payload(eng) -> dict:
         "by_reason": [{"reason": k, "count": v} for k, v in
                       sorted(counts.items(), key=lambda kv: -kv[1])],
     }
+
+
+def _ledger_payload(mode: str) -> dict:
+    try:
+        return journal.ledger_check(mode)
+    except Exception as exc:          # a broken check must not break the poll
+        return {"ok": True, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def _voting_payload(book: str) -> dict:

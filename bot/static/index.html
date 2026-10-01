@@ -108,6 +108,10 @@ document.documentElement.setAttribute('data-theme',t);})();
   <svg class="ic" aria-hidden="true"><use href="#i-pause"/></svg>
   <div><b>Trading paused.</b> New entries are blocked; open positions keep their stops, targets and exits. Nothing is force-closed.<span id="pauseNoteBox"></span></div>
 </div>
+<div class="banner banner-neg" id="ledgerBanner" role="alert">
+  <svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg>
+  <div><b>Ledger inconsistent.</b> <span id="ledgerMsg"></span></div>
+</div>
 <div class="banner banner-neg" id="healthBanner" role="alert">
   <svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg>
   <div><b>Engine needs attention:</b> <span id="healthMsg"></span></div>

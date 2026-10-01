@@ -517,10 +517,24 @@ async function refreshStats() {
   $('#pauseBanner').classList.toggle('show', !!s.paused);
   $('#pauseNoteBox').textContent = s.paused && s.paused_note ? ' Note: ' + s.paused_note + '.' : '';
   $('#pauseLabel').textContent = s.paused ? 'Resume entries' : 'Pause entries';
+  renderLedger(s.ledger);
 
   renderPositions(s);
   renderBars($('#stratBars'), Object.entries(s.by_strategy || {})
     .map(([name, v]) => ({name, pnl: v.pnl, trades: v.trades, wins: v.wins})));
+}
+
+/* the books' cash must reconcile with their own history (Journal.ledger_check):
+   a gap names its parts instead of letting the headline numbers disagree */
+function renderLedger(ledger) {
+  const bad = Object.entries(ledger || {}).filter(([, l]) => l && l.ok === false);
+  $('#ledgerBanner').classList.toggle('show', bad.length > 0);
+  $('#ledgerMsg').textContent = bad.map(([book, l]) =>
+    (book === 'fast' ? 'Fast book' : 'Standard book') + ': cash in the journal is ' + fmt$(l.cash) +
+    ', but start ' + fmt$(l.start_capital) + ' + deposits ' + fmt$(l.net_deposits) +
+    ' + realized P&L ' + fmt$(l.realized_pnl) + ' − open entry fees ' + fmt$(l.open_entry_fees) +
+    ' = ' + fmt$(l.expected_cash) + ' (gap ' + fmt$(l.gap) + '). Figures from before the gap ' +
+    'cannot be trusted; resetting the paper account starts a clean record.').join(' ');
 }
 
 let equityHistory = [], equityDays = 0;

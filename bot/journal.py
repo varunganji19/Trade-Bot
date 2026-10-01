@@ -943,6 +943,51 @@ class Journal:
         return rows
 
     @_retry_busy
+    def ledger_check(self, mode: str = "paper") -> dict:
+        """Does the book's cash reconcile with its own history?
+
+        The paper broker settles like a margin account: cash moves only by
+        entry fees, realized P&L and external flows, and equity is cash plus
+        unrealized P&L. So, independent of any market price,
+
+            journal cash == starting capital + net deposits
+                            + realized P&L of closed trades
+                            - entry fees of still-open trades
+
+        and if cash reconciles, equity does too. A gap means the history and
+        the balance disagree — the kind of legacy mismatch that once showed
+        +6.9% equity beside -$195 realized P&L with nothing flagging it.
+        Starting capital is the last account reset, else the configured
+        paper capital."""
+        with self._conn() as conn:
+            reset = conn.execute(
+                "SELECT amount FROM transactions WHERE mode=? AND kind='reset'"
+                " ORDER BY id DESC LIMIT 1", (mode,)).fetchone()
+            start = float(reset["amount"]) if reset else float(CONFIG.paper_capital)
+            flows = conn.execute(
+                "SELECT COALESCE(SUM(amount),0) FROM cash_events"
+                " WHERE mode=? AND kind IN ('deposit','withdrawal')", (mode,)).fetchone()[0]
+            realized, n_closed = conn.execute(
+                "SELECT COALESCE(SUM(COALESCE(pnl,0)),0), COUNT(*) FROM trades"
+                " WHERE mode=? AND status='CLOSED'", (mode,)).fetchone()
+            open_fees = conn.execute(
+                "SELECT COALESCE(SUM(COALESCE(entry_fee,0)),0) FROM trades"
+                " WHERE mode=? AND status='OPEN'", (mode,)).fetchone()[0]
+            has_anchor = conn.execute("SELECT 1 FROM equity WHERE mode=? LIMIT 1",
+                                      (mode,)).fetchone() is not None
+            cash = self._recover_cash(conn, start, mode)
+        expected = start + flows + realized - open_fees
+        gap = cash - expected
+        # per-trade P&L is stored to the cent, so rounding alone can drift by
+        # half a cent a trade; a dollar of slack covers float noise
+        tolerance = 1.0 + 0.005 * n_closed
+        return {"ok": (not has_anchor) or abs(gap) <= tolerance,
+                "cash": round(cash, 2), "expected_cash": round(expected, 2),
+                "gap": round(gap, 2), "tolerance": round(tolerance, 2),
+                "start_capital": round(start, 2), "net_deposits": round(flows, 2),
+                "realized_pnl": round(realized, 2), "open_entry_fees": round(open_fees, 2),
+                "closed_trades": n_closed, "start_source": "reset" if reset else "config"}
+
     def last_equity_point(self, mode: str | None = None) -> dict | None:
         """The most recent equity row (the restart anchor for broker cash).
 

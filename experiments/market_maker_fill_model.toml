@@ -1,0 +1,141 @@
+# Is the market maker's gate result real, or the fill model?
+# The fast gate (2026-10-01) put hft_market_maker at PF 1.41 [1.36-1.47] on
+# 36,094 trades under the default "touch" fill: a resting quote fills the
+# moment price touches it. Real queues fill a touched quote only sometimes,
+# and preferentially when price runs through it (adverse selection). This
+# study re-measures the same strategy, markets and window with fills that
+# require price to trade THROUGH the quote by 1, 2 and 5 bp.
+# Caveat fixed before the run: the penetration setting applies to the
+# resting ENTRY only; take-profit brackets still fill on a touch, so every
+# variant remains optimistic on its exits. A PF that falls below 1.0 here
+# is therefore conclusive; one that stays above 1.0 is not.
+id = "market_maker_fill_model"
+kind = "study"
+book = "fast"
+tier = "perp"
+created = 2026-10-01
+hypothesis = "hft_market_maker's profit factor stays above 1.0 when a resting quote fills only after price trades through it by 1, 2 or 5 bp."
+strategies = ["hft_market_maker"]
+days = 90
+folds = 4
+
+[[variants]]
+name = "touch_fill"
+params = {}
+
+[[variants]]
+name = "through_1bp"
+params = {"hft.maker_penetration_bps" = 1.0}
+
+[[variants]]
+name = "through_2bp"
+params = {"hft.maker_penetration_bps" = 2.0}
+
+[[variants]]
+name = "through_5bp"
+params = {"hft.maker_penetration_bps" = 5.0}
+
+[[markets]]
+kind = "crypto"
+symbol = "BTC/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ETH/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "XRP/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "DOGE/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ADA/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "AVAX/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "LINK/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "LTC/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "DOT/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "TRX/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BCH/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "NEAR/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SUI/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ETH/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "XRP/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/ETH"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/ETH"
+timeframes = ["5m"]

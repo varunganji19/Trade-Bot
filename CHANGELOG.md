@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] — positioning, honest labels, docs consolidated (2026-10-01)
+
+Roadmap Phase 0 and M2 (docs/ROADMAP.md). Decisions recorded: the project is
+positioned as a validation platform; the stricter promotion bar (M3) is
+accepted even if it leaves no strategy allowed to trade; the licence stays
+MIT; real-money trading is decided later, after testnet readiness.
+
+- **Fast book labelled experimental** everywhere user-facing; internal
+  identifiers (`mode='hft'`, `HFT_*`, `hft-*` commands) unchanged.
+- **Gate display:** a measured loser that is also a candidate showed as
+  "not voting until measured"; the measured verdict now wins. Voters carry
+  their status, so a voter on probation reads "voting, unproven".
+- **Evidence:** the Kronos card leads with the per-market verdict (BTC 1h,
+  IC −0.075, not promoted); the pooled ledger IC (0.28) is labelled as
+  context, since pooling unlike markets inflates rank IC.
+- **Docs:** README opens with the positioning and headline result;
+  `docs/METHODOLOGY.md` (how evidence is produced), `docs/RESULTS.md` (every
+  strategy and experiment with its verdict) and `docs/DEMO.md` (7-minute
+  talk track) added; HISTORY, BACKTESTS, HFT, RESEARCH and
+  HFT_TRADE_FREQUENCY moved unchanged to `docs/archive/`.
+- **Extras:** the chatbot and the Kronos chart moved out of the main demo
+  path (nav group and the bottom of the Evidence tab).
+
 ## [Unreleased] — dashboard redesign, book separation, cleanup (2026-10-01)
 
 **Redesign.** The dashboard is a sidebar workspace (Trade / Research /

@@ -83,3 +83,41 @@ there was nothing to decide. A line with `holds 5` is one decision per market
 on a freshly closed bar. `opened 0` with `holds 5` means every market was
 evaluated and none met the entry conditions. That is the fade strategy
 declining a setup, not a failure.
+
+## Measured: the two replacement candidates (2026-10-01)
+
+Both were built as candidates (`hft_cross_reversion`, `hft_funding_reversion`
+in bot/strategies/hft.py) and measured with the gate's own rule: 60 days of
+5m Binance data, four walk-forward folds per market, perp fee tier, full
+costs. Neither ever voted live.
+
+| Strategy | Markets | Trades | Trades/day/market | Win rate | Median OOS PF | Gross P&L (before fees) | Net P&L | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Cross-pair spread reversion | ETH/BTC, SOL/BTC, BNB/BTC, XRP/BTC, SOL/ETH, BNB/ETH | 661 | 1.8 | 41–48% | **0.58** (24 folds) | −$394 | −$1,536 | demoted |
+| Funding-rate reversion | BTC, ETH, SOL, BNB, XRP, DOGE (USDT perps) | 83 | 0.2 | 22–44% | **0.39** (10 folds) | −$356 | −$559 | demoted |
+
+**What this says:**
+
+- **Spread reversion delivers the frequency, not the edge.** Close to two
+  trades a day per pair, but it loses before fees on four of six pairs (the
+  other two are barely positive gross and negative net). Crosses mean-revert
+  on paper, yet the 2σ stretches that pass the half-life gate keep running
+  often enough (stops ≈ half of all exits) to cancel the reversions.
+- **Funding reversion is rare and wrong-footed.** Funding sat near its
+  1bp/8h cap or slightly negative for most of the window; the few 2σ
+  extremes mostly coincided with continuation (BTC on 2026-09-23: six longs
+  into a selloff, five stopped). Gross negative on five of six markets.
+- **Fees are not the reason.** Both lose before costs, so a cheaper fee tier
+  or maker exits cannot rescue them; only a better signal can.
+
+**Found on the way:** the broker rounded every crypto stop/target to 2
+decimals, so on sub-$1 coins (ETH/BTC ≈ 0.0325) a short's stop landed below
+its entry and every trade stopped out on the bar it opened. Fixed in the
+broker; every earlier ETH/BTC battery cell for every strategy was affected.
+Re-run `make hft-battery` to refresh the live verdicts with correct ETH/BTC
+numbers.
+
+**Next:** options B (more markets) and C (calibrating the one surviving
+strategy's thresholds) from the table above remain the measured route to
+more trades. Both new candidates stay registered so the Lab and the battery
+can re-test them on future data; they cannot vote.

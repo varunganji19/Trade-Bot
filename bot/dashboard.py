@@ -39,7 +39,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import sqlite3
 import threading
 import time
 import traceback
@@ -177,56 +176,9 @@ for _name, _cls in sorted(STRATEGY_CLASSES.items()):
 apply_saved_watchlist()  # data/watchlist.json → CONFIG.watchlist (creates file on first boot)
 
 
-class ChatIn(BaseModel):
-    message: str = Field(min_length=1, max_length=4000)
-
-
-class EngineIn(BaseModel):
-    # ge=5: interval=0 was a hot loop hammering the exchanges; negative killed
-    # the loop thread silently (sleep() raised outside the try)
-    interval: int = Field(default=60, ge=5, le=3600)
-
-
-class HftEngineIn(BaseModel):
-    """The HFT book's interval floor is 1s (paper trading: the whole point is
-    minimal bar-close -> decision -> fill latency). The standard engine keeps
-    its ge=5 floor."""
-    interval: int = Field(default=2, ge=1, le=3600)
-
-
-class WatchlistIn(BaseModel):
-    kind: str
-    symbol: str = Field(min_length=1, max_length=24)
-    timeframe: str
-    display: str | None = Field(default=None, max_length=64)
-
-
-class AmountIn(BaseModel):
-    # the le bound also rejects inf (gt=0 alone passed it) and values that
-    # would blow up derived stats (return_pct -> inf)
-    amount: float = Field(gt=0, le=1_000_000_000)
-
-
-class ResetIn(BaseModel):
-    capital: float = Field(gt=0, le=1_000_000_000)
-
-
-class PositionCloseIn(BaseModel):
-    symbol: str
-    timeframe: str
-
-
-class PauseIn(BaseModel):
-    """Manual pause/resume body: optional human note. The body-less variant
-    is a plain {} like every other mutating POST (the JSON content type forces
-    the CORS preflight that defeats form-encoded CSRF)."""
-    note: str = Field(default="", max_length=200)
-
-
-class EmptyIn(BaseModel):
-    """Body-required marker for POSTs that take no fields: a JSON body forces
-    the CORS preflight that defeats form-encoded CSRF (same rule every other
-    mutating endpoint already follows)."""
+from bot.api.models import (AmountIn, ChatIn, EmptyIn, EngineIn,  # noqa: E402,F401
+                            HftEngineIn, PauseIn, PositionCloseIn, ResetIn,
+                            WatchlistIn)
 
 
 # --------------------------------------------------------------- engine state
@@ -918,189 +870,6 @@ def api_position_close(body: PositionCloseIn):
 
 
 # ---------------------------------------------------------------------------
-# account — paper balance management
-@app.get("/api/account")
-def api_account():
-    last = journal.last_equity_point(mode="paper")
-    eng = _get_engine()
-    if eng is not None:
-        _, _, price_map = _live_state(eng)   # only price_map is needed here
-        cash = eng.broker.cash
-        equity = eng.broker.equity(price_map)
-    else:
-        cash = last["cash"] if last else CONFIG.paper_capital
-        equity = last["equity"] if last else CONFIG.paper_capital
-    return {"capital": CONFIG.paper_capital, "cash": round(cash, 2), "equity": round(equity, 2),
-            "mode": "paper", "engine_running": eng is not None,
-            "last_equity": last,
-            "unrealized": round(equity - cash, 2)}
-
-
-def _adjust_account(amount: float, direction: str) -> dict:
-    """Atomically adjust the account ledger and broker under lifecycle/cycle locks."""
-    kind = "deposit" if direction == "deposit" else "withdrawal"
-    eng = _get_engine()
-    try:
-        if eng is not None:
-            try:
-                marks = _mark_map(eng)
-            except Exception:
-                marks = {}
-            with eng.cycle_lock, _engine_lock:
-                if _engine is not eng:
-                    raise HTTPException(409, "engine restarted mid-adjust — retry")
-                risk = eng.risk
-                fields = ("daily_start_equity", "peak_equity", "_saved_state", "persistence_error")
-                snapshot = {name: getattr(risk, name) for name in fields if hasattr(risk, name)}
-                try:
-                    result = journal.adjust_account(
-                        amount, kind, mode="paper", base_cash=eng.broker.cash,
-                        base_equity=eng.broker.equity(marks),
-                        owner_token=eng.book_token,
-                        on_adjust=lambda delta, conn: risk.adjust_cash_flow(delta, conn=conn))
-                except Exception:
-                    for name, value in snapshot.items():
-                        setattr(risk, name, value)
-                    raise
-                eng.broker.cash = result["cash"]
-        else:
-            # Reserve the lifecycle lock as well as SQLite's writer. An engine
-            # starting or still finishing a cycle owns the account until done.
-            with _engine_lock:
-                if (_engine is not None or _engine_starting
-                        or (_engine_thread is not None and _engine_thread.is_alive())):
-                    raise HTTPException(409, "engine is starting or stopping — retry once settled")
-                result = journal.adjust_account(amount, kind, mode="paper")
-    except BookOwnedError as exc:
-        # another process (a standalone CLI engine) owns this account
-        raise HTTPException(409, str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except sqlite3.OperationalError as exc:
-        if _is_busy_error(exc):
-            raise HTTPException(503, "journal is busy — retry shortly") from exc
-        raise
-    return {"status": kind, "amount": round(amount, 2),
-            "cash": round(result["cash"], 2), "equity": round(result["equity"], 2)}
-
-
-@app.post("/api/account/deposit")
-def api_account_deposit(body: AmountIn):
-    return _adjust_account(body.amount, "deposit")
-
-
-@app.post("/api/account/withdraw")
-def api_account_withdraw(body: AmountIn):
-    return _adjust_account(body.amount, "withdraw")
-
-
-def _prune_reset_backups(keep: str, keep_n: int = 5):
-    """Keep only the newest `keep_n` reset backups (each is a full db copy —
-    ~20MB weekly resets would grow to ~1GB/year with no pruning). Never touches
-    the just-written `keep` path; failures are silent (pruning is best-effort)."""
-    try:
-        import glob
-        pattern = f"{CONFIG.db_path.rsplit('.db', 1)[0]}.backup.*.db"
-        backups = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
-        for old in backups[keep_n:]:
-            if os.path.abspath(old) != os.path.abspath(keep):
-                os.remove(old)
-    except OSError:
-        pass
-
-
-@app.post("/api/account/reset")
-def api_account_reset(body: ResetIn):
-    # a reset while the engine trades would fork broker state from the journal
-    stop_status = api_engine_stop(EmptyIn())["status"]
-    if stop_status in ("stopping", "starting"):
-        # the engine thread outlived the bounded join: a wipe now could race
-        # its in-flight close_trade/add_equity writes into the fresh DB
-        raise HTTPException(409, "engine is still stopping — retry the reset once "
-                                 "its status shows stopped")
-    # Hold the lifecycle lock through reset: no new paper engine may restore
-    # the old account while we replace it. Recheck the thread independently of
-    # _engine, which stop clears BEFORE its last in-flight cycle finishes.
-    with _engine_lock:
-        if (_engine is not None or _engine_starting
-                or (_engine_thread is not None and _engine_thread.is_alive())):
-            raise HTTPException(409, "engine is starting or stopping — retry once stopped")
-        backup = f"{journal.db_path.rsplit('.db', 1)[0]}.backup.{time.time_ns()}.db"
-        try:
-            journal.reset_account(round(body.capital, 2), backup, mode="paper")
-        except BookOwnedError as exc:
-            raise HTTPException(409, str(exc)) from exc
-        except (OSError, sqlite3.Error) as exc:
-            if _is_busy_error(exc):
-                raise HTTPException(503, "journal is busy — retry shortly") from exc
-            raise HTTPException(500, f"reset aborted — backup/reset failed: {exc}") from exc
-    _prune_reset_backups(backup)
-    return {"status": "reset", "capital": round(body.capital, 2), "backup": backup}
-
-
-@app.get("/api/account/transactions")
-def api_account_transactions(limit: int = Query(default=100, ge=1, le=1000)):
-    # paper-mode ledger only (matches api_equity/api_trades conventions)
-    return journal.recent_transactions(limit=limit, mode="paper")
-
-
-# ---------------------------------------------------------------------------
-# chatbot
-@app.get("/api/chat")
-def api_chat_history():
-    try:
-        with journal._conn() as conn:
-            rows = [dict(r) for r in conn.execute(
-                "SELECT ts, role, content FROM chat_log ORDER BY id DESC LIMIT 50")]
-    except Exception as exc:
-        if _is_busy_error(exc):
-            raise HTTPException(503, "journal is busy — retry shortly")
-        raise
-    return list(reversed(rows))
-
-
-# minimal per-IP token-bucket for /api/chat (synchronous answer kept; the
-# bucket only throttles abuse — full async/background chat is out of scope).
-_CHAT_BUCKET: dict[str, list[float]] = {}
-_CHAT_BUCKET_LOCK = threading.Lock()
-_CHAT_RATE = 10  # msgs
-_CHAT_WINDOW = 60.0  # per 60s per IP
-
-
-def _chat_rate_ok(ip: str) -> bool:
-    now = time.monotonic()
-    with _CHAT_BUCKET_LOCK:
-        hits = [t for t in _CHAT_BUCKET.get(ip, []) if now - t < _CHAT_WINDOW]
-        if len(hits) >= _CHAT_RATE:
-            _CHAT_BUCKET[ip] = hits
-            return False
-        hits.append(now)
-        _CHAT_BUCKET[ip] = hits
-        return True
-
-
-@app.post("/api/chat")
-def api_chat(msg: ChatIn, request: object = None):
-    # per-IP throttle (request optional so in-process calls keep working)
-    ip = "local"
-    try:
-        client = getattr(request, "client", None)
-        if client is not None:
-            ip = getattr(client, "host", "local") or "local"
-    except Exception:
-        ip = "local"
-    if not _chat_rate_ok(ip):
-        raise HTTPException(429, "chat rate limit — wait a minute and retry")
-    try:
-        reply = chatbot.answer(msg.message)
-    except Exception as exc:
-        if _is_busy_error(exc):
-            raise HTTPException(503, "journal is busy — retry shortly")
-        raise
-    return {"reply": reply}
-
-
-# ---------------------------------------------------------------------------
 # engine control
 @app.post("/api/engine/start")
 def api_engine_start(body: EngineIn):
@@ -1576,6 +1345,9 @@ def static_path(name: str) -> str:
 
 # Routers live in bot/api/ and read the shared state above from this module
 # at call time. Imported last because they import this module.
-from bot.api import evidence as _evidence_api  # noqa: E402
+from bot.api import account as _account_api, evidence as _evidence_api  # noqa: E402
 
 app.include_router(_evidence_api.router)
+app.include_router(_account_api.router)
+# names other code and the tests reach through this module
+from bot.api.account import _adjust_account, api_account_reset  # noqa: E402,F401

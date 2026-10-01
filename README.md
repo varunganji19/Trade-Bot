@@ -118,14 +118,12 @@ python3 main.py backtest --symbol BTC/USDT --timeframe 1h --days 365 \
   --strategy turtle_trend --purged-cv      # OOS path distribution + signal IC
 python3 main.py validate --symbol BTC/USDT --timeframe 1h --days 365 \
   --strategy turtle_trend --report REPORT.md   # purged-CV, PBO, DSR, MC + rendered report
-python3 main.py kronos --symbol BTC/USDT --days 60  # Kronos IC verdict (earned vote?)
 python3 main.py shadow                     # journal vs its own rules
 
-# 3. dashboard + chatbot
+# 3. dashboard
 python3 main.py dashboard           # → http://127.0.0.1:8000
-#   (start/stop the engine from the UI; ask "how much did you earn?",
-#    "why did you buy BTC?", "which strategy is best?" — and open the
-#    Evidence tab: the honesty layer, rendered)
+#   (start/stop the engine from the UI; the Evidence tab is the honesty
+#    layer, rendered)
 
 # 3a-2. Strategy Lab — pick any crypto/forex pair, apply strategies, backtest
 #    (dashboard: the Lab tab; works for BOTH books via a toggle)
@@ -152,203 +150,72 @@ python3 main.py config              # effective settings + where each came from
 make verify                         # tests + lint + live-vs-backtest parity smoke
 make soak                           # drive the RUNNING dashboard and flag breakdowns
 make test / make lint / make battery / make config
-python3 main.py chat "explain the connors strategy"
 python3 -m pytest tests/ -q         # 300+ tests
 ```
 
-## The strategies (each mapped to evidence — see docs/archive/RESEARCH.md)
+## How the evidence is produced
+
+[docs/METHODOLOGY.md](docs/METHODOLOGY.md) covers the data rules, the
+execution and cost model, the risk layer, the promotion gate, the
+statistics, the live-equals-backtest checks and the Shadow Account.
+[docs/RESULTS.md](docs/RESULTS.md) has every strategy and experiment with
+its verdict.
+
+## The strategies
+
+Lineage and design only; whether each one may trade is a measurement, listed
+in [docs/RESULTS.md](docs/RESULTS.md) and live on the dashboard.
 
 | Strategy | Lineage | Style | Timeframe |
 |---|---|---|---|
 | **Turtle Trend** | Donchian / Richard Dennis's Turtles + ADX regime filter (SSRN 6272239) | trend-following breakout, 2×ATR stop, opposite-channel exit | 1h |
-| **Connors Mean Reversion** | Larry Connors RSI(2) + EMA(200) trend filter (documented ~75% win rate on indices) + Chan AR(1)/OU half-life gate | buy deep pullbacks in uptrends *while pullbacks are actually reverting* (measured half-life ≤ 12 bars), snapback exits, 3×ATR stop + time stop | 4h / 1d |
+| **Connors Mean Reversion** | Larry Connors RSI(2) + EMA(200) trend filter + Chan AR(1)/OU half-life gate | buy deep pullbacks in uptrends while pullbacks are measurably reverting (half-life ≤ 12 bars), snapback exits, 3×ATR stop + time stop | 4h / 1d |
 | **TS Momentum** | Momentum papers (SSRN 3345280/3510433/4587697) | long-only absolute momentum: 240-bar return >8% + near 52-week high + EMA200 | 1h / 4h |
 | **FX Regime Mean-Rev** | Regime-conditioned FX reversion (SSRN 6087107) | z-score stretch fade with AR(1) half-life regime gate | 1h |
-| **Fast book** (separate account, **experimental**) | Carver 2025, Zarattini-Aziz 2023 (see docs/archive/HFT.md) | exhaustion fade (on probation: too few out-of-sample trades to judge, and every tuned variant lost out of sample); micro-breakout, market-making and OFI are measured losers that do not vote | 5m |
-| **VWAP Scalper** | Opening Range Breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP institutional benchmark + team's earlier VWAP prototype | VWAP reclaim/loss with momentum + volume confirmation, rolling-range breakout, breakeven trail, time stop; optional time-of-day RVOL filter (tested, off by default — measured neutral on 24/7 crypto, docs/archive/BACKTESTS.md) | 5m / 15m |
+| **VWAP Scalper** | Opening-range-breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP benchmark | VWAP reclaim/loss with momentum + volume confirmation, breakeven trail, time stop; optional RVOL filter (off by default) | 15m |
+| **Fast book** (separate account, **experimental**) | Carver 2025, Zarattini & Aziz 2023, Avellaneda & Stoikov 2008, Cont, Kukanov & Stoikov 2014 | exhaustion fade, micro-breakout, candle-based market making, order-flow proxy, cross-pair and funding reversion | 5m |
 
-**Orchestrator**: classifies each market's regime (ADX + EMA structure) and runs
-the strategy registered for that timeframe. Honest caveat: each strategy ships on
-its own validated timeframe and the three ranges are **disjoint** (turtle 1h,
-Connors 4h/1d, scalper 5m/15m), so every market today has exactly one strategy
-owner — the regime-weight blend and the conflict guard are implemented and
-journaled, but they only engage if strategies ever share a timeframe. The
-orchestration layer's active work today is the **promotion gate** (a strategy
-the harness measured as a loser stops voting — bot/promotion.py), the
-**book separation** (both books trade 5m, so `BaseStrategy.book` is what keeps
-them apart), confidence floors, the risk veto, and full decision journaling.
-
-News sentiment and the LLM tie-breaker used to sit here and were removed on
-2026-09-19: two nondeterministic, network-dependent calls between the vote and
-the risk manager, unmeasured, and — because the backtester ran neither — proof
-that live and backtest were executing different decision code.
-`make verify` now fails if they ever diverge again.
-
-**LLM integration is optional and never trades**: with `OPENAI_API_KEY` (or
-`ANTHROPIC_API_KEY`) set, an LLM phrases the chatbot's free-form answers, and
-every dollar figure it quotes is cross-checked against the journal. Without a
-key the chatbot answers from the journal with template logic. Either way the
-trading decision is the same deterministic code.
-
-## Risk management (the part that survives)
-
-- 1% of equity risked per trade, sized off the ATR stop distance
-- **portfolio allocation** (skfolio inverse-volatility by default, HRP optional):
-  the risk budget is divided across the symbols that can hold positions, so
-  correlated majors (BTC/ETH/SOL) can't each take a full 1% — the whole book
-  stays bounded. Per-symbol share is capped (`max_sym_weight`) and floored.
-- max 25% notional per position, max 4 concurrent positions
-- 3% daily-loss kill switch (plain-language semantics in
-  [Risk controls](#risk-controls-what-they-do-and-dont-do) below);
-  per-symbol cooldown after a stop-out
-- **gross-notional leverage cap** — total open notional across all books plus
-  the next entry may not exceed 1.0× equity (the bound the 25% × 4 caps used
-  to imply only implicitly, now enforced as one explicit gate across mixed
-  timeframes)
-- 0.55 minimum confidence for any entry
-- R-distance gate: stops wider than 10% of entry price are refused (vol-explosion guard); declared targets below 1.2R are refused
-- positions, their stops and the account's cash survive restarts
-  (journaled state; a restart continues the equity curve instead of
-  silently resetting it to paper capital)
-- one position per symbol across timeframes; each (symbol, timeframe)
-  book manages only its own position — a 4h bar can never stop out a
-  1h trade opened seconds ago
-
-## Risk controls: what they do and don't do
-
-Two independent controls can stop the bot from **opening new positions**.
-Neither one ever force-closes anything: open positions always keep their
-hard stops, targets and strategy exits while either is engaged.
-
-- **Automatic daily kill switch.** If the account falls 3% below its
-  start-of-day equity, new entries are blocked for the rest of the UTC day.
-  It resets by itself at the next UTC day — you don't need to do anything.
-  It never closes existing positions; their stops, targets and strategy
-  exits keep running.
-- **Manual pause** — the operator's halt button, completely independent of
-  the kill switch (which is equity-triggered and day-scoped). It stays until
-  you explicitly resume:
-
-  ```bash
-  python3 main.py pause [note]   # e.g. python3 main.py pause "holding over the FOMC"
-  python3 main.py resume         # new entries allowed again (all other risk gates still apply)
-  python3 main.py status         # shows whether the pause flag is set
-  ```
-
-  The same control is a "Pause trading" button on the dashboard (Overview
-  tab) with an amber banner while paused. Semantics, in plain words: **new
-  entries are blocked; open positions (if any) are still managed — stops,
-  targets, strategy exits; nothing is force-closed.** The flag is a small
-  `trading_paused.json` next to the journal, so it survives engine and
-  dashboard restarts; a corrupt/unreadable flag is quarantined and treated
-  as **paused** (a flag we can't read must fail toward "not trading", never
-  toward trading).
+The detailed research behind each one is in
+[docs/archive/RESEARCH.md](docs/archive/RESEARCH.md) and
+[docs/archive/HFT.md](docs/archive/HFT.md).
 
 ## Markets
 
 **Crypto and forex, in US dollars.** The standard book trades BTC, ETH and SOL
 on 1h (BTC and ETH also on 15m and 4h) plus EUR/USD and GBP/USD on 1h; the
-fast book trades five 5m markets with its own capital and fee tier.
+fast book trades five 5m markets with its own capital and fee tier. A
+watchlist entry whose kind or timeframe the bot no longer trades is dropped
+at load with a printed reason.
 
-The India/NSE universe — a session calendar, a per-side regulatory cost stack,
-a currency-isolation rule and a market-mode toggle — was removed on
-2026-09-19. It had produced **zero trades and zero decisions** in the entire
-journal while touching every module, including a 4h refusal that raised on
-every live cycle. `git log` has it if you want it back; docs/archive/HISTORY.md has the
-reasoning.
+## Extras
 
-A watchlist spec whose kind or timeframe the bot no longer trades is dropped
-at load with a printed reason, rather than loaded as a spec that can only
-ever HOLD.
+Kept, tested, and outside the main demo path.
 
-## Honesty rules (backtester & data)
-
-- decisions on closed bars only — the **still-forming candle is dropped**
-  before the engine ever sees it (backtest/live parity; unit-tested)
-- fills at next bar's open with slippage; taker fees on every fill
-  (crypto 0.10%, forex 0.02%) — per-trade `fees` report the **full round trip**
-- **OCO bracket semantics**: stop and target are linked; both inside one bar
-  resolves to the stop (conservative); a gap through the stop fills at the
-  bar's open (you get the market, not the level)
-- stop-loss fills can never be better than the stop level (unit-tested)
-- strategy exit signals computed on bar *i*'s close fill at bar *i+1*'s open
-  (that close was not tradable at decision time)
-- `--walk-forward` reports per-fold out-of-sample stats; **`--purged-cv`**
-  (skfolio CombinatorialPurgedCV) produces a *distribution* of OOS paths —
-  trades whose label (entry through exit) spans a path boundary are purged,
-  and only paths that actually traded count toward the stats
-- the daily kill switch follows **simulated bar time** in backtests, not the
-  wall clock — the same rule runs in backtest and live
-- causality is unit-tested (`test_strategies_never_read_future`): truncating
-  history at bar *i* cannot change the bar-*i* signal; determinism is tested
-  too (identical inputs → identical trades, curve, stats)
-- **data quality**: every OHLCV frame is validated (positive prices, high/low
-  bracket the body, sorted unique index) before indicators see it; crypto
-  fetches have a **fallback chain** (Binance → Bybit → OKX) so one exchange
-  being down never stops the engine; price caliber (raw vs adjusted) is
-  stamped on every frame; backtest data is disk-cached per day for
-  byte-identical repeat runs
-
-## Kronos — a foundation-model voter that must EARN its vote
-
-`bot/kronos_signal.py` wraps [Kronos](https://github.com/shiyu-coder/Kronos)
-(AAAI 2026, MIT): a foundation model pre-trained on K-lines from 45+
-exchanges. It samples ~30 forecast paths and reports P(up), expected return
-and dispersion — and it **starts as a tracked non-voter**. A rolling rank-IC
-ledger scores its forecasts against what actually happened; it would join the
-orchestrator vote only after 60+ resolved forecasts with IC >= 0.02. First
-measured verdict on BTC 1h: IC -0.06 over 115 forecasts -> **not promoted**.
-The requested 60-day rerun on 2026-09-19 was no better: 128 resolved
-forecasts, rolling IC -0.0754 -> **not promoted** (hurdle +0.02). It took
-2,976 seconds (49m36s) at the default 30 paths, 24-bar horizon and 8-bar
-step. The Evidence tab now has those resolved observations; 13 unrelated,
-market-keyed 1m forecasts remain pending and were correctly not resolved
-against the BTC 1h frame.
-
-**It now runs OFFLINE** (`python3 main.py kronos`), not in the trading loop.
-Three measurements put it there: it never earned a vote; one 1m forecast cost
-~41s of CPU against a cycle budget of seconds; and two books forecasting at
-once aborted the process on Metal (the vendored predictor auto-selects MPS,
-which is single-threaded). The gate and the ledger are intact, so the day the
-evidence says it deserves a vote, wiring it back is a decision with numbers
-behind it. The Evidence tab reads the ledger either way.
-
-**Kept as evidence, not as a voter (decided 2026-10-01).** Removal was
-measured (≈1,800 lines, 15 tests and optional ML dependencies, and no live
-latency saved because Kronos is already offline) and declined: the rejected
-model is the clearest demonstration that a signal has to earn its vote here.
-The torch/transformers extras stay optional; the bot and the whole test suite
-run without them.
-
-## Shadow Account — did the bot follow its own rules?
-
-`python3 main.py shadow` replays every journaled trade against its owning
-strategy's exit rules on the same bars and reports:
-
-- **rule adherence** — on-rule vs *late* (lingered after the strategy's exit
-  signal) vs *rule break* (discretionary exit with the strategy silent);
-- **behavior profile** — R-multiple distribution, disposition effect,
-  stop discipline (trades that blew through their initial stop);
-- **shadow comparison** — actual journal PnL vs the pure-strategy backtest
-  over the same window (the measured cost/value of orchestration).
-
-On the seeded demo journal (see the caveat below) it surfaced: 57.6% adherence
-on BTC 1h, 16 lingering exits, 236 trades that blew through their initial stop
-distance, and a +342h disposition gap (losers held much longer than winners) —
-exactly the diagnostics the attribution story needs.
-
-**Caveat:** those trades are seeded backtest-replay rows (`mode='demo'`) —
-badged in the trade history, excluded from the chatbot's paper-record
-answers, and skipped by `shadow` by default (`--include-demo` audits them).
-Those headline shadow numbers were computed on such seeded replays, not on
-trades the live engine took; they demonstrate the tooling, not a live record.
+- **Ask the journal (chatbot).** Plain-language answers from the trading
+  journal: "how much did you earn?", "why did you buy BTC?". With
+  `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set, an LLM phrases free-form
+  answers and every dollar figure it quotes is cross-checked against the
+  journal; without a key it answers from templates. It never touches a
+  trading decision. `python3 main.py chat "explain the connors strategy"`.
+- **Kronos.** `bot/kronos_signal.py` wraps
+  [Kronos](https://github.com/shiyu-coder/Kronos) (AAAI 2026, MIT), a
+  foundation model pre-trained on K-lines from 45+ exchanges. It was given
+  the same chance to earn a vote as any strategy and failed (RESULTS.md §2),
+  so it runs offline only: `python3 main.py kronos --symbol BTC/USDT --days 60`
+  (about 50 minutes on CPU). It is kept as evidence that a signal has to
+  earn its vote. Its torch/transformers dependencies are optional; the bot
+  and the test suite run without them.
 
 ## Layout
 
 ```
 config.py            all tunables (watchlist, risk, costs, strategy params, allocation)
-docs/archive/RESEARCH.md          the evidence behind every strategy + honest limitations
-docs/archive/BACKTESTS.md         real-data results across symbols/strategies
+docs/
+  METHODOLOGY.md     how the evidence is produced
+  RESULTS.md         every strategy and experiment with its verdict
+  DEMO.md            the 7-minute demo and talk track
+  ROADMAP.md         the plan from the mentor and VC reviews
+  archive/           the round-by-round lab notebook, kept unchanged
 bot/
   data.py            ccxt fallback chain (Binance→Bybit→OKX) + yfinance;
                      OHLCV validation (weekend-aware gap guard), caliber
@@ -374,7 +241,7 @@ bot/
   kronos_signal.py   Kronos foundation-model signal: probabilistic forecast,
                      IC ledger, earned voting rights — OFFLINE (main.py kronos)
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
-  hft/               the separate fast (5m) paper book (docs/archive/HFT.md): config
+  hft/               the separate fast (5m, experimental) paper book: config
                      factory, perp/spot fee tiers, derived cost floors,
                      harness battery + promotion verdicts — strategies in
                      bot/strategies/hft.py
@@ -396,8 +263,6 @@ scripts/
                      (make soak)
 models/kronos/       vendored Kronos model source (upstream MIT license vendored;
                      weights via HF Hub)
-docs/archive/HFT.md               the fast (5m) paper book: research grounding,
-                     fee math, strategies, harness, measured results
 tests/              300+ tests: indicators, strategies, causality, determinism,
                      risk, broker fills/OCO, allocator, purged CV, Kronos gate,
                      shadow, journal, backtest, live-engine regressions
@@ -407,7 +272,7 @@ scripts/pinned_runs.py  pinned Milestone-A windows (byte-identical reruns)
 LICENSE              MIT
 pyproject.toml       committed ruff + pytest config (the lint floor CI enforces)
 Makefile             make setup / test / lint / verify / backtest / validate / battery
-CHANGELOG.md         rounds 1–6 and the audit hardening, mapped to history
+CHANGELOG.md         dated changes
 ```
 
 ## Environment
@@ -433,7 +298,8 @@ CHANGELOG.md         rounds 1–6 and the audit hardening, mapped to history
 
 ## Status & scope
 
-Paper trading only, by design. The same `MarketSpec` + broker interfaces that
-make crypto/forex pluggable are where a real-broker adapter (e.g., Binance
-testnet, OANDA practice) would slot in — but going live is a decision that
-belongs to a regulated environment, not a competition repo.
+Paper trading only. No strategy here is presented as profitable. The
+`MarketSpec` and broker interfaces are where a real exchange adapter would
+slot in; the roadmap builds readiness on the Binance **testnet** first, and
+any real-money step is a separate decision for the owner, not something this
+repo does.

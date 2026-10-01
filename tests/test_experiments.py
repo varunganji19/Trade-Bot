@@ -276,3 +276,32 @@ def test_gate_refuses_to_publish_partial_evidence(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="incomplete"):
         ex.run_declaration(path, workers=1, quiet=True, require_preregistered=False)
     assert not (tmp_path / "db" / "results" / "promotions_standard.json").exists()
+
+
+def test_a_trial_is_a_distinct_configuration():
+    """The same settings declared in two studies, or re-run on newer data,
+    are one trial; different settings, or the same settings on another
+    market, are separate trials. Retroactive records without params count
+    once each."""
+    def rec(exp, params, symbol, sharpe):
+        return {"experiment": exp, "variant": "v", "level": "market", "strategy": "s",
+                "tier": "perp", "params": params, "symbol": symbol, "timeframe": "5m",
+                "oos": {"sharpe": sharpe}}
+    records = [rec("a", {"z": 2.5}, "BTC", 0.1), rec("b", {"z": 2.5}, "BTC", 0.3),
+               rec("a", {"z": 2.0}, "BTC", 0.2), rec("a", {"z": 2.5}, "ETH", 0.4),
+               {"experiment": "old", "variant": "x", "level": "retro", "strategy": "s"},
+               dict(rec("a", {"z": 9}, "BTC", 9.0), level="pooled")]
+    t = ex.trials_for("s", records=records)
+    assert t["n_trials"] == 4
+    assert sorted(t["sharpes"]) == [0.2, 0.3, 0.4]     # latest of the duplicate wins
+
+
+def test_default_settings_written_out_are_the_same_trial():
+    from config import CONFIG
+    z = CONFIG.params.hft_fade_z_entry
+    assert ex.canonical_params({"hft_fade_z_entry": z}) == {}
+    assert ex.canonical_params({"hft_fade_z_entry": z + 1}) == {"hft_fade_z_entry": z + 1}
+    recs = [{"experiment": e, "variant": "v", "level": "market", "strategy": "s", "tier": "perp",
+             "params": p, "symbol": "BTC", "timeframe": "5m", "oos": {"sharpe": 0.1}}
+            for e, p in (("a", {}), ("b", {"hft_fade_z_entry": z}))]
+    assert ex.trials_for("s", records=recs)["n_trials"] == 1

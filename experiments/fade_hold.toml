@@ -1,0 +1,122 @@
+id = "fade_hold"
+kind = "study"
+book = "fast"
+tier = "perp"
+created = 2026-10-01
+note = "Re-run of a study first run on 2026-10-01 before pre-registration existed (docs/archive/HFT_TRADE_FREQUENCY.md). Declared with the same variants so every setting tried enters the registry."
+hypothesis = "The fade's reversion needs more than 45 minutes; a longer maximum hold makes it profitable after costs."
+strategies = ["hft_exhaustion_fade"]
+days = 90
+holdout_days = 30   # variants are compared on the first 60 days (4 folds) and judged on the last 30
+folds = 4
+
+[[variants]]
+name = "live_45m"
+params = {}
+
+[[variants]]
+name = "live_90m"
+params = {hft_fade_time_stop = 18}
+
+[[variants]]
+name = "live_3h"
+params = {hft_fade_time_stop = 36}
+
+[[variants]]
+name = "live_6h"
+params = {hft_fade_time_stop = 72}
+
+[[variants]]
+name = "loose_plus2bp_45m"
+params = {hft_fade_z_entry = 2.25, hft_fade_vol_spike = 2.5, hft_fade_limit_exit_bps = 2.0}
+
+[[variants]]
+name = "loose_plus2bp_90m"
+params = {hft_fade_z_entry = 2.25, hft_fade_vol_spike = 2.5, hft_fade_limit_exit_bps = 2.0, hft_fade_time_stop = 18}
+
+[[variants]]
+name = "loose_plus2bp_3h"
+params = {hft_fade_z_entry = 2.25, hft_fade_vol_spike = 2.5, hft_fade_limit_exit_bps = 2.0, hft_fade_time_stop = 36}
+
+[[variants]]
+name = "loose_plus2bp_6h"
+params = {hft_fade_z_entry = 2.25, hft_fade_vol_spike = 2.5, hft_fade_limit_exit_bps = 2.0, hft_fade_time_stop = 72}
+
+[[variants]]
+name = "loose_plus2bp_6h_entry_through_2bp"
+params = {hft_fade_z_entry = 2.25, hft_fade_vol_spike = 2.5, hft_fade_limit_exit_bps = 2.0, hft_fade_time_stop = 72, "hft.maker_penetration_bps" = 2.0}
+
+[[markets]]
+kind = "crypto"
+symbol = "BTC/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ETH/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "XRP/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "DOGE/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ADA/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "AVAX/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "LINK/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "LTC/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "DOT/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "TRX/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BCH/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "NEAR/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SUI/USDT"
+timeframes = ["5m"]

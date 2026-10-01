@@ -434,8 +434,10 @@ def _records_from_result(res: dict) -> list:
         if (res.get("verdicts") or {}).get(e["strategy"]):
             rec["verdict"] = res["verdicts"][e["strategy"]]["status"]
         out.append(rec)
+    params = {e["variant"]: e["params"] for e in res["summary"]}
     for m in res["markets"]:
-        out.append(dict(base, level="market", variant=m["variant"], strategy=m["strategy"],
+        out.append(dict(base, level="market", variant=m["variant"],
+                        params=params.get(m["variant"], {}), strategy=m["strategy"],
                         symbol=m["symbol"], timeframe=m["timeframe"], oos=m["oos"],
                         **({"holdout": m["holdout"]} if "holdout" in m else {})))
     return out
@@ -471,12 +473,28 @@ def load_registry(path: str | None = None) -> list:
         return [json.loads(line) for line in fh if line.strip()]
 
 
+def canonical_params(params: dict) -> dict:
+    """`params` without entries that equal the shipped default, so the same
+    configuration written two ways is recognised as one."""
+    from config import CONFIG
+    out = {}
+    for key, val in (params or {}).items():
+        section, _, field = key.rpartition(".")
+        target = {"": CONFIG.params, "params": CONFIG.params, "hft": CONFIG.hft,
+                  "costs": CONFIG.costs, "risk": CONFIG.risk}.get(section)
+        if target is None or getattr(target, field, object()) != val:
+            out[key] = val
+    return out
+
+
 def trials_for(strategy: str, timeframe: str | None = None,
                records: list | None = None) -> dict:
     """Every recorded trial of `strategy`: the count, and the annualised
     out-of-sample Sharpes of those that have one (the Deflated Sharpe's
-    input). One trial per (experiment, variant, market); re-running the same
-    declaration on newer data is more evidence, not another trial."""
+    input). A trial is one distinct configuration on one market: the same
+    settings measured again — on newer data, or declared in a second study —
+    is more evidence, not another draw from the lottery. The latest record
+    of a configuration wins."""
     records = load_registry() if records is None else records
     trials = {}
     for r in records:
@@ -484,7 +502,9 @@ def trials_for(strategy: str, timeframe: str | None = None,
             continue
         if timeframe and r.get("timeframe") not in (None, timeframe):
             continue
-        key = (r.get("experiment"), r.get("variant"), r.get("symbol"), r.get("timeframe"))
+        config = json.dumps(canonical_params(r.get("params")), sort_keys=True) if "params" in r \
+            else f"{r.get('experiment')}/{r.get('variant')}"
+        key = (config, r.get("tier"), r.get("symbol"), r.get("timeframe"))
         trials[key] = r
     sharpes = [r["oos"]["sharpe"] for r in trials.values()
                if isinstance(r.get("oos"), dict) and r["oos"].get("sharpe") is not None]

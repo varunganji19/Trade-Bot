@@ -101,12 +101,11 @@ class TimeSeriesMomentum(BaseStrategy):
 
     def evaluate(self, df, i: int) -> Signal:
         p = self.p
-        # ADAPTIVE WARMUP (P0 fix): the old gate max(lookback, 52w_bars, 30)+2
-        # = 2452 bars could never clear on live ~400-bar frames, so the
-        # strategy was permanently FLAT. The 52w anchor is now a partial
-        # window (see _high_prox), so the hard gate only covers what is
-        # TRULY insufficient: the trailing-return lookback plus indicator
-        # readiness. FLAT "warming up" fires only below that line.
+        # ADAPTIVE WARMUP: a gate on the full 52-week window (~2,450 bars)
+        # could never clear on live ~400-bar frames. The 52w anchor is a
+        # partial window (see _high_prox), so the hard gate covers only what
+        # is truly insufficient: the trailing-return lookback plus indicator
+        # readiness.
         warmup = max(p.tsmom_lookback, 30) + 2
         if i < warmup:
             return Signal(self.name, "FLAT", 0.0, rationale="warming up")

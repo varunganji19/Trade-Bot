@@ -41,9 +41,8 @@ STRATEGIES = ["turtle_trend", "connors_meanrev", "vwap_scalper",
               "ts_momentum", "fx_regime_meanrev", "ensemble"]
 # run each strategy only on its own timeframe (as shipped in the watchlist).
 # Derived from the strategies' own registered preferred_timeframes instead of
-# a hand-written set: the hardcoded SKIP used to silently drift when a
-# strategy's timeframe registration changed (it covered exactly the
-# turtle/connors/scalper cells below at the time of writing — verify with
+# a hand-written set, so it cannot drift when a strategy's timeframe
+# registration changes (inspect with
 # `python3 -c "from run_battery import SKIP; print(sorted(SKIP))"`).
 from bot.strategies import STRATEGY_CLASSES  # noqa: E402
 _TFS = sorted({s.timeframe for s in BATTERY})

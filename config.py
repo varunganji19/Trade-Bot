@@ -105,8 +105,7 @@ def _env_str(name: str, default: str) -> str:
 
 def utc_now() -> str:
     """Canonical timestamp for journal/engine writes (ISO-UTC, seconds).
-    One shared clock: the engine and the journal used to define identical
-    private copies."""
+    One shared clock for every writer."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
@@ -117,11 +116,9 @@ class RiskConfig:
     max_open_positions: int = 4
     # gross-notional leverage cap: total open notional (all books, marked) plus
     # the new entry's pre-fill notional may not exceed this multiple of equity.
-    # The ~1x bound used to be only IMPLICIT (25% x 4 positions); making it an
-    # explicit gate enforces it across mixed timeframes/books where the per-
-    # position and per-symbol caps cannot see the whole picture (audit Fix
-    # 2.2-lite: 4 books x 25% can stack to 1x in the live engine, and nothing
-    # bounded the total if the per-position cap was ever raised).
+    # 25% x 4 positions implies ~1x only loosely; an explicit gate enforces it
+    # across timeframes and books, where the per-position and per-symbol caps
+    # cannot see the whole picture, whatever those caps are later set to.
     max_gross_leverage: float = 1.0
     # CORRELATED-CLUSTER CAP. max_gross_leverage bounds the WHOLE book, and
     # max_position_pct bounds one position — but four "independent" positions
@@ -134,8 +131,7 @@ class RiskConfig:
     max_cluster_leverage: float = 0.6
     daily_loss_kill_switch: float = 0.03  # stop opening trades after -3% day
     min_confidence: float = 0.55        # orchestrator confidence floor for entries
-    # R-distance sanity gate (the old dead max_r_per_trade knob promised it):
-    # a stop wider than max_r_per_trade of the entry price means ATR exploded
+    # R-distance sanity gate: a stop wider than max_r_per_trade of the entry price means ATR exploded
     # — refuse rather than size into a vol regime the exits can't manage
     max_r_per_trade: float = 0.10      # stop may sit at most 10% of entry price
     # reward floor: when a strategy DOES declare a fixed target, sub-1.2R
@@ -240,9 +236,8 @@ HFT_WATCHLIST: list[MarketSpec] = [
 
 def infer_kind(symbol: str) -> str:
     """'forex' for yfinance-style XXXXXX=X, else 'crypto' (ccxt BASE/QUOTE).
-    One shared inference — call sites used to disagree on the fallback for
-    malformed symbols, and kind drives the cost model (crypto taker fees vs
-    the forex spread), a 5x fee/slippage difference in both directions."""
+    One shared inference, because kind drives the cost model (crypto taker
+    fees vs the forex spread): a 5x fee/slippage difference either way."""
     if "=" in symbol:
         return "forex"
     return "crypto"
@@ -251,8 +246,7 @@ def infer_kind(symbol: str) -> str:
 def parse_utc(ts: str | None) -> "datetime | None":
     """ISO journal timestamp -> timezone-aware UTC datetime; naive rows read as
     UTC (the journal only ever writes UTC), blank/unparseable input -> None.
-    One shared parser: risk and broker each used to hand-roll this with
-    different fallbacks."""
+    One shared parser for risk and broker."""
     if not ts:
         return None
     try:
@@ -415,9 +409,8 @@ def cache_dir() -> str:
 
 def watchlist_path() -> str:
     """Resolved watchlist.json: an explicitly customized WATCHLIST_PATH (tests
-    install one) wins; otherwise the journal dir's `watchlist.json` — the
-    split-brain fix (the old module constant always pointed at the repo's
-    data/ even when BOT_DB_PATH moved the journal elsewhere)."""
+    install one) wins; otherwise the journal dir's `watchlist.json`, so the
+    watchlist moves with BOT_DB_PATH instead of staying in the repo's data/."""
     if os.path.abspath(WATCHLIST_PATH) != _DEFAULT_WATCHLIST_PATH:
         return WATCHLIST_PATH
     return os.path.join(db_dir(), "watchlist.json")

@@ -105,7 +105,7 @@ def api_equity(limit: int = Query(default=500, ge=1, le=3000),
     if not rows:
         return {"rows": [], "demo_only": True}
     # downsample to <=500 points for the chart (a year of sub-minute points
-    # used to ship 3000 rows on every 4s poll); paged reads skip downsampling
+    # is thousands of rows per 4s poll); paged reads skip downsampling
     if since_id is None:
         rows = _downsample(rows, 500)
     return rows
@@ -207,7 +207,7 @@ def api_watchlist_delete(kind: str, symbol: str, timeframe: str):
 @router.get("/api/positions")
 def api_positions():
     """Alias for the open-positions block of /api/stats — the name an operator
-    (or a curl sanity check on stage) guesses first; it used to 404."""
+    (or a curl sanity check) guesses first."""
     eng = core._get_engine()
     if eng is not None:
         positions, marks, _ = core._live_state(eng)
@@ -236,9 +236,9 @@ def api_position_close(body: PositionCloseIn):
 
 @router.post("/api/engine/start")
 def api_engine_start(body: EngineIn):
-    # cheap guard BEFORE any construction: a repeat POST while running used to
-    # pay a full TradingEngine build (torch/Kronos load, position restore) and
-    # throw it away — an impatient double-click was a local CPU/memory spike
+    # cheap guard BEFORE any construction: a repeat POST while running must
+    # not pay for a full TradingEngine build (position restore) only to throw
+    # it away
     existing = core._get_engine()
     if existing is not None:
         return {"status": "already_running", "cycles": existing.cycles}
@@ -253,8 +253,8 @@ def api_engine_start(body: EngineIn):
 @router.post("/api/engine/stop")
 def api_engine_stop(body: EmptyIn):
     """Quiesce: clear the global and return immediately; the bounded join runs
-    in a background thread (the endpoint used to block up to 300s, hanging
-    the UI and the reset flow). The desired=stopped state is persisted
+    in a background thread, so the endpoint never blocks the UI or the reset
+    flow for up to 300s. The desired=stopped state is persisted
     SYNCHRONOUSLY before returning so an immediate state-file read (and a
     dashboard restart) sees the stop even while the join is still in flight."""
     with core._engine_lock:
@@ -280,11 +280,9 @@ def api_engine_stop(body: EmptyIn):
 def api_engine_interval(body: EngineIn):
     """Retune the cycle cadence — for a RUNNING engine too.
 
-    The interval used to be captured by the loop thread at start, so the
-    dashboard's Interval select was disabled while the engine ran and the
-    only way to change cadence was stop -> start (which re-probes Kronos and
-    re-claims the book lease). Both loops now re-read their module global
-    every cycle, so this takes effect on the next wake."""
+    Both loops re-read the interval every cycle (bot/engines.py), so this
+    takes effect on the next wake without a stop/start (which would rebuild
+    the engine and re-claim the book lease)."""
     core._engine_interval = body.interval
     running = core._get_engine() is not None
     # persist so auto-resume comes back on the NEW cadence (a stop writes the

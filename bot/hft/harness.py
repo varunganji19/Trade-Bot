@@ -36,8 +36,7 @@ WARMUP_BARS = 400         # clears the ema200 column the shared indicator builde
 def _round_trip_cost_bps(cfg, kind: str = "crypto") -> float:
     """Modeled round trip for a TAKER entry + TAKER exit (bp), for display —
     priced in the SPEC's own kind (forex legs pay the spread model, not the
-    crypto taker fee; the old crypto-hardcoded display overstated EUR/USD
-    round trips ~2.7x)."""
+    crypto taker fee, which would overstate EUR/USD round trips ~2.7x)."""
     c = cfg.costs
     return round((c.fee(kind) + c.slippage(kind)
                   + c.fee(kind) + c.slippage(kind)) * 1e4, 1)

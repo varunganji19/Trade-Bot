@@ -449,11 +449,9 @@ def _close_all_open_positions(eng: TradingEngine | None) -> list[dict]:
     return closed
 
 
-# The page itself lives in bot/static/ (index.html + app.css + app.js).
-# It was a 2,700-line triple-quoted string in this module until 2026-09-19:
-# HTML, CSS and JavaScript with no syntax highlighting, no linting and no way
-# to diff a UI change apart from an API change. Every UI bug in this repo's
-# history was written in that string. The files are served below.
+# The page lives in bot/static/ (index.html + app.css + app.js) as real
+# files, so the UI is linted, highlighted and diffed apart from the API.
+# They are served below.
 _STATIC = os.path.join(os.path.dirname(__file__), "static")
 
 

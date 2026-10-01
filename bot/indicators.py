@@ -47,8 +47,7 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
 
 def _true_range(df: pd.DataFrame) -> pd.Series:
     """True range: the greatest of high-low, |high-prev close|, |low-prev
-    close|. One definition, two consumers (atr, adx) — the formula used to
-    live twice in this module."""
+    close|. One definition for both consumers (atr, adx)."""
     prev_close = df["close"].shift(1)
     return pd.concat([
         df["high"] - df["low"],

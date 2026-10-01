@@ -33,13 +33,11 @@ _FX_OPEN_WEEKDAY, _FX_OPEN_HOUR = 6, 22       # Sunday
 def _weekend_seconds(start, end) -> float:
     """Seconds between `start` and `end` that fall inside the FX weekend.
 
-    WHY: the frozen-feed guard used to compare a WALL-CLOCK gap against a
-    flat 72h allowance for forex. Yahoo routinely drops the bars either side
-    of the close, so an ordinary weekend shows up as e.g. Fri 15:00 -> Mon
-    19:00 = 76h and the guard refused a perfectly good frame — EUR/USD and
-    GBP/USD errored on every single cycle of the live standard book. For a
-    24x5 market the meaningful quantity is TRADING time, so the weekend is
-    subtracted before the comparison."""
+    WHY: Yahoo routinely drops the bars either side of the forex close, so an
+    ordinary weekend can show as Fri 15:00 -> Mon 19:00 = 76h of wall clock,
+    and a flat 72h allowance would refuse a perfectly good frame. For a 24x5
+    market the meaningful quantity is TRADING time, so the weekend is
+    subtracted before the frozen-feed comparison."""
     if end <= start:
         return 0.0
     total = 0.0

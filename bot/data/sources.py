@@ -77,8 +77,8 @@ def _ohlcv_rows_from(source: str, symbol: str, timeframe: str, since_ms: int | N
 
 
 def _fetch_with_fallback(symbol, timeframe, source, fetch_one):
-    """Fallback-chain scaffold shared by the two crypto fetchers (the chain
-    loop and the all-sources-failed error tail used to be copy-pasted).
+    """Fallback-chain scaffold shared by the two crypto fetchers (one chain
+    loop, one all-sources-failed error).
     Sources sitting out a failure cooldown are skipped in BOTH the automatic
     chain and explicit-source requests (a dead exchange must not be hammered
     just because the operator named it); one probe re-earns a bench once it

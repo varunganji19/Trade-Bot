@@ -194,10 +194,10 @@ def behavior_profile(trades: list[dict]) -> dict:
     for t in closed:
         entry = t.get("entry_price")
         # INITIAL stop, not the trailed one: stop_price is overwritten by every
-        # trail, so dividing by it turned BE-trailed losers into ±20R explosions
-        # and excluded stop==entry rows entirely (a biased R sample). The
+        # trail, so dividing by it would turn breakeven-trailed losers into
+        # ±20R explosions and drop stop==entry rows (a biased R sample). The
         # latched initial_stop_price is the ground truth; legacy rows without
-        # it keep the old approximation (documented in journal._migrate).
+        # it fall back to stop_price (documented in journal._migrate).
         stop = t.get("initial_stop_price")
         if stop is None:
             stop = t.get("stop_price")
@@ -264,12 +264,10 @@ def shadow_compare(spec, trades: list[dict], df: pd.DataFrame) -> dict:
 
     actual_pnl = sum(t.get("pnl") or 0.0 for t in trades if t.get("status") == "CLOSED")
     actual_fees = sum(t.get("fees") or 0.0 for t in trades if t.get("status") == "CLOSED")
-    # one shadow backtest PER strategy that owns trades here: a mixed journal
-    # used to be compared against whichever strategy happened to be seen first
-    # (set iteration order) — every other owner was scored against the wrong
-    # rules. Deterministic order, and each shadow only counts its own window.
-    # Unsupported names (hft_*, ensemble, typos) are REPORTED explicitly —
-    # never silently dropped (the old 3-name allowlist hid them).
+    # one shadow backtest PER strategy that owns trades here, so no owner is
+    # scored against another strategy's rules; deterministic order, and each
+    # shadow only counts its own window. Unsupported names (hft_*, ensemble,
+    # typos) are REPORTED explicitly, never silently dropped.
     from bot.strategies import STRATEGY_CLASSES
     owned = sorted({t.get("strategy") for t in trades if t.get("strategy")})
     shadows = []

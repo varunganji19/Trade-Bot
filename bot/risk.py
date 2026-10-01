@@ -297,8 +297,8 @@ class RiskManager:
         self.persist_state()
 
     def apply_exit_cooldown(self, spec, closed_pos, reason: str, bar_epoch: float | None):
-        """One exit-cooldown policy for both live and backtest paths (they used to
-        duplicate it; the copies could drift). bar_epoch is None only in manual
+        """One exit-cooldown policy for both live and backtest paths, so the
+        two cannot drift apart. bar_epoch is None only in manual
         dash-path closes — no clock, no cooldown bookkeeping."""
         if bar_epoch is None:
             return
@@ -395,11 +395,10 @@ class RiskManager:
                                  risk_fraction=self.risk_fraction(spec.symbol))
         if qty <= 0:
             return RiskDecision(False, category="min_notional", reason="position size rounds to zero (min notional)")
-        # gross leverage gate (audit Fix 2.2-lite): total open notional + this
-        # entry must stay under max_gross_leverage x equity. The bound used to
-        # be only implicit (25% per position x max 4 positions); explicit, it
-        # is enforced as ONE cap across mixed timeframes/books and survives
-        # any future change to either of the two factors that implied it.
+        # gross leverage gate: total open notional + this entry must stay
+        # under max_gross_leverage x equity. The 25%-per-position x 4-position
+        # caps imply the bound only loosely; this enforces it as ONE cap across
+        # timeframes and books, whatever either factor is later set to.
         # equity <= 0 cannot be sensibly levered either way — skip rather than
         # divide by zero (an engine with zero equity has bigger problems).
         total_gross = open_gross_notional + qty * decision.price

@@ -202,11 +202,11 @@ def load_verdicts(path: str | None = None, *, book: str = "fast") -> dict:
     """Never raises: an unreadable file means 'no evidence', which is the
     permissive state (see the module docstring).
 
-    Cached on the file's mtime. A long-running engine used to read the
-    verdicts once at construction, so a battery run mid-session changed
-    nothing until a restart — a stale gate that looks exactly like a working
-    one. The stat is one syscall per call; the caller is about to compute
-    indicators over hundreds of bars."""
+    Cached on the file's mtime and re-checked on every call, so a battery
+    run mid-session takes effect without a restart (a gate read once at
+    construction goes stale while looking exactly like a working one). The
+    stat is one syscall; the caller is about to compute indicators over
+    hundreds of bars."""
     path = path or promotions_path(book)
     try:
         mtime = os.path.getmtime(path)
@@ -242,12 +242,11 @@ def gate_state(path: str | None = None, *, book: str = "fast") -> dict:
                        f"votes UNMEASURED; run `make evidence` to gather them"}
     verdicts = load_verdicts(path, book=book)
     demoted = [n for n, v in verdicts.items() if v.get("status") == DEMOTED]
-    # WHICH EVIDENCE this verdict set rests on. Verdicts written before the
-    # walk-forward change carry no `evidence` key: they came from the SAME
-    # full-window cells used to develop the strategies, which measures fit,
-    # not persistence. An in-sample verdict file must not present itself as
-    # an out-of-sample one — the gate's whole claim is the quality of its
-    # evidence, so a weaker basis has to be visible, not inferred.
+    # WHICH EVIDENCE this verdict set rests on. Verdicts with no `evidence`
+    # key came from the SAME full-window cells used to develop the
+    # strategies, which measures fit, not persistence. An in-sample file must
+    # not present itself as an out-of-sample one: the gate's whole claim is
+    # the quality of its evidence, so a weaker basis has to be visible.
     bases = {v.get("evidence", "in_sample") for v in verdicts.values()}
     oos = bases == {"walk_forward_oos"}
     evidence = "walk_forward_oos" if oos else "in_sample"

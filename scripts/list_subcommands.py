@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Print every CLI subcommand main.py registers, one per line.
 
-WHY THIS EXISTS: CI's smoke job used to iterate a HARDCODED list of
-subcommands. When `market` and `seed-demo` were removed the list kept naming
-them, so the job failed on commands that no longer exist while testing
-nothing about the ones that do — and `config`, newly added, was never smoked
-at all. A list that has to be hand-maintained in a second place will drift;
-this derives it from the parser itself.
+WHY THIS EXISTS: CI's smoke job runs every subcommand's --help. A list kept
+by hand in a second place drifts (naming removed commands, missing new
+ones); this derives it from the parser itself.
 
 Imports main.py rather than regexing it: if the module cannot even be
 imported, that is a failure worth reporting here too.

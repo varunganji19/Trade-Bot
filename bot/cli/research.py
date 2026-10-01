@@ -12,14 +12,9 @@ from config import CONFIG, DEFAULT_WATCHLIST, MarketSpec, infer_kind
 
 def _spec_from_args(args) -> MarketSpec:
     """CLI symbols arrive unvalidated — infer kind the one shared way and
-    uppercase ONLY forex pairs like the dashboard's validator does. India
-    tickers ('RELIANCE.NS', '^NSEI') and crypto ('BTC/USDT') stay verbatim
-    ('.NS' is already uppercase; mangling it would break the yfinance
-    lookup).
-    Note: this unifies the old call-site fallbacks. A malformed CLI symbol
-    (no '/', '=' or '.NS'/'^') used to guess 'forex' here, now guesses
-    'crypto'; no VALID symbol changes behavior — valid ones contain exactly
-    one of the kind markers, so only the garbage-input case can shift."""
+    uppercase ONLY forex pairs like the dashboard's validator does; crypto
+    ('BTC/USDT') stays verbatim. A malformed symbol (no '/' or '=') is
+    guessed to be crypto."""
     kind = infer_kind(args.symbol)
     sym = args.symbol if kind == "crypto" else args.symbol.upper()
     return MarketSpec(kind, sym, args.timeframe)

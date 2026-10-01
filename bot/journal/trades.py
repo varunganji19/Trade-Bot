@@ -89,9 +89,9 @@ class TradesMixin:
                     realized_cash_delta: float | None = None,
                     owner_token: str | None = None):
         """Close a trade. When equity/cash are given, the cycle-end equity point
-        is written IN THE SAME transaction — a crash between the two used to
-        drop the exit proceeds from the account (CLOSED trade, pre-exit cash
-        as the restart anchor).
+        is written IN THE SAME transaction, so a crash between the two cannot
+        drop the exit proceeds from the account (a CLOSED trade with pre-exit
+        cash as the restart anchor).
 
         `entry_fee` (the entry leg's fee) and `realized_cash_delta` (the exact
         broker cash effect of THIS close event) are written when supplied so

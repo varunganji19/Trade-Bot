@@ -116,7 +116,7 @@ def _lease_is_live(row, now: float) -> bool:
     return (now - float(row["heartbeat"])) <= _LEASE_TTL_S
 
 
-# the engine used to define its own byte-identical utc_now() — one shared clock
+# one shared clock for every journal timestamp
 _now = utc_now
 _HOST = os.uname().nodename if hasattr(os, "uname") else os.environ.get("COMPUTERNAME", "?")
 
@@ -127,10 +127,10 @@ _DB_CORRUPT_SIGNATURES = ("not a database", "malformed")
 
 
 def _iso(ts: str | None) -> str:
-    """Canonical journal timestamp (ISO-UTC, 'T' separator). seed_demo used to
-    write pandas' space-separated str(Timestamp) — the two formats sorted
-    differently within a day and corrupted ts-ordered reads (the restart cash
-    anchor could pick a stale point). Normalize every ts ON WRITE, and
+    """Canonical journal timestamp (ISO-UTC, 'T' separator). pandas'
+    space-separated str(Timestamp) sorts differently within a day and would
+    corrupt ts-ordered reads (the restart cash anchor could pick a stale
+    point). Normalize every ts ON WRITE, and
     _migrate normalizes legacy rows ON BOOT. An unparseable value is stamped
     with the current time instead of passing through: garbage sorts AFTER
     every ISO string, so closed_cash_delta_since would re-count that trade's

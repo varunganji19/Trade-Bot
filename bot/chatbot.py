@@ -117,9 +117,8 @@ class ChatBot:
 
     # ------------------------------------------------------------------ API
     def answer(self, question: str) -> str:
-        # log the user's message exactly once, BEFORE any branch: the LLM path
-        # used to log it inside _llm_answer, so a mid-path failure + fallback
-        # double-logged the question
+        # log the user's message exactly once, BEFORE any branch, so a
+        # failure in the LLM path plus the fallback cannot log it twice
         self.journal.log_chat("user", question)
         try:
             if self.llm.enabled:
@@ -265,8 +264,8 @@ class ChatBot:
 
         if "why" in ql and ("buy" in ql or "sell" in ql or "open" in ql):
             # answer about the market the user ASKED about, not whichever
-            # non-HOLD decision was newest: "why did you buy BTC?" used to
-            # return a GBPUSD decision (question symbol ignored entirely)
+            # non-HOLD decision is newest ("why did you buy BTC?" must never
+            # be answered with a GBPUSD decision)
             # the markets the bot trades (watchlist + anything journaled) are
             # the ONLY valid bare-token matches — question words can never
             # masquerade as a market this way

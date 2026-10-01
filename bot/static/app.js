@@ -501,10 +501,8 @@ async function refreshStats() {
   const transitioning = lifecycle === 'starting' || lifecycle === 'stopping';
   $('#btnStart').disabled = engineActionBusy || !!s.engine_running || transitioning;
   $('#btnStop').disabled = engineActionBusy || !s.engine_running || transitioning;
-  /* the Interval select used to be DISABLED whenever the engine ran, so the
-     cadence could only be changed by stopping and restarting the engine (a
-     full rebuild: book lease, position restore). The loop now re-reads its
-     interval every cycle, so the control stays live. */
+  /* the Interval select stays live while the engine runs: the loop re-reads
+     its interval every cycle, so no stop/restart (a full rebuild) is needed */
   $('#intervalSel').disabled = transitioning;
   if (document.activeElement !== $('#intervalSel') && s.interval &&
       [...$('#intervalSel').options].some(o => +o.value === s.interval)) {
@@ -632,10 +630,8 @@ let hftRegisteredStrategies = [];
 async function loadHftStrategies() {
   /* one source of truth for "what can run on the fast book": the Lab meta
      endpoint derives it from the strategy registry.
-     NOTE: this used to hardcode one timeframe. When the book moved to 5m the
-     lookup silently returned undefined and the filter went back to being
-     empty — the exact bug it was written to fix. Read EVERY timeframe the
-     book registers instead, so the next move cannot break it. */
+     It reads EVERY timeframe the book registers, so a timeframe change cannot
+     silently empty the filter. */
   try {
     const meta = await jget('/api/lab/meta');
     const byTf = (meta.strategies || {}).hft || {};
@@ -736,9 +732,8 @@ async function refreshHft() {
   let trades;
   try { trades = await jget('/api/hft/trades?limit=1000'); } catch { trades = []; }
   /* the picker lists every strategy REGISTERED for the fast book, not just the
-     ones that happen to appear in the trade history — with an empty history
-     (the normal state of a fresh book) it used to render a single option,
-     so the control looked broken. */
+     ones that happen to appear in the trade history, so a fresh book with an
+     empty history still offers real choices. */
   const sel = $('#hftStratFilter');
   const seen = trades.map(t => t.strategy).filter(Boolean);
   syncStrategyFilter(sel, [...new Set([...hftRegisteredStrategies, ...seen])].sort());
@@ -1081,9 +1076,9 @@ const KR_EMPTY_HTML = 'No resolved forecasts yet — run <code>python3 main.py k
 const CV_EMPTY_HTML = 'No validation reports in this data directory — run <code>make validate</code>.';
 
 function evidenceFailed(err) {
-  /* the view used to mark itself loaded BEFORE the request and swallow the
-     failure, so one 401 (an unentered token, a rotated one) left every panel
-     on "loading…" FOREVER — it never retried and never said why. */
+  /* the view marks itself loaded only after the request succeeds, and a
+     failure is shown here, so a 401 (an unentered or rotated token) never
+     leaves every panel on "loading…" with no reason given. */
   const msg = /401/.test(String(err && err.message))
     ? 'not authorized — enter your dashboard token, then reopen this view'
     : 'could not load the evidence artifacts: ' + esc(String(err && err.message || err));

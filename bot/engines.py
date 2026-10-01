@@ -80,8 +80,8 @@ def _write_engine_state(running: bool, interval: int) -> bool:
 def _release_book(eng, mode: str) -> None:
     """Retire an engine: stop its background workers and drop its
     cross-process lease. Every call site is discarding the engine, and a
-    stopped book must not leave a Kronos worker forecasting into its ledger
-    (a stop/start used to leave one running per start)."""
+    stopped book must not leave a background worker running into its
+    ledger (one per stop/start would otherwise accumulate)."""
     try:
         eng.shutdown()
     except Exception:
@@ -98,8 +98,8 @@ def _release_book(eng, mode: str) -> None:
 def _spawn_engine(interval: int) -> dict:
     """Build + start the engine thread (shared by the API endpoint and the
     startup auto-resume). Returns the API response dict."""
-    # check-and-set under lock FIRST: a double-POST used to build two engines
-    # (torch/Kronos probe each) before discovering the race under the lock.
+    # check-and-set under the lock FIRST, so a double POST cannot build two
+    # engines before discovering the race.
     with core._engine_lock:
         if core._engine is not None:
             return {"status": "already_running", "cycles": core._engine.cycles}
@@ -162,13 +162,11 @@ def _spawn_engine(interval: int) -> dict:
                     if core._engine is eng_ref:
                         core._engine = None
                 break
-            # sleep the REMAINDER of the interval from cycle START (a 2-minute
-            # Kronos cycle at interval=60 used to land one decision burst every
-            # ~2.5 min), and wake the SECOND the identity check flips so a stop
-            # is near-instant instead of stranding the UI for up to interval-300s.
-            # The interval is re-read from the module global EVERY cycle so
-            # /api/engine/interval can retune a RUNNING engine (the captured
-            # argument made the cadence unchangeable without a stop/start).
+            # sleep the REMAINDER of the interval from cycle START (a slow
+            # cycle must not push every decision later), and wake as soon as
+            # the identity check flips so a stop is near-instant. The interval
+            # is re-read EVERY cycle so /api/engine/interval can retune a
+            # running engine.
             remaining = max(0.0, core._engine_interval - (time.monotonic() - cycle_t0))
             deadline = time.monotonic() + remaining
             while time.monotonic() < deadline:

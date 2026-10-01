@@ -90,9 +90,8 @@ from bot.cli.research import (cmd_backtest, cmd_experiment,  # noqa: E402
 
 def build_parser() -> argparse.ArgumentParser:
     """The CLI parser. Split out of main() so the subcommand list has ONE
-    source: CI's smoke job used to iterate a hand-maintained copy, which kept
-    naming `market` and `seed-demo` for a week after they were deleted (and
-    never smoked `config` at all). See scripts/list_subcommands.py."""
+    source, which CI's smoke job derives instead of keeping a copy that
+    drifts (see scripts/list_subcommands.py)."""
     p = argparse.ArgumentParser(prog="ai-trading-bot", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)

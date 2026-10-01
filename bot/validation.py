@@ -35,8 +35,8 @@ import pandas as pd
 # --------------------------------------------------------------------- paths
 def purged_cv_paths(n_bars: int, n_folds: int = 8, n_test_folds: int = 2) -> list[np.ndarray]:
     """OOS test-index arrays, one per path (skfolio CombinatorialPurgedCV).
-    Deterministic by construction — no seed (the old seed= param was never
-    read: the CV enumerates all fold combinations, it samples nothing)."""
+    Deterministic by construction — no seed: the CV enumerates all fold
+    combinations, it samples nothing."""
     from skfolio.model_selection import CombinatorialPurgedCV
     cv = CombinatorialPurgedCV(n_folds=n_folds, n_test_folds=n_test_folds)
     paths = []
@@ -69,10 +69,9 @@ def _ts_to_index(ts, df: pd.DataFrame) -> int | None:
     """Positional bar index of a timestamp; None when ts is missing/absent.
 
     The match tolerance scales with the frame's own cadence (2x the median
-    bar step): the old fixed 7-day window misassigned fast bars (a 1m/5m/15m
-    trade matched a NEIGHBOUR bar days away instead of missing), smearing
-    purged-CV labels across path boundaries. Unparseable frames fall back to
-    the old 7-day bound."""
+    bar step): a fixed 7-day window would match a 1m/5m/15m trade to a
+    NEIGHBOUR bar days away instead of missing, smearing purged-CV labels
+    across path boundaries. Unparseable frames fall back to a 7-day bound."""
     try:
         dt = pd.Timestamp(ts)
         pos = df.index.searchsorted(dt, side="right") - 1

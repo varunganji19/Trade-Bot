@@ -66,11 +66,10 @@ class PositionManager:
 
     def _mark_held_positions(self, histories: dict) -> dict[str, float]:
         """Mark-to-market price map for EVERY open position, keyed by the
-        HELD position's own book — not the watchlist. Marks used to iterate
-        cfg.watchlist, so a position whose (symbol, timeframe) was off the
-        active book (watchlist edited mid-hold, a mode switch's orphan, or a
-        spec pinned by a test) could never be marked: the equity walk
-        stalled forever with 'no marks available'. Positions own the mark;
+        HELD position's own book — not the watchlist: a position whose
+        (symbol, timeframe) is off the active watchlist (edited mid-hold)
+        must still be marked, or the equity walk stalls with 'no marks
+        available'. Positions own the mark;
         the watchlist only owns entries.
 
         A symbol held by several books is marked at its OWN book's close
@@ -516,8 +515,8 @@ class PositionManager:
         entry_fee = closed_pos.entry_fee if closed_pos.entry_fee is not None else 0.0
         cash_delta = pnl + entry_fee
         # close + the cycle's equity point in ONE transaction: a crash between
-        # two separate writes used to leave the trade CLOSED while the restart
-        # anchor still held pre-exit cash — the proceeds vanished from the account
+        # two separate writes would leave the trade CLOSED while the restart
+        # anchor still holds pre-exit cash, and the proceeds would vanish
         try:
             self.journal.close_trade(
                 trade_id=closed_pos.trade_id, exit_price=exit_fill, pnl=round(pnl, 2),

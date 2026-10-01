@@ -108,8 +108,8 @@ def cmd_dashboard(args):
     apply_saved_watchlist()   # data/watchlist.json -> CONFIG.watchlist
 
     # bind check BEFORE uvicorn starts: a second dashboard on the same port
-    # used to surface as a raw "[Errno 48] address already in use" traceback
-    # that read like a crash — name the squatter and the two real outs instead.
+    # would otherwise surface as a raw "[Errno 48] address already in use"
+    # traceback that reads like a crash — name the squatter and the outs.
     # SO_REUSEADDR matches uvicorn's own socket settings so TIME_WAIT remnants
     # from a just-killed server don't read as a false "in use".
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -126,8 +126,8 @@ def cmd_dashboard(args):
               f"http://127.0.0.1:{args.port} — open it in your browser\n"
               f"[dashboard]   · or start this one on another port: "
               f"python3 main.py dashboard --port {args.port + 1}")
-        # non-zero exit: `make demo` used to report success with nothing served
-        # (the operator opens the squatter's page instead of the dashboard)
+        # non-zero exit, so a wrapper never reports success with nothing
+        # served (the operator would open the squatter's page instead)
         sys.exit(1)
     finally:
         probe.close()

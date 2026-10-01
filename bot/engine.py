@@ -402,8 +402,8 @@ class TradingEngine(PositionManager):
             if price is None:
                 # opened during the outage: there IS no last good mark. Keep
                 # the counter growing so the close is retried EVERY cycle —
-                # resetting it here used to leave the position unguarded for
-                # another FETCH_FAIL_CLOSE failures before the next attempt.
+                # resetting it would leave the position unguarded for another
+                # FETCH_FAIL_CLOSE failures before the next attempt.
                 summary["errors"].append(f"{spec.symbol} {spec.timeframe}: no last-good "
                                          f"mark — force-close deferred, retrying each cycle")
                 return
@@ -459,8 +459,8 @@ class TradingEngine(PositionManager):
                 # run_cycle guards its own body, so a returned summary with
                 # errors means a degraded cycle, not a dead engine: back off
                 # instead of hot-spinning the failure every `interval` seconds
-                # (a persistently failing fetch at 2s HFT cadence used to spin
-                # errors + logs at full rate indefinitely)
+                # (at a 2s fast-book cadence that is errors and logs at full
+                # rate indefinitely)
                 if isinstance(summary, dict) and summary.get("errors"):
                     fails += 1
                 else:

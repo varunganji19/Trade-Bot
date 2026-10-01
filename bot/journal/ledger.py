@@ -334,8 +334,8 @@ class LedgerMixin:
         cycle-end equity write. Idempotent: once the engine journals a fresh
         equity point, the window moves past them.
 
-        Anchor-aware arithmetic (the old query was pnl+fees = gross, which
-        refunded every fee and overstated recovered cash by both legs):
+        Anchor-aware arithmetic (pnl + fees would be gross, refunding every
+        fee and overstating recovered cash by both legs):
           - anchor BETWEEN entry and close: the anchor cash still owes the
             entry fee + entry slippage effect but the broker only charged the
             entry fee at open (already in the anchor). The close event then

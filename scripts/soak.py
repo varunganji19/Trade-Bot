@@ -145,7 +145,7 @@ def round_once(n: int, log_path: str, seen: set, baseline: tuple[int, int]):
     print(f"\n--- round {n} ---")
     for path in READ_ENDPOINTS:
         req(path)
-    # retune both cadences while running — this used to be impossible
+    # retune both cadences while the engines run
     req("/api/engine/interval", "POST", {"interval": 30 if n % 2 else 60})
     req("/api/hft/engine/interval", "POST", {"interval": 5 if n % 2 else 10})
     # stop/start churn: leases, threads and restored positions

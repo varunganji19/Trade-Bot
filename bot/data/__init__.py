@@ -119,9 +119,8 @@ def fetch_history(spec: MarketSpec, days: int | None = None,
     else:
         # ROLLING window (days-form, or start-without-end): the window slides
         # with now anyway, so reuse is bounded by FRESHNESS, not by the fetch
-        # day embedded in the file name — the old exact-day-stamp lookup
-        # refetched every calendar day even when yesterday's file was minutes
-        # old. (docs/archive/HISTORY.md Fix 4.1: freshness is the honest bound.) The
+        # day embedded in the file name (an exact-day lookup would refetch
+        # every calendar day even when yesterday's file is minutes old). The
         # glob is the ONLY rolling reuse path on purpose: keeping a same-day
         # exact-name fallback would let a day-stamped file that aged past the
         # window sneak back in, defeating CACHE_FRESHNESS_HOURS=0 as a

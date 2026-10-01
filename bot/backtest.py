@@ -299,8 +299,8 @@ class Backtester:
                     peer_specs = [s for s in self.cfg.watchlist if s.symbol in hist]
                     risk.set_allocation(allocation_weights(peer_specs, hist))
                 except Exception as exc:
-                    # silent pass used to hide allocator bugs as quietly DOUBLED
-                    # risk (unscaled 1%-per-symbol). Warn once, keep trading.
+                    # never silent: a swallowed allocator bug means quietly
+                    # unscaled 1%-per-symbol risk. Warn once, keep trading.
                     if not self._alloc_warned:
                         print(f"[backtest] allocation hook failed ({type(exc).__name__}: "
                               f"{exc}) — risk budget runs unscaled for this run")

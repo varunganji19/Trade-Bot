@@ -119,10 +119,9 @@ def kronos_horizon(timeframe: str, max_context: int = KronosConfig.max_context) 
 def validate_horizon_policy(max_context: int = KronosConfig.max_context) -> dict[str, int]:
     """Assert every supported timeframe maps to a producible horizon.
 
-    Called once when the engine attaches Kronos: an over-long horizon used to
-    fail deep inside `evaluate`, which swallows exceptions into `last_error`,
-    making Kronos a permanent silent no-op on the 1m book. Now it raises
-    before the first cycle."""
+    Called once up front: an over-long horizon would otherwise fail deep
+    inside `evaluate`, which swallows exceptions into `last_error`, leaving
+    Kronos a silent no-op."""
     return {tf: kronos_horizon(tf, max_context=max_context) for tf in TIMEFRAME_SECONDS}
 
 
@@ -173,8 +172,8 @@ class KronosICTracker:
             self._pending = []
 
     def _save(self):
-        """Atomic (tmp + replace): a crash mid-write used to tear the JSON and
-        _load silently reset the whole IC ledger — the promotion gate's memory."""
+        """Atomic (tmp + replace): a crash mid-write must not tear the JSON,
+        or _load would reset the whole IC ledger — the gate's memory."""
         import json
         tmp = self.path + ".tmp"
         try:
@@ -263,19 +262,14 @@ class KronosICTracker:
 
 # ONE model per process, and ONE inference at a time.
 #
-# Each TradingEngine used to build its own KronosSignalEngine, so running the
-# standard and HFT books together loaded the 25M-param model TWICE (~1GB RSS)
-# and ran two CPU-saturating inferences concurrently — torch already uses
-# every core per call, so the second one only steals from the first. Both
-# books then stalled at cycle 0 with the machine pegged, which is what
-# "starting both engines crashes it" actually was.
-# On Apple Silicon the vendored predictor auto-selects the MPS (Metal)
-# backend, and Metal command buffers cannot be driven from two threads: the
-# second one aborts the PROCESS, not the thread —
+# A model per caller would load the 25M-param model once per book (~1GB RSS)
+# and run CPU-saturating inferences concurrently, though torch already uses
+# every core per call. On Apple Silicon the vendored predictor auto-selects
+# the MPS (Metal) backend, and Metal command buffers cannot be driven from two
+# threads: the second one aborts the PROCESS, not the thread —
 #   "failed assertion _status < MTLCommandBufferStatusCommitted
 #    at line 323 in -[IOGPUMetalCommandBuffer setCurrentCommandEncoder:]"
-# — which is exactly what "starting both engines just crashes it" was. Every
-# model touch (load AND inference) therefore happens under ONE lock, on ONE
+# So every model touch (load AND inference) happens under ONE lock, on ONE
 # worker thread (see KronosForecastService / forecast_service).
 _SHARED: dict = {}                    # (model_name, tokenizer_name, max_context) -> predictor
 _SHARED_LOCK = threading.RLock()      # guards the dict AND the load itself
@@ -295,9 +289,9 @@ class KronosPredictorLazy:
         self._failed_at: float | None = None  # monotonic ts of last load failure
         self._fail_count = 0                  # consecutive failures (backoff base)
 
-    # P0: the old boolean latch never retried — one transient failure
-    # (cold HF cache, venue WiFi) disabled Kronos for the whole process.
-    # Retry with exponential backoff: 60s, 120s, 240s ... capped at 1h.
+    # Retry with exponential backoff (60s, 120s, 240s ... capped at 1h): one
+    # transient failure (cold HF cache, flaky WiFi) must not disable Kronos
+    # for the whole process.
     RETRY_BASE_SEC = 60.0
     RETRY_MAX_SEC = 3600.0
 
@@ -369,8 +363,8 @@ class KronosPredictorLazy:
         """Cheap availability check: vendored source + importable heavy deps.
         Deliberately does NOT call _ensure() — from_pretrained downloads ~100MB
         of weights, and `available` runs inside the dashboard's start-HTTP
-        request (TradingEngine.__init__): the request used to hang for the
-        whole download on cold venue WiFi with a dead-looking Start button.
+        request (TradingEngine.__init__), which must not hang for the whole
+        download on a slow connection.
         The load itself happens on the FIRST evaluate() call, which runs in
         the engine thread."""
         if self._failed and not self._retry_due():

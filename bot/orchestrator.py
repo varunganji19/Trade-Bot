@@ -93,10 +93,9 @@ class Orchestrator:
         # alone stopped separating the books when the fast one moved to 5m.
         self.book = book
         self.strategies = get_strategies(params)
-        # the promotion gate. load_verdicts is mtime-cached, so a battery run
-        # mid-session takes effect without a restart (it used to be read once
-        # at construction — a stale gate looks exactly like a working one).
-        # Who may vote is the gate's call (bot/promotion.py, may_vote).
+        # the promotion gate decides who may vote (bot/promotion.py,
+        # may_vote); load_verdicts is mtime-cached, so a battery run
+        # mid-session takes effect without a restart.
 
     # ------------------------------------------------------------------ main
     def decide(self, df, i: int, spec) -> Decision:

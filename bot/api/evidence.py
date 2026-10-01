@@ -42,9 +42,9 @@ def _evidence_kronos() -> dict:
         import pandas as pd
         from bot.kronos_signal import KronosConfig, KronosICTracker
         cfg = KronosConfig()
-        # per-BOOK ledgers (the two engines used to share one file and
-        # overwrite each other): read whichever exist, plus the legacy
-        # single-file ledger, so the evidence curve keeps its history
+        # per-BOOK ledgers (one shared file would let the books overwrite each
+        # other): read whichever exist, plus the legacy single-file ledger, so
+        # the evidence curve keeps its history
         paths = [os.path.join(db_dir(), f"kronos_ic_{m}.json")
                  for m in ("paper", "hft")] + [cfg.track_file]
         recs, pending = [], 0
@@ -84,8 +84,8 @@ def _evidence_experiments() -> dict:
 
 
 def _evidence_validations(limit: int = 20) -> list:
-    """Newest first (by file mtime): the dropdown's default '0' used to be the
-    OLDEST file by name sort, so a stale report answered as if current.
+    """Newest first (by file mtime), so the dropdown's default '0' is the
+    current report, never a stale one sorted first by name.
     Capped to the newest `limit` (artifact blowup: each report is parsed on
     every uncached poll)."""
     out = []
@@ -159,8 +159,8 @@ def api_evidence():
     artifacts `main.py validate` / `main.py shadow` / fetch_history wrote.
 
     Cached by artifact (mtime,size): the rolling-IC series costs ~0.7s at the
-    ledger cap and the tab used to recompute it on every 4s poll while open —
-    12% of a core for numbers that only change when an artifact is rewritten."""
+    ledger cap, too much for a 4s poll when the numbers only change when an
+    artifact is rewritten."""
     key = _evidence_cache_key()
     now = time.time()
     if key is not None and _EVIDENCE_CACHE["key"] == key and now - _EVIDENCE_CACHE["ts"] < 60:

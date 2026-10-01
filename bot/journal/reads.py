@@ -112,10 +112,8 @@ class ReadsMixin:
 
     @base._retry_busy
     def stats(self, mode: str | None = None) -> dict:
-        # SQL aggregates — the old Python-side full-table scan read every
-        # rationale TEXT blob on each 4s dashboard poll. mode is a bound
-        # parameter everywhere (the old f-string built invalid SQL:
-        # "WHERE status='CLOSED' WHERE mode=..." — a crash on any mode filter).
+        # SQL aggregates, so the 4s dashboard poll never reads the rationale
+        # TEXT blobs; mode is a bound parameter everywhere.
         mode_sql, mode_args = (" AND mode=?", (mode,)) if mode else ("", ())
         with self._conn() as conn:
             row = conn.execute(

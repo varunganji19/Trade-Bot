@@ -36,11 +36,8 @@ def strategy_applies(strategy, symbol: str) -> bool:
 class BaseStrategy:
     name: str = "base"
     preferred_timeframes: tuple = ("1h",)
-    # WHICH BOOK may run this strategy. The two books used to be separated by
-    # timeframe alone (the fast book was the only 1m book), so when it moved
-    # to 5m on 2026-09-19 the fast strategies silently became eligible on the
-    # standard book's 5m specs and vice versa. The boundary is explicit now:
-    # "standard" | "fast".
+    # WHICH BOOK may run this strategy: "standard" | "fast". Both books trade
+    # 5m bars, so timeframe alone cannot keep their strategies apart.
     book: str = "standard"
 
     def __init__(self, params=None):

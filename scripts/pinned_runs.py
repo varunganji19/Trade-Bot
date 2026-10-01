@@ -29,8 +29,8 @@ RUNS = [
 
 def main() -> int:
     stage = sys.argv[1] if len(sys.argv) > 1 else "before"
-    # script-root outdir: runnable from ANY cwd (the old relative
-    # "data/results/..." silently scattered outputs under $PWD)
+    # script-root outdir: runnable from ANY cwd without scattering outputs
+    # under $PWD
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     outdir = os.path.join(root, "data", "results", f"pinned_{stage}")
     os.makedirs(outdir, exist_ok=True)

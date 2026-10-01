@@ -132,14 +132,12 @@ class StrategyParams:
     hft_mm_time_stop: int = 12         # bars (~1h)
     # ---- cost floors (bp of price), DERIVED from the book's fee tier by
     # bot/hft.build_hft_config — never hand-set per strategy.
-    # WHY THIS EXISTS: RiskManager.approve refuses any stop tighter than the
-    # modeled taker round trip ("tiny stop (dust)"), and it is right to: a
-    # win that cannot pay its own fees is dust. The 1m strategies used to
-    # size stops off raw ATR with no reference to that number, so on a quiet
-    # 1m tape (BTC ATR ~5-8bp vs a 16bp perp round trip) EVERY entry decision
-    # was journaled and then vetoed — the HFT book produced 15 entry
-    # decisions and 0 trades. A strategy that cannot clear costs must say so
-    # itself instead of emitting a signal the risk manager has to kill.
+    # WHY: RiskManager.approve refuses any stop tighter than the modeled
+    # taker round trip ("tiny stop (dust)") — a win that cannot pay its own
+    # fees is dust. A strategy that sizes stops off raw ATR without this
+    # number emits signals the risk manager then kills, so on a quiet tape
+    # (BTC ATR ~5-8bp vs a 16bp perp round trip) every decision is vetoed and
+    # nothing says why. Each strategy refuses an unpayable setup itself.
     hft_cost_floor_bps: float = 16.0        # taker in + taker out (perp tier default)
     hft_maker_cost_floor_bps: float = 10.0  # maker in + taker out (resting-entry strategies)
     hft_cost_buffer: float = 1.25           # required edge over the floor (x)

@@ -306,10 +306,9 @@ def _record_manifest(spec: MarketSpec, path: str, df: pd.DataFrame) -> bool:
             "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "cache_file": os.path.basename(path),
         }
-        # re-read right before the write and merge: two CLI processes fetching
-        # at once used to lose each other's entries (read-modify-write with a
-        # whole manifest in flight). The per-pid tmp also stops both writers
-        # clobbering through one shared .tmp path.
+        # re-read right before the write and merge, so two processes fetching
+        # at once keep each other's entries; the per-pid tmp stops both
+        # writers clobbering through one shared .tmp path.
         try:
             with open(manifest_path) as fh:
                 fresh = json.load(fh)

@@ -1,0 +1,936 @@
+{
+ "id": "standard_gate",
+ "kind": "gate",
+ "book": "standard",
+ "tier": "standard",
+ "hypothesis": "Each standard strategy, at its shipped settings, keeps a profit factor above 1.0 after full costs on two years of out-of-sample folds across trend-up, trend-down and range regimes.",
+ "declared": "2026-10-01",
+ "declaration_sha256": "9714b14bd0f60e95852cba97f4af2e77a34f7acae2b3c7eddeaa41384a701400",
+ "declaration_commit": "acc0bcbfe2502f875e2850bd866684848f13ead1",
+ "run_at": "2026-10-01T13:10:19Z",
+ "runtime_s": 161.4,
+ "days": 730,
+ "folds": 4,
+ "holdout_days": null,
+ "windows": {
+  "BTC/USDT 15m": [
+   "2024-10-01 13:00:00+00:00",
+   "2026-10-01 12:30:00+00:00"
+  ],
+  "BTC/USDT 1h": [
+   "2024-10-01 13:00:00+00:00",
+   "2026-10-01 11:00:00+00:00"
+  ],
+  "BTC/USDT 4h": [
+   "2024-10-01 16:00:00+00:00",
+   "2026-10-01 08:00:00+00:00"
+  ],
+  "ETH/USDT 15m": [
+   "2024-10-01 13:15:00+00:00",
+   "2026-10-01 12:45:00+00:00"
+  ],
+  "ETH/USDT 1h": [
+   "2024-10-01 14:00:00+00:00",
+   "2026-10-01 12:00:00+00:00"
+  ],
+  "ETH/USDT 4h": [
+   "2024-10-01 16:00:00+00:00",
+   "2026-10-01 08:00:00+00:00"
+  ],
+  "SOL/USDT 15m": [
+   "2024-10-01 13:15:00+00:00",
+   "2026-10-01 12:45:00+00:00"
+  ],
+  "SOL/USDT 1h": [
+   "2024-10-01 14:00:00+00:00",
+   "2026-10-01 12:00:00+00:00"
+  ],
+  "SOL/USDT 4h": [
+   "2024-10-01 16:00:00+00:00",
+   "2026-10-01 08:00:00+00:00"
+  ],
+  "BNB/USDT 15m": [
+   "2024-10-01 13:15:00+00:00",
+   "2026-10-01 12:45:00+00:00"
+  ],
+  "BNB/USDT 1h": [
+   "2024-10-01 14:00:00+00:00",
+   "2026-10-01 12:00:00+00:00"
+  ],
+  "BNB/USDT 4h": [
+   "2024-10-01 16:00:00+00:00",
+   "2026-10-01 08:00:00+00:00"
+  ],
+  "XRP/USDT 15m": [
+   "2024-10-01 13:15:00+00:00",
+   "2026-10-01 12:45:00+00:00"
+  ],
+  "XRP/USDT 1h": [
+   "2024-10-01 14:00:00+00:00",
+   "2026-10-01 12:00:00+00:00"
+  ],
+  "XRP/USDT 4h": [
+   "2024-10-01 16:00:00+00:00",
+   "2026-10-01 08:00:00+00:00"
+  ],
+  "EURUSD=X 1h": [
+   "2023-12-15 00:00:00+00:00",
+   "2026-10-01 12:00:00+00:00"
+  ],
+  "GBPUSD=X 1h": [
+   "2023-12-15 00:00:00+00:00",
+   "2026-10-01 12:00:00+00:00"
+  ]
+ },
+ "skipped": [],
+ "summary": [
+  {
+   "variant": "default",
+   "params": {},
+   "strategy": "turtle_trend",
+   "markets": 7,
+   "oos": {
+    "trades": 1515,
+    "pf": 0.889,
+    "pf_lo": 0.694,
+    "pf_hi": 1.128,
+    "sharpe": -0.0287,
+    "sharpe_lo": -0.099,
+    "sharpe_hi": 0.028,
+    "regimes": {
+     "trend_up": 542,
+     "range": 530,
+     "trend_down": 443
+    },
+    "net_pnl": -3745.42
+   }
+  },
+  {
+   "variant": "default",
+   "params": {},
+   "strategy": "connors_meanrev",
+   "markets": 5,
+   "oos": {
+    "trades": 165,
+    "pf": 0.754,
+    "pf_lo": 0.52,
+    "pf_hi": 1.124,
+    "sharpe": -0.1008,
+    "sharpe_lo": -0.231,
+    "sharpe_hi": 0.043,
+    "regimes": {
+     "trend_up": 59,
+     "trend_down": 75,
+     "range": 31
+    },
+    "net_pnl": -718.49
+   }
+  },
+  {
+   "variant": "default",
+   "params": {},
+   "strategy": "vwap_scalper",
+   "markets": 5,
+   "oos": {
+    "trades": 2245,
+    "pf": 0.567,
+    "pf_lo": 0.487,
+    "pf_hi": 0.65,
+    "sharpe": -0.1987,
+    "sharpe_lo": -0.262,
+    "sharpe_hi": -0.148,
+    "regimes": {
+     "trend_down": 763,
+     "range": 714,
+     "trend_up": 768
+    },
+    "net_pnl": -13737.84
+   }
+  },
+  {
+   "variant": "default",
+   "params": {},
+   "strategy": "ts_momentum",
+   "markets": 12,
+   "oos": {
+    "trades": 744,
+    "pf": 1.067,
+    "pf_lo": 0.812,
+    "pf_hi": 1.368,
+    "sharpe": 0.0152,
+    "sharpe_lo": -0.059,
+    "sharpe_hi": 0.067,
+    "regimes": {
+     "range": 162,
+     "trend_down": 208,
+     "trend_up": 374
+    },
+    "net_pnl": 1570.54
+   }
+  },
+  {
+   "variant": "default",
+   "params": {},
+   "strategy": "fx_regime_meanrev",
+   "markets": 7,
+   "oos": {
+    "trades": 3001,
+    "pf": 0.644,
+    "pf_lo": 0.573,
+    "pf_hi": 0.717,
+    "sharpe": -0.1658,
+    "sharpe_lo": -0.211,
+    "sharpe_hi": -0.125,
+    "regimes": {
+     "trend_up": 1127,
+     "range": 1000,
+     "trend_down": 874
+    },
+    "net_pnl": -16609.51
+   }
+  }
+ ],
+ "markets": [
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "BTC/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 221,
+    "fold_pf": [
+     0.61,
+     0.6,
+     0.92,
+     0.87
+    ],
+    "sharpe": -0.09,
+    "total_pnl": -1275.17,
+    "fees": 1085.8
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "ETH/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 207,
+    "fold_pf": [
+     0.68,
+     1.69,
+     0.63,
+     0.83
+    ],
+    "sharpe": -0.05,
+    "total_pnl": -596.65,
+    "fees": 1014.77
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "SOL/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 206,
+    "fold_pf": [
+     0.85,
+     1.11,
+     0.9,
+     1.65
+    ],
+    "sharpe": 0.69,
+    "total_pnl": 394.25,
+    "fees": 1013.02
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "BNB/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 219,
+    "fold_pf": [
+     0.5,
+     0.7,
+     0.45,
+     0.74
+    ],
+    "sharpe": -0.11,
+    "total_pnl": -2372.85,
+    "fees": 1048.45
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "XRP/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 199,
+    "fold_pf": [
+     1.81,
+     0.43,
+     0.81,
+     1.53
+    ],
+    "sharpe": 0.51,
+    "total_pnl": 875.96,
+    "fees": 975.7
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "EURUSD=X",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 229,
+    "fold_pf": [
+     0.41,
+     0.9,
+     0.38,
+     0.46
+    ],
+    "sharpe": -0.6,
+    "total_pnl": -422.43,
+    "fees": 227.58
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "GBPUSD=X",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 234,
+    "fold_pf": [
+     0.61,
+     0.96,
+     0.49,
+     0.49
+    ],
+    "sharpe": -0.8,
+    "total_pnl": -348.53,
+    "fees": 232.55
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "BTC/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 32,
+    "fold_pf": [
+     0.76,
+     0.26,
+     2.7,
+     13.49
+    ],
+    "sharpe": 0.84,
+    "total_pnl": 203.3,
+    "fees": 142.15
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "ETH/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 33,
+    "fold_pf": [
+     0.66,
+     0.47,
+     1.12,
+     0.57
+    ],
+    "sharpe": -0.81,
+    "total_pnl": -120.61,
+    "fees": 110.59
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "SOL/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 44,
+    "fold_pf": [
+     0.68,
+     1.72,
+     0.9,
+     0.74
+    ],
+    "sharpe": -0.2,
+    "total_pnl": -71.56,
+    "fees": 135.17
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "BNB/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 20,
+    "fold_pf": [
+     0.48,
+     0.0,
+     0.36,
+     0.17
+    ],
+    "sharpe": -2.35,
+    "total_pnl": -335.4,
+    "fees": 79.35
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "XRP/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 36,
+    "fold_pf": [
+     0.24,
+     0.07,
+     1.45,
+     0.96
+    ],
+    "sharpe": -0.08,
+    "total_pnl": -394.22,
+    "fees": 127.3
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "BTC/USDT",
+   "timeframe": "15m",
+   "oos": {
+    "trades": 446,
+    "fold_pf": [
+     0.51,
+     0.39,
+     0.36,
+     0.36
+    ],
+    "sharpe": -1.77,
+    "total_pnl": -3082.52,
+    "fees": 2142.01
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "ETH/USDT",
+   "timeframe": "15m",
+   "oos": {
+    "trades": 481,
+    "fold_pf": [
+     0.53,
+     0.75,
+     0.56,
+     0.77
+    ],
+    "sharpe": -0.47,
+    "total_pnl": -2370.01,
+    "fees": 2365.61
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "SOL/USDT",
+   "timeframe": "15m",
+   "oos": {
+    "trades": 461,
+    "fold_pf": [
+     0.36,
+     0.69,
+     0.52,
+     0.69
+    ],
+    "sharpe": -0.19,
+    "total_pnl": -3380.58,
+    "fees": 2198.18
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "BNB/USDT",
+   "timeframe": "15m",
+   "oos": {
+    "trades": 437,
+    "fold_pf": [
+     0.53,
+     0.3,
+     0.47,
+     0.37
+    ],
+    "sharpe": -1.36,
+    "total_pnl": -3045.39,
+    "fees": 2101.03
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "XRP/USDT",
+   "timeframe": "15m",
+   "oos": {
+    "trades": 420,
+    "fold_pf": [
+     0.75,
+     0.74,
+     0.79,
+     0.69
+    ],
+    "sharpe": -1.02,
+    "total_pnl": -1859.34,
+    "fees": 2058.15
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "BTC/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 86,
+    "fold_pf": [
+     0.89,
+     1.01,
+     null,
+     1.08
+    ],
+    "sharpe": 0.31,
+    "total_pnl": -66.83,
+    "fees": 433.66
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "BTC/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 52,
+    "fold_pf": [
+     0.68,
+     0.53,
+     null,
+     0.72
+    ],
+    "sharpe": -0.18,
+    "total_pnl": -673.89,
+    "fees": 250.04
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "ETH/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 115,
+    "fold_pf": [
+     0.77,
+     1.29,
+     null,
+     1.16
+    ],
+    "sharpe": 0.11,
+    "total_pnl": 351.26,
+    "fees": 580.79
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "ETH/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 41,
+    "fold_pf": [
+     1.1,
+     1.79,
+     null,
+     1.45
+    ],
+    "sharpe": 0.3,
+    "total_pnl": 885.77,
+    "fees": 171.23
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "SOL/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 153,
+    "fold_pf": [
+     1.32,
+     0.66,
+     null,
+     0.78
+    ],
+    "sharpe": -0.14,
+    "total_pnl": -699.46,
+    "fees": 721.45
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "SOL/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 39,
+    "fold_pf": [
+     0.57,
+     1.11,
+     null,
+     1.29
+    ],
+    "sharpe": 0.31,
+    "total_pnl": 45.37,
+    "fees": 139.59
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "BNB/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 110,
+    "fold_pf": [
+     0.15,
+     0.67,
+     1.11,
+     0.18
+    ],
+    "sharpe": -1.07,
+    "total_pnl": -1994.35,
+    "fees": 522.66
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "BNB/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 54,
+    "fold_pf": [
+     0.39,
+     1.5,
+     null,
+     0.72
+    ],
+    "sharpe": -0.12,
+    "total_pnl": -169.03,
+    "fees": 247.47
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "XRP/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 74,
+    "fold_pf": [
+     3.28,
+     0.72,
+     null,
+     0.3
+    ],
+    "sharpe": -0.09,
+    "total_pnl": 1870.42,
+    "fees": 351.26
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "XRP/USDT",
+   "timeframe": "4h",
+   "oos": {
+    "trades": 20,
+    "fold_pf": [
+     5.03,
+     3.0,
+     null,
+     0.09
+    ],
+    "sharpe": -0.08,
+    "total_pnl": 2021.28,
+    "fees": 69.17
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "EURUSD=X",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 0,
+    "fold_pf": [
+     null,
+     null,
+     null,
+     null
+    ],
+    "sharpe": null,
+    "total_pnl": 0,
+    "fees": 0
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "GBPUSD=X",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 0,
+    "fold_pf": [
+     null,
+     null,
+     null,
+     null
+    ],
+    "sharpe": null,
+    "total_pnl": 0,
+    "fees": 0
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "BTC/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 455,
+    "fold_pf": [
+     0.67,
+     0.51,
+     0.5,
+     0.47
+    ],
+    "sharpe": -0.77,
+    "total_pnl": -3015.68,
+    "fees": 2179.9
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "ETH/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 421,
+    "fold_pf": [
+     0.64,
+     0.32,
+     0.4,
+     0.63
+    ],
+    "sharpe": -0.2,
+    "total_pnl": -4884.16,
+    "fees": 1948.41
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "SOL/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 412,
+    "fold_pf": [
+     0.72,
+     0.68,
+     0.88,
+     0.84
+    ],
+    "sharpe": -0.18,
+    "total_pnl": -2267.26,
+    "fees": 2006.0
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "BNB/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 422,
+    "fold_pf": [
+     0.84,
+     0.65,
+     0.42,
+     0.56
+    ],
+    "sharpe": -0.74,
+    "total_pnl": -2689.6,
+    "fees": 2050.74
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "XRP/USDT",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 460,
+    "fold_pf": [
+     0.83,
+     0.62,
+     0.67,
+     0.79
+    ],
+    "sharpe": -0.23,
+    "total_pnl": -2927.87,
+    "fees": 2187.69
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "EURUSD=X",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 414,
+    "fold_pf": [
+     0.45,
+     0.85,
+     0.69,
+     0.53
+    ],
+    "sharpe": -1.06,
+    "total_pnl": -392.8,
+    "fees": 393.25
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "GBPUSD=X",
+   "timeframe": "1h",
+   "oos": {
+    "trades": 417,
+    "fold_pf": [
+     0.56,
+     0.82,
+     0.58,
+     0.52
+    ],
+    "sharpe": -1.09,
+    "total_pnl": -432.14,
+    "fees": 399.2
+   }
+  }
+ ],
+ "verdicts": {
+  "turtle_trend": {
+   "status": "probation",
+   "why": "OOS PF 0.89 (90% interval 0.69\u20131.13), 1515 trades, 3 of 3 regimes \u2014 the interval straddles 1.0: not proven",
+   "trades": 1515,
+   "pf": 0.889,
+   "pf_lo": 0.694,
+   "pf_hi": 1.128,
+   "sharpe": -0.0287,
+   "sharpe_lo": -0.099,
+   "sharpe_hi": 0.028,
+   "regimes": {
+    "trend_up": 542,
+    "range": 530,
+    "trend_down": 443
+   },
+   "evidence": "walk_forward_oos",
+   "rule": 2
+  },
+  "connors_meanrev": {
+   "status": "probation",
+   "why": "OOS PF 0.75 (90% interval 0.52\u20131.12), 165 trades, 3 of 3 regimes \u2014 the interval straddles 1.0: not proven",
+   "trades": 165,
+   "pf": 0.754,
+   "pf_lo": 0.52,
+   "pf_hi": 1.124,
+   "sharpe": -0.1008,
+   "sharpe_lo": -0.231,
+   "sharpe_hi": 0.043,
+   "regimes": {
+    "trend_up": 59,
+    "trend_down": 75,
+    "range": 31
+   },
+   "evidence": "walk_forward_oos",
+   "rule": 2
+  },
+  "vwap_scalper": {
+   "status": "demoted",
+   "why": "OOS PF 0.57 (90% interval 0.49\u20130.65), 2245 trades, 3 of 3 regimes \u2014 even the top of the interval is below 1.0",
+   "trades": 2245,
+   "pf": 0.567,
+   "pf_lo": 0.487,
+   "pf_hi": 0.65,
+   "sharpe": -0.1987,
+   "sharpe_lo": -0.262,
+   "sharpe_hi": -0.148,
+   "regimes": {
+    "trend_down": 763,
+    "range": 714,
+    "trend_up": 768
+   },
+   "evidence": "walk_forward_oos",
+   "rule": 2
+  },
+  "ts_momentum": {
+   "status": "probation",
+   "why": "OOS PF 1.07 (90% interval 0.81\u20131.37), 744 trades, 3 of 3 regimes \u2014 the interval straddles 1.0: not proven",
+   "trades": 744,
+   "pf": 1.067,
+   "pf_lo": 0.812,
+   "pf_hi": 1.368,
+   "sharpe": 0.0152,
+   "sharpe_lo": -0.059,
+   "sharpe_hi": 0.067,
+   "regimes": {
+    "range": 162,
+    "trend_down": 208,
+    "trend_up": 374
+   },
+   "evidence": "walk_forward_oos",
+   "rule": 2
+  },
+  "fx_regime_meanrev": {
+   "status": "demoted",
+   "why": "OOS PF 0.64 (90% interval 0.57\u20130.72), 3001 trades, 3 of 3 regimes \u2014 even the top of the interval is below 1.0",
+   "trades": 3001,
+   "pf": 0.644,
+   "pf_lo": 0.573,
+   "pf_hi": 0.717,
+   "sharpe": -0.1658,
+   "sharpe_lo": -0.211,
+   "sharpe_hi": -0.125,
+   "regimes": {
+    "trend_up": 1127,
+    "range": 1000,
+    "trend_down": 874
+   },
+   "evidence": "walk_forward_oos",
+   "rule": 2
+  }
+ },
+ "verdicts_path": "/private/tmp/claude-501/-Users-varun-Downloads-Varun-Algo/b8213355-8961-40f2-a22b-d328922c07fe/scratchpad/evidence/results/promotions_standard.json"
+}

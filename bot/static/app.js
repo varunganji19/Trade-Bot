@@ -160,7 +160,7 @@ const VIEW_COPY = {
   lab: ['Research', 'Strategy Lab', 'Backtest any strategy on real data before trusting it.'],
   evidence: ['Research', 'Evidence', 'Validation, forecast quality and rule adherence — measured, not claimed.'],
   account: ['Standard book · paper', 'Paper account', 'Simulated balance, deposits, withdrawals and reset.'],
-  chat: ['Research', 'Ask the journal', 'Plain-language answers drawn from the trading journal.']
+  chat: ['Extras', 'Ask the journal', 'Plain-language answers drawn from the trading journal.']
 };
 function setView(name) {
   if (!VIEWS.includes(name)) name = 'overview';

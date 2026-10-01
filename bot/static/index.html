@@ -66,9 +66,10 @@ document.documentElement.setAttribute('data-theme',t);})();
     <span class="nav-label">Research</span>
     <button class="tab" data-view="lab" id="tab-lab"><svg class="ic" aria-hidden="true"><use href="#i-flask"/></svg>Strategy Lab</button>
     <button class="tab" data-view="evidence" id="tab-evidence"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Evidence</button>
-    <button class="tab" data-view="chat" id="tab-chat"><svg class="ic" aria-hidden="true"><use href="#i-chat"/></svg>Ask the journal</button>
     <span class="nav-label">Account</span>
     <button class="tab" data-view="account" id="tab-account"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg>Paper account</button>
+    <span class="nav-label">Extras</span>
+    <button class="tab" data-view="chat" id="tab-chat"><svg class="ic" aria-hidden="true"><use href="#i-chat"/></svg>Ask the journal</button>
   </nav>
 
   <div class="sidebar-foot">
@@ -389,17 +390,10 @@ document.documentElement.setAttribute('data-theme',t);})();
     </div>
     <div class="stats-grid stats-grid-wide" id="evCards"></div>
   </div>
-  <div class="grid grid-split">
-    <div class="card">
-      <div class="card-head"><div><h2>Kronos forecast quality</h2><p class="hint" id="krMeta">Rolling rank-IC against its promotion hurdle</p></div></div>
-      <div class="chart-body"><canvas id="kronosChart" class="is-empty" role="img" aria-label="Kronos rolling IC"></canvas>
-        <div class="chart-empty" id="krEmpty" hidden></div></div>
-    </div>
-    <div class="card">
-      <div class="card-head"><div><h2>Out-of-sample paths</h2><p class="hint">Purged cross-validation return per path</p></div></div>
-      <div class="chart-body"><canvas id="cvChart" class="is-empty" role="img" aria-label="Purged-CV path returns"></canvas>
-        <div class="chart-empty" id="cvEmpty" hidden></div></div>
-    </div>
+  <div class="card">
+    <div class="card-head"><div><h2>Out-of-sample paths</h2><p class="hint">Purged cross-validation return per path</p></div></div>
+    <div class="chart-body"><canvas id="cvChart" class="is-empty" role="img" aria-label="Purged-CV path returns"></canvas>
+      <div class="chart-empty" id="cvEmpty" hidden></div></div>
   </div>
   <div class="card">
     <div class="card-head"><div><h2>Shadow account</h2><p class="hint">Did the bot follow its own rules? Every journaled trade replayed against them.</p></div></div>
@@ -408,6 +402,12 @@ document.documentElement.setAttribute('data-theme',t);})();
   <div class="card">
     <div class="card-head"><div><h2>Data provenance</h2><p class="hint">Pinned fetch windows with checksums, so backtest claims can be re-checked.</p></div></div>
     <div class="tbl-wrap" id="evManifest"><div class="empty">Loading…</div></div>
+  </div>
+  <h3 class="section-label">Extras</h3>
+  <div class="card">
+    <div class="card-head"><div><h2>Kronos forecast quality</h2><p class="hint" id="krMeta">Rolling rank-IC against its promotion hurdle</p></div></div>
+    <div class="chart-body"><canvas id="kronosChart" class="is-empty" role="img" aria-label="Kronos rolling IC"></canvas>
+      <div class="chart-empty" id="krEmpty" hidden></div></div>
   </div>
 </section>
 

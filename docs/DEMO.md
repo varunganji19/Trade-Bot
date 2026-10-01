@@ -56,12 +56,12 @@ Switch to the browser. Four stops, about 35 seconds each.
    "Five standard strategies measured; three are measured losers and cannot
    vote. Two may trade, Connors mean reversion and the VWAP scalper, each on
    about 60 out-of-sample trades." (`data/results/promotions_standard.json`)
-2. **Evidence tab.** "Kronos is a published foundation model for price
-   forecasting. It had to earn a vote like any strategy: on BTC 1h it scored
-   an IC of −0.075 against a +0.02 hurdle, so it was rejected and runs
-   offline only." Then scroll to the **Shadow account**: "The bot audits
-   itself against its own rules: on the seeded replay history, 236 of 428
-   trades blew through their initial stop, and it says so."
+2. **Evidence tab.** Point at the validation report's PBO card: "This is
+   the probability that the selection process overfit." Then scroll to the
+   **Shadow account**: "The bot audits itself against its own rules: on the
+   seeded replay history, 236 of 428 trades blew through their initial
+   stop, and it says so." (Kronos is at the bottom under Extras; keep it
+   for slide 4 or for questions.)
 3. **Strategy Lab → Compare all → Run.** "Every strategy on the same real
    data after fees. Anyone can check a claim here in under a minute."
 4. **Fast book (experimental).** "This is a separate 5-minute book. It is
@@ -125,7 +125,7 @@ Switch to the browser. Four stops, about 35 seconds each.
 | Question | Short answer | Where to point |
 |---|---|---|
 | "So does it make money?" | No proven edge. Two strategies pass today's gate on about 60 trades each; the stricter gate will likely demote them. | Overview → Strategies box |
-| "Why does the Kronos chart go above the hurdle?" | The chart pools every market and horizon from a ledger with no market keys; pooling unlike series inflates rank IC. The vote is decided per market, and the BTC 1h verdict was −0.075. | Evidence → Kronos caption |
+| "Why does the Kronos chart (Evidence → Extras) go above the hurdle?" | The chart pools every market and horizon from a ledger with no market keys; pooling unlike series inflates rank IC. The vote is decided per market, and the BTC 1h verdict was −0.075. | Evidence → Kronos caption |
 | "Why does the fast book never trade?" | It decides once per 5-minute bar, and its one voter fires about 0.6–0.9 times a day per market. Trading more often was measured: 9–15 trades a day on 15 markets, negative after fees. | `docs/archive/HFT_TRADE_FREQUENCY.md` |
 | "Why do the overview numbers not add up?" | They should after the paper-account reset (roadmap 0.1). If a mismatch ever reappears, roadmap item M4 adds an automatic "ledger inconsistent" banner. | Paper account tab |
 | "How do you know live and backtest match?" | `make verify` runs a parity smoke: the same bars through the engine and the backtester must produce the same decisions. | `scripts/parity_smoke.py` |

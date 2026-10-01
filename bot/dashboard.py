@@ -826,7 +826,7 @@ def _voting_payload(book: str) -> dict:
 # The pooled ledger mixes markets and horizons (legacy records carry no market
 # key), and pooling unlike series can manufacture rank correlation — its IC is
 # not the vote. The vote is decided per market by `main.py kronos`; this is
-# the last such run (README "Kronos", CHANGELOG 2026-09-19).
+# the last such run (docs/RESULTS.md §2, CHANGELOG 2026-09-19).
 KRONOS_LAST_VERDICT = {"market": "BTC/USDT 1h", "forecasts": 128, "ic": -0.0754,
                        "promoted": False, "date": "2026-09-19"}
 

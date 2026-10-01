@@ -117,6 +117,7 @@ b, strong { font-weight: 600; }
 .nav-label { color: var(--color-muted); font-size: 11px; font-weight: 600; letter-spacing: .06em;
   text-transform: uppercase; padding: 14px 10px 6px; }
 .nav-label:first-child { padding-top: 0; }
+.section-label { margin: 8px 2px 0; color: var(--color-muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .tab { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--radius-sm);
   background: none; color: var(--color-muted); font-weight: 500; text-align: left; cursor: pointer; white-space: nowrap; }
 .tab:hover { background: var(--color-surface-2); color: var(--color-text); }

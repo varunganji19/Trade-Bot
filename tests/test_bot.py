@@ -2614,12 +2614,9 @@ def test_engine_interval_is_changeable_while_running(tmp_path, monkeypatch):
     import bot.dashboard as dash
     from fastapi.testclient import TestClient
     client = TestClient(dash.app, base_url="http://127.0.0.1")
-    with open(dash.__file__) as f:
-        code = f.read()
     js = open(dash.static_path("app.js")).read()
-    # the sleep must be computed from the GLOBAL, never the captured argument
-    assert "remaining = max(0.0, _engine_interval - (time.monotonic() - cycle_t0))" in code
-    assert "remaining = max(0.0, _hft_interval - (time.monotonic() - cycle_t0))" in code
+    # the loops re-read the interval every cycle: tests/test_engine_loops.py
+    # drives both real loops and retunes them while running.
     # ...and the UI must not disable the control while the engine runs
     assert "$('#intervalSel').disabled = transitioning;" in js
 

@@ -25,6 +25,11 @@ Roadmap M3, M4, M5 and M7 (docs/ROADMAP.md).
   `bot/cli/`, strategy parameters into `bot/params.py`. No code file is over
   600 lines (was 1,732). Source-text test pins on moved code became
   behaviour tests (engine loops are driven for real).
+- **Real taker order flow** (`bot/flow.py`, candidate `hft_taker_flow`):
+  Binance's aggressor split replaces the CLV x volume guess; the
+  pre-registered study rejects it (PF 0.42 vs the proxy's 0.44).
+- **Candidates are never presented as promoted**: their reasons are data
+  (`CANDIDATE_NOTES`) and shown in place of the gate's status word.
 - **Fixes:** `shadow`, `validate` and the batteries wrote to a
   cwd-relative `data/results/` regardless of `BOT_DB_PATH`; they now follow
   the journal directory. Comments narrating past incidents now state the

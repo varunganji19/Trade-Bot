@@ -59,7 +59,8 @@ every strategy, so the verdicts are not an artefact of one market phase.
 | `hft_cross_reversion` (candidate) | Cross-pair spreads mean-revert | 0.60 (0.50–0.71) | 898 | **demoted** |
 | `hft_micro_breakout` | Rolling micro-range breakout (Zarattini & Aziz 2023) | 0.53 (0.49–0.56) | 9,918 | **demoted** |
 | `hft_funding_reversion` (candidate) | Perpetual funding extremes mark a crowded side that reverts | 0.48 (0.37–0.61) | 254 | **demoted** |
-| `hft_ofi_momentum` (candidate) | Order-flow imbalance (Cont, Kukanov & Stoikov 2014), proxied by CLV × volume | 0.44 (0.41–0.48) | 10,138 | **demoted** — the proxy is not real order flow (roadmap M8) |
+| `hft_ofi_momentum` (candidate) | Order-flow imbalance (Cont, Kukanov & Stoikov 2014), proxied by CLV × volume | 0.44 (0.41–0.48) | 10,138 | **demoted** |
+| `hft_taker_flow` (candidate) | The same strategy on REAL taker flow (Binance aggressor split) | 0.42 (0.39–0.45) | 9,170 | **demoted** (study, §3) — real flow is no better than the guess |
 
 The fade, the fast book's only voter under rule v1, is a measured loser on
 the larger sample, so under rule v2 the fast book has nothing allowed to
@@ -99,13 +100,14 @@ which reproduced them closely; figures below are from the re-runs.
 | [Fade thresholds](../experiments/fade_thresholds.toml) | Looser thresholds raise frequency without killing the edge | 15 markets, 90 days; 9 settings compared on 60 days, judged on the last 30 | every selection interval below or straddling 1.0 (best PF 0.73); live setting −$406 on the holdout | **no change** (three 2.0×-volume settings are positive on the holdout, but nothing on the selection window would have chosen them) |
 | [Fade limit exits](../experiments/fade_limit_exit.toml) | A resting exit at the mean cuts costs enough to flip the result | 9 variants, same split | best −$170 over 30 days; −$256 once the entry must trade through | **no change**; option kept off |
 | [Fade hold length](../experiments/fade_hold.toml) | The reversion needs more than 45 minutes | 9 variants (45 min to 6 h), same split | the 6 h hold looks best on selection (PF 0.96) and loses $526 on the holdout, vs $170 for 45 min | **no change** — a measured example of selection bias |
+| [Real taker flow](../experiments/taker_flow.toml) | Real aggressor flow carries the continuation edge the CLV proxy did not | 21 markets, 90 days, walk-forward; real flow vs proxy, shipped settings + 2 variants | real flow PF 0.41–0.42 vs proxy 0.43–0.45, ~6,000–10,000 trades each; every entry demoted under rule v2 | **rejected** (decision rule fixed before the run) |
 | [Market-maker fill model](../experiments/market_maker_fill_model.toml) | The market maker's gate result survives fills that must trade through the quote | 21 markets, 90 days; entries filled at touch, 1, 2 and 5 bp through | PF 1.41 → 1.29 → 1.19 → **0.96** (0.92–1.00); take-profits still touch-filled | **artefact of the fill model** (the declaration set "below 1.0 is conclusive" before the run) |
 
 **What the fast book has shown:** breadth delivers frequency, the fade has a
-small gross edge that fees take entirely, and the one apparently profitable
-strategy is profitable only under the most optimistic fill assumption.
-Market making needs order-book data to be measured at all (roadmap V7); the
-remaining signal lever is real order flow (roadmap M8).
+small gross edge that fees take entirely, the one apparently profitable
+strategy is profitable only under the most optimistic fill assumption, and
+real taker flow predicts 5-minute continuation no better than a guess at
+it. Market making needs order-book data to be measured at all (roadmap V7).
 
 ---
 

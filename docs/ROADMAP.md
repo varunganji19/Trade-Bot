@@ -1,9 +1,35 @@
 # Roadmap: from "trading bot" to an honest strategy-validation platform
 
-*Plan only — nothing here is implemented yet. Written 2026-10-01 from the
-mentor and VC reviews. Each item has a deliverable, an acceptance check, an
-effort estimate and an owner: **Claude** (code and docs I can build in this
-repo) or **You** (decisions, outreach, money, people — things code cannot do).*
+*Written 2026-10-01 from the mentor and VC reviews. Each item has a
+deliverable, an acceptance check, an effort estimate and an owner: **Claude**
+(code and docs I can build in this repo) or **You** (decisions, outreach,
+money, people — things code cannot do).*
+
+## Status (2026-10-01)
+
+**Decisions taken:** positioning as a validation platform — yes; a stricter
+promotion bar even if nothing may trade — yes; licence — MIT for now,
+revisit before V3; real money after testnet — decide later, build testnet
+readiness only. The archive move (M2) was approved.
+
+| Item | Status | Where |
+|---|---|---|
+| 0.1 Clean journal | **waiting on you** (reset under Paper account → Reset); the new ledger banner shows the $883.35 legacy gap until then | dashboard |
+| 0.2 Fast book labelled honestly | done | UI, README |
+| 0.3 Demo storyline | done (rebuilt after M3) | [DEMO.md](DEMO.md) |
+| 0.4 README top | done | [README](../README.md) |
+| M2 Cut scope, keep depth | done: Extras (chatbot, Kronos), four docs + archive | [RESULTS.md](RESULTS.md), [METHODOLOGY.md](METHODOLOGY.md) |
+| M3 Statistical bar | done: rule v2, 2-year/90-day gates, intervals, regimes, registry, pre-registration, `make evidence` | [experiments/](../experiments/) |
+| M4 Data hygiene | done: ledger check on every poll, banner, test | METHODOLOGY §10 |
+| M5 Readable code | done: no code file over 600 lines; comment pass; source pins replaced by behaviour tests | README "Layout" |
+| M7 Learnings as a feature | done: RESULTS.md + Evidence → Experiment log | dashboard |
+| M8 Fast-book questions | done: hold length recorded (re-run reproduces it); real taker flow built (bot/flow.py, `hft_taker_flow`) and rejected by a pre-registered study (PF 0.42 vs the proxy's 0.44) | [RESULTS.md](RESULTS.md) §3 |
+| M1, M6, V1–V10 | not started (Phase 2+) | below |
+
+**Not met as written:** M5's "trace one trade in ≤ 5 files" holds only if
+the risk manager and broker count as called-through (see README "Layout");
+tests/test_bot.py (6,000+ lines) was not split — the 600-line target was
+applied to code, not tests.
 
 ## The one decision that shapes everything
 

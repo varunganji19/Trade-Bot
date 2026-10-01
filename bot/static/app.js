@@ -1090,6 +1090,7 @@ function evidenceFailed(err) {
   const box = '<div class="empty">' + msg + '</div>';
   $('#evShadow').innerHTML = box;
   $('#evManifest').innerHTML = box;
+  $('#evExperiments').innerHTML = box;
   $('#krEmpty').hidden = false;
   $('#krEmpty').innerHTML = msg;
   $('#cvEmpty').hidden = false;
@@ -1171,6 +1172,27 @@ async function refreshEvidence() {
       esc(p.win_rate_pct) + '% · ' + esc(p.n_blew_through_stop) + ' blew through their stop · ' +
       'disposition gap ' + esc(p.disposition_gap_hours) + ' h</p>';
   }
+
+  /* --- experiment log: what was tested, and what it showed --- */
+  const ex = ev.experiments || {};
+  const exRows = ex.rows || [];
+  const bad = v => /demoted|rejected|removed|abandoned|no variant|shipped off|not shipped|moved/.test(v);
+  const good = v => /^promoted|cleared/.test(v);
+  const failed = exRows.filter(r => bad(String(r.verdict))).length;
+  $('#evExpMeta').textContent = ex.error ? 'Registry unavailable: ' + ex.error
+    : exRows.length + ' entries · ' + failed + ' failed or were set aside · newest first';
+  $('#evExperiments').innerHTML = exRows.length
+    ? '<table><thead><tr><th>Date</th><th>Experiment</th><th>Strategy</th><th>Verdict</th>' +
+      '<th class="num">Variants</th><th>Result</th></tr></thead><tbody>' +
+      exRows.map(r => '<tr title="' + esc(r.hypothesis || r.source || '') + '">' +
+        '<td class="muted c-date">' + esc(r.date) + '</td>' +
+        '<td class="mono c-exp">' + esc(r.experiment) + '</td>' +
+        '<td class="c-strat">' + esc(r.strategy || '') + '</td>' +
+        '<td class="c-verdict ' + (bad(String(r.verdict)) ? 'neg' : good(String(r.verdict)) ? 'pos' : '') + '">' +
+        esc(r.verdict) + '</td>' +
+        '<td class="num c-var">' + esc(r.variants) + '</td>' +
+        '<td class="wrap c-result">' + esc(r.result) + '</td></tr>').join('') + '</tbody></table>'
+    : '<div class="empty">No experiments recorded — run <code>make evidence</code>.</div>';
 
   /* --- pinned-data manifest --- */
   const man = ev.manifest || {};

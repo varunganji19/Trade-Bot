@@ -305,3 +305,29 @@ def test_default_settings_written_out_are_the_same_trial():
              "params": p, "symbol": "BTC", "timeframe": "5m", "oos": {"sharpe": 0.1}}
             for e, p in (("a", {}), ("b", {"hft_fade_z_entry": z}))]
     assert ex.trials_for("s", records=recs)["n_trials"] == 1
+
+
+def test_experiment_log_shows_runs_and_history_newest_first(tmp_path, monkeypatch):
+    """The Evidence tab's experiment log: one row per (experiment, strategy)
+    with its verdict, and the retroactive history beside it."""
+    _fake_world(tmp_path, monkeypatch)
+    (tmp_path / "history.jsonl").write_text(json.dumps(
+        {"experiment": "old", "variant": "x", "level": "retro", "strategy": "kronos",
+         "run_at": "2026-09-19", "result": "IC -0.075", "verdict": "rejected"}) + "\n")
+    path = _write(tmp_path, strategies='["turtle_trend", "connors_meanrev"]')
+    ex.run_declaration(path, workers=1, quiet=True, require_preregistered=False)
+    rows = ex.experiment_log()
+    assert [r["experiment"] for r in rows][-1] == "old"          # newest first
+    gate = {r["strategy"]: r for r in rows if r["experiment"] == "g"}
+    assert set(gate) == {"turtle_trend", "connors_meanrev"}
+    assert all(r["verdict"] in (promo.PROMOTED, promo.PROBATION, promo.DEMOTED)
+               for r in gate.values())
+    assert "OOS PF" in gate["turtle_trend"]["result"]
+    assert gate["turtle_trend"]["hypothesis"] == "test"
+
+    import bot.dashboard as dash
+    from fastapi.testclient import TestClient
+    dash._EVIDENCE_CACHE.update(key=None, payload=None, ts=0.0)
+    payload = TestClient(dash.app, base_url="http://127.0.0.1").get("/api/evidence").json()
+    assert payload["experiments"]["n"] == len(rows)
+    promo._CACHE.update(path=None, mtime=None, verdicts={})

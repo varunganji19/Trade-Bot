@@ -2712,7 +2712,7 @@ def test_dashboard_evidence_endpoint_smoke():
     r = client.get("/api/evidence")
     assert r.status_code == 200
     payload = r.json()
-    assert set(payload) == {"kronos", "validations", "shadow", "manifest"}
+    assert set(payload) == {"kronos", "validations", "shadow", "manifest", "experiments"}
     assert isinstance(payload["validations"], list)
     assert isinstance(payload["manifest"], dict)
     # the real machine's ledger (if present) either loads or reports why not
@@ -3553,7 +3553,7 @@ def test_evidence_tab_retries_and_explains_a_failed_load():
     from fastapi.testclient import TestClient
     client = TestClient(dash.app, base_url="http://127.0.0.1")
     payload = client.get("/api/evidence").json()
-    assert set(payload) == {"kronos", "validations", "shadow", "manifest"}
+    assert set(payload) == {"kronos", "validations", "shadow", "manifest", "experiments"}
     # an empty machine reports empty sections, never an error
     assert isinstance(payload["validations"], list)
     assert "error" not in (payload["kronos"] or {})

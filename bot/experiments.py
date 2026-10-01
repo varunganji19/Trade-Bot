@@ -443,10 +443,9 @@ def _records_from_result(res: dict) -> list:
     return out
 
 
-def rebuild_registry(path: str | None = None) -> str:
-    """Regenerate the registry from the committed history and every result
-    file. Derived data: deleting it loses nothing."""
-    path = path or registry_path()
+def collect_records() -> list:
+    """Every registry record, assembled from the committed history and the
+    result files (no writes)."""
     records = []
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE) as fh:
@@ -456,6 +455,63 @@ def rebuild_registry(path: str | None = None) -> str:
         if os.path.exists(rp):
             with open(rp) as fh:
                 records += _records_from_result(json.load(fh))
+    return records
+
+
+def experiment_log(records: list | None = None) -> list:
+    """One row per (experiment, strategy) for the Evidence tab: what was
+    tested, how many variants, the best of them, and the verdict — newest
+    first. Studies report the best variant on the SELECTION window next to
+    its result on the holdout, which is the honest pair."""
+    records = collect_records() if records is None else records
+    hyp = {}
+    for path in declarations():
+        try:
+            d = load_declaration(path)
+            hyp[d.id] = d.hypothesis
+        except DeclarationError:
+            continue
+    rows, groups = [], {}
+    for r in records:
+        if r.get("level") == "retro":
+            rows.append({"experiment": r["experiment"], "strategy": r.get("strategy"),
+                         "book": r.get("book"), "date": str(r.get("run_at", ""))[:10],
+                         "variants": 1, "result": r.get("result", ""),
+                         "verdict": r.get("verdict", ""), "source": r.get("source", "")})
+        elif r.get("level") == "pooled":
+            groups.setdefault((r["experiment"], r["strategy"]), []).append(r)
+    for (exp, strat), rs in groups.items():
+        best = max(rs, key=lambda r: (r["oos"].get("pf") or 0))
+        oos = best["oos"]
+        if oos.get("pf") is None:
+            result = "no out-of-sample trades"
+        else:
+            lo, hi = oos.get("pf_lo"), oos.get("pf_hi")
+            band = f" [{lo:.2f}–{hi:.2f}]" if lo is not None else ""
+            result = f"OOS PF {oos['pf']:.2f}{band}, {oos['trades']} trades"
+            if len(rs) > 1:
+                result = f"best of {len(rs)} ({best['variant']}): " + result
+        if best.get("holdout"):
+            result += f"; holdout net ${best['holdout']['net_pnl']:+,.0f}"
+        if best.get("verdict"):
+            verdict = best["verdict"]
+        elif any((r["oos"].get("pf_lo") or 0) >= 1.0 for r in rs):
+            verdict = "a variant cleared 1.0"
+        else:
+            verdict = "no variant proven"
+        rows.append({"experiment": exp, "strategy": strat, "book": best.get("book"),
+                     "date": str(best.get("run_at", ""))[:10], "variants": len(rs),
+                     "result": result, "verdict": verdict,
+                     "hypothesis": hyp.get(exp, ""), "source": "run"})
+    rows.sort(key=lambda r: r["date"], reverse=True)
+    return rows
+
+
+def rebuild_registry(path: str | None = None) -> str:
+    """Regenerate the registry from the committed history and every result
+    file. Derived data: deleting it loses nothing."""
+    path = path or registry_path()
+    records = collect_records()
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = f"{path}.tmp.{os.getpid()}"
     with open(tmp, "w") as fh:

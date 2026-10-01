@@ -880,6 +880,17 @@ def _evidence_kronos() -> dict:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
+def _evidence_experiments() -> dict:
+    """The experiment log (bot/experiments.py), read from the committed
+    declarations, results and history — never written from here."""
+    try:
+        from bot.experiments import experiment_log
+        rows = experiment_log()
+        return {"rows": rows, "n": len(rows)}
+    except Exception as exc:
+        return {"rows": [], "n": 0, "error": f"{type(exc).__name__}: {exc}"}
+
+
 def _evidence_validations(limit: int = 20) -> list:
     """Newest first (by file mtime): the dropdown's default '0' used to be the
     OLDEST file by name sort, so a stale report answered as if current.
@@ -938,6 +949,10 @@ def _evidence_cache_key() -> tuple | None:
         if os.path.isdir(rdir):
             paths += [os.path.join(rdir, f) for f in os.listdir(rdir)
                       if f.endswith(".json")]
+        from bot.experiments import EXPERIMENTS_DIR
+        if os.path.isdir(EXPERIMENTS_DIR):
+            paths += [os.path.join(EXPERIMENTS_DIR, f) for f in os.listdir(EXPERIMENTS_DIR)
+                      if f.endswith((".json", ".jsonl", ".toml"))]
         return tuple(sorted((p, os.path.getmtime(p), os.path.getsize(p))
                            for p in paths if os.path.exists(p)))
     except OSError:
@@ -961,7 +976,8 @@ def api_evidence():
     payload = {"kronos": _evidence_kronos(),
                "validations": _evidence_validations(),
                "shadow": _evidence_shadow(),
-               "manifest": _evidence_manifest()}
+               "manifest": _evidence_manifest(),
+               "experiments": _evidence_experiments()}
     _EVIDENCE_CACHE.update({"key": key, "payload": payload, "ts": now})
     return payload
 

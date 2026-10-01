@@ -395,6 +395,10 @@ document.documentElement.setAttribute('data-theme',t);})();
     <div class="stats-grid stats-grid-wide" id="evCards"></div>
   </div>
   <div class="card">
+    <div class="card-head"><div><h2>Experiment log</h2><p class="hint" id="evExpMeta">Every strategy and variant ever tested, with its verdict — failures included.</p></div></div>
+    <div class="tbl-wrap" id="evExperiments"><div class="empty">Loading…</div></div>
+  </div>
+  <div class="card">
     <div class="card-head"><div><h2>Out-of-sample paths</h2><p class="hint">Purged cross-validation return per path</p></div></div>
     <div class="chart-body"><canvas id="cvChart" class="is-empty" role="img" aria-label="Purged-CV path returns"></canvas>
       <div class="chart-empty" id="cvEmpty" hidden></div></div>

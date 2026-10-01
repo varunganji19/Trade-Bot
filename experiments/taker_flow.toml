@@ -1,0 +1,139 @@
+# Does REAL order flow carry the edge the CLV x volume proxy did not?
+# hft_taker_flow uses Binance's aggressor split (taker buys minus taker
+# sells); hft_ofi_momentum is the same strategy on the proxy. Both run on the
+# fast gate's 21 markets and 90 days, walk-forward, perp-tier costs, at the
+# shipped settings and two declared variants (a 30-minute flow window, a
+# stricter 2-sigma trigger).
+#
+# Decision rule, fixed before the run: the hypothesis holds only if
+# hft_taker_flow at its SHIPPED settings ("default") reaches rule-v2
+# "promoted" (lower end of the 90% PF interval >= 1.0, >= 100 trades, three
+# regimes). A variant passing while the default fails is a lead for a new
+# pre-registered study, not a result. Either way it stays a candidate until
+# the live engine fetches taker flow.
+id = "taker_flow"
+kind = "study"
+book = "fast"
+tier = "perp"
+created = 2026-10-01
+hypothesis = "Real taker-flow imbalance (Binance aggressor split) predicts 5m continuation well enough to pass the rule-v2 gate after perp-tier costs, where the CLV x volume proxy failed."
+strategies = ["hft_taker_flow", "hft_ofi_momentum"]
+days = 90
+folds = 4
+
+[[variants]]
+name = "default"
+params = {}
+
+[[variants]]
+name = "window_30m"
+params = {hft_ofi_window = 6}
+
+[[variants]]
+name = "z_2.0"
+params = {hft_ofi_z_entry = 2.0}
+
+[[markets]]
+kind = "crypto"
+symbol = "BTC/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ETH/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "XRP/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "DOGE/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ADA/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "AVAX/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "LINK/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "LTC/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "DOT/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "TRX/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BCH/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "NEAR/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SUI/USDT"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "ETH/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "XRP/BTC"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "SOL/ETH"
+timeframes = ["5m"]
+
+[[markets]]
+kind = "crypto"
+symbol = "BNB/ETH"
+timeframes = ["5m"]

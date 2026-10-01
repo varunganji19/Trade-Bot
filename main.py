@@ -417,7 +417,8 @@ def cmd_validate(args):
               f"{spec.timeframe} bars of OOS record at 95% confidence")
         report["min_trl"] = mtrl
 
-    out = args.json or os.path.join("data", "results",
+    from config import db_dir
+    out = args.json or os.path.join(db_dir(), "results",
                                     f"validation_{spec.symbol.replace('/', '')}_"
                                     f"{spec.timeframe}_{args.days}d.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -734,7 +735,10 @@ def cmd_shadow(args):
             "comparison": comp,
         }
 
-    out = args.json or "data/results/shadow_report.json"
+    from config import db_dir
+    # beside the journal, where the Evidence tab reads it (a cwd-relative
+    # data/results/ ignored BOT_DB_PATH and wrote into the real data dir)
+    out = args.json or os.path.join(db_dir(), "results", "shadow_report.json")
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w") as f:
         json.dump(report, f, indent=1, default=str)
@@ -892,7 +896,7 @@ def build_parser() -> argparse.ArgumentParser:
     kr.set_defaults(fn=cmd_kronos)
 
     sh = sub.add_parser("shadow", help="Shadow Account: journal vs its own rules")
-    sh.add_argument("--json", default=None, help="report path (default data/results/shadow_report.json)")
+    sh.add_argument("--json", default=None, help="report path (default: results/shadow_report.json beside the journal)")
     sh.add_argument("--include-demo", action="store_true",
                     help="audit mode='demo' (seed-demo backtest-replay) rows too; "
                          "default audits the bot's own paper record only")

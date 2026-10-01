@@ -2738,8 +2738,21 @@ def test_cli_writers_create_results_dir_on_fresh_machine(tmp_path, monkeypatch):
     _run_fake_standard_battery(tmp_path, monkeypatch, ["turtle_trend"])
     assert (tmp_path / "results" / "standard_battery.json").exists()
     monkeypatch.undo()
-    src_m = open("main.py").read()
-    assert 'os.makedirs(os.path.dirname(out) or ".", exist_ok=True)' in src_m
+    # (c) so does `main.py shadow`, beside the journal (not a cwd-relative
+    # data/results/), even when every market's replay data is unavailable
+    import bot.data as data_mod
+    import main as cli
+    from bot.journal import Journal
+    fresh = tmp_path / "fresh"
+    monkeypatch.setattr(CONFIG, "db_path", str(fresh / "t.db"))
+    j = Journal(str(fresh / "t.db"))
+    tid = j.open_trade("BTC/USDT", "long", 0.1, 100.0, 95.0, 110.0, "turtle_trend", "r",
+                       timeframe="1h", entry_fee=0.01)
+    j.close_trade(tid, 101.0, 0.08, 0.8, 0.02, "target", entry_fee=0.01)
+    monkeypatch.setattr(data_mod, "fetch_history",
+                        lambda *a, **k: (_ for _ in ()).throw(ConnectionError("offline")))
+    cli.cmd_shadow(type("A", (), {"include_demo": False, "json": None})())
+    assert (fresh / "results" / "shadow_report.json").exists()
 
 
 def _run_fake_standard_battery(tmp_path, monkeypatch, strategies):

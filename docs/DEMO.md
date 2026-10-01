@@ -4,18 +4,22 @@
 Every number below comes from an artifact in this repo; the source is given
 next to it so you can answer "where does that come from?" without notes.*
 
-**Before you start (2 minutes, off the clock)**
+**Before you start (off the clock)**
 
 ```bash
-ALGO_NO_AUTO_RESUME=1 python3 main.py dashboard   # → http://127.0.0.1:8000
+make evidence                                      # ~10 min: rule-v2 verdicts + registry
+ALGO_NO_AUTO_RESUME=1 python3 main.py dashboard    # → http://127.0.0.1:8000
 ```
 
+- `make evidence` writes the rule-v2 verdicts beside your journal. Without
+  it the Strategies box shows the older verdicts marked "STALE — OLD RULE",
+  which contradicts slides 3–4. Run it the day before; it makes both books
+  stop trading, which is the point of slide 4.
 - Open the tabs in this order so they are already loaded: Overview, Evidence,
   Strategy Lab, Fast book.
 - In the Lab, pre-select BTC/USDT, 1h, **Compare all**. The run fetches data,
   so start it once before the meeting to warm the cache.
-- Leave the engine stopped. Starting it live is optional and not part of the
-  story.
+- Leave the engines stopped.
 
 ---
 
@@ -36,87 +40,84 @@ backtest."
 
 **On the slide:** the pipeline from the README (candles → strategies →
 orchestrator → risk manager → paper broker → journal), with four labels:
-*promotion gate*, *cost realism*, *live = backtest*, *overfitting statistics*.
+*promotion gate*, *cost realism*, *live = backtest*, *pre-registration*.
 
 **Say:**
-> Every strategy has to earn its vote. A walk-forward battery tests it on
-> data it was not tuned on, after fees on both legs, and only strategies
-> whose out-of-sample profit factor clears 1.0 may trade. The live engine and
-> the backtester run the same decision code, and `make verify` fails if they
-> ever diverge. On top of that: purged cross-validation, the probability of
-> backtest overfitting, and the Deflated Sharpe ratio.
+> A strategy may trade only if the pessimistic end of a 90% confidence
+> interval on its out-of-sample profit factor is above 1.0 after fees, over
+> at least 100 trades in rising, falling and ranging markets. Every
+> experiment is declared in git before it runs, and every variant is counted,
+> so the overfitting statistics know how many tries there were. And the live
+> engine and the backtester run the same decision code — `make verify` fails
+> if they ever diverge.
 
-Sources: `bot/promotion.py`, `scripts/parity_smoke.py`, `bot/validation.py`.
+Sources: `bot/promotion.py`, `bot/experiments.py`, `scripts/parity_smoke.py`.
 
 ## Slide 3 — Live demo (2:00–4:30)
 
 Switch to the browser. Four stops, about 35 seconds each.
 
-1. **Overview → Engine card → Strategies box.** Point at the gate:
-   "Five standard strategies measured; three are measured losers and cannot
-   vote. Two may trade, Connors mean reversion and the VWAP scalper, each on
-   about 60 out-of-sample trades." (`data/results/promotions_standard.json`)
-2. **Evidence tab.** Point at the validation report's PBO card: "This is
-   the probability that the selection process overfit." Then scroll to the
-   **Shadow account**: "The bot audits itself against its own rules: on the
-   seeded replay history, 236 of 428 trades blew through their initial
-   stop, and it says so." (Kronos is at the bottom under Extras; keep it
-   for slide 4 or for questions.)
+1. **Overview → Engine card → Strategies box.** "Under the platform's own
+   rule nothing may trade. Each strategy shows its interval: time-series
+   momentum is the best at 1.07, but the interval runs from 0.81 to 1.37, so
+   it is unproven." (`experiments/standard_gate.results.json`)
+2. **Evidence → Experiment log.** "Every experiment ever run, with its
+   verdict — the red ones are the failures, and there are a lot of them."
+   Then the **Shadow account**: "The bot audits itself against its own rules:
+   on the seeded replay history, 236 of 428 trades blew through their initial
+   stop, and it says so."
 3. **Strategy Lab → Compare all → Run.** "Every strategy on the same real
    data after fees. Anyone can check a claim here in under a minute."
-4. **Fast book (experimental).** "This is a separate 5-minute book. It is
-   labelled experimental because it has no proven edge: the list shows each
-   strategy's measured verdict, and the one still allowed to trade is on
-   probation."
+4. **Fast book (experimental).** "A separate 5-minute book, labelled
+   experimental because nothing in it has an edge after fees."
 
 ## Slide 4 — What was disproved (4:30–5:45)
 
-**On the slide:** a table of failures, the headline of the demo.
+**On the slide:** a table of failures — the headline of the demo.
 
 | Idea | Result | Source |
 |---|---|---|
-| Kronos foundation model as a voter | IC −0.075 on BTC 1h → no vote | README "Kronos" |
-| Turtle trend, TS momentum, FX mean reversion | median OOS PF 0.71 / 0.78 / 0.55 → demoted | `promotions_standard.json` |
-| Fast-book micro-breakout, market maker, order-flow proxy | median OOS PF 0.27 / 0.66 / 0.58 → demoted | `promotions.json` |
-| Cross-pair spread and funding-rate reversion | PF 0.58 / 0.39, negative even before fees | `docs/archive/HFT_TRADE_FREQUENCY.md` |
-| The surviving fade, tuned 27 ways (thresholds, exits, hold length) | positive before fees, every variant negative after | `docs/archive/HFT_TRADE_FREQUENCY.md` |
+| The two strategies that passed the old gate (Connors, VWAP scalper) | PF ≈ 1.55 on ≈ 60 trades → on 2 years and 5 markets: 0.75 (unproven) and 0.57 (loser) | `experiments/standard_gate.results.json` |
+| A market maker "promoted" at PF 1.41 on 36,094 trades | PF 0.96 once quotes must trade through by 5 bp: an artefact of the fill model | `experiments/market_maker_fill_model.results.json` |
+| The fast book's fade, tuned 27 ways | the 6-hour hold looked best on selection (PF 0.96) and lost $526 on the unseen 30 days | `experiments/fade_hold.results.json` |
+| Kronos foundation model as a voter | IC −0.075 on BTC 1h against a +0.02 hurdle → no vote | `docs/RESULTS.md` §2 |
 | RVOL volume filter (published Sharpe 0.48 → 2.81 on equities) | neutral here → shipped off | `docs/archive/BACKTESTS.md` Round 5 |
 
 **Say:**
 > The most useful thing this platform produced is a list of things that do
-> not work. My favourite example: when I tested longer holding periods for
-> the fade, the 6-hour hold looked best on the data I selected on, and lost
-> three times as much as the 45-minute hold on the 30 days it had never
-> seen. If I had reported the selection result, I would have shipped the
-> worst setting.
+> not work. Two strategies were trading under my first gate. When I made the
+> gate stricter and gave it two years of data, neither survived. And a market
+> maker that looked like the best strategy I had turned out to be profitable
+> only because my simulator let its orders fill too easily. I declared that
+> test before running it, so I could not move the goalposts afterwards.
 
 ## Slide 5 — What's next (5:45–6:30)
 
 **On the slide:** three bullets.
 
-- **A stricter bar.** Promote only when the *lower* end of a 90% bootstrap
-  interval on profit factor is at least 1.0, over 100+ out-of-sample trades
-  in three market regimes. Today's two voters have about 60 trades each, so
-  they will probably lose their vote. That is the point.
-- **An experiment registry.** Every variant ever tried is recorded, and the
-  Deflated Sharpe is computed from that count automatically, so selection
-  bias is always priced in.
-- **A forward track record** that cannot be backfilled: the paper journal is
-  hashed daily and the hash committed.
+- **Real order flow.** Binance's candles include the taker-buy volume; the
+  order-flow strategy has been using a guess. Rebuild it on the real data
+  and put it through the same gate.
+- **A forward track record** that cannot be backfilled: the paper journal
+  hashed daily, the hash committed, so results from that date on are
+  verifiable.
+- **A validator for other people's strategies.** Take a freqtrade backtest
+  export and report: robust, fragile or likely overfit.
 
 ## Slide 6 — Limitations (6:30–7:00)
 
 **On the slide, and say it plainly:**
 
 - Paper trading only; no real-money result, and none is claimed.
-- Samples are small: the two standard voters rest on about 60 trades each.
-- Fills are simulated from candles; there is no order book, so the fast
-  book cannot model queue position or adverse selection.
+- Fills are simulated from candles; without order-book data, market making
+  cannot be measured honestly at all.
+- The regime labels and intervals are only as good as two years (standard)
+  and 90 days (fast) of history.
 - Built with AI coding assistants; every change was verified with tests, the
   parity check and measured experiments, and I can walk through any of it.
 
-> So the honest headline is: no proven edge yet, and a platform that would
-> have told me if I had been fooling myself.
+> So the honest headline is: no proven edge, nothing allowed to trade, and a
+> platform that caught me every time I was about to fool myself.
 
 ---
 
@@ -124,9 +125,10 @@ Switch to the browser. Four stops, about 35 seconds each.
 
 | Question | Short answer | Where to point |
 |---|---|---|
-| "So does it make money?" | No proven edge. Two strategies pass today's gate on about 60 trades each; the stricter gate will likely demote them. | Overview → Strategies box |
-| "Why does the Kronos chart (Evidence → Extras) go above the hurdle?" | The chart pools every market and horizon from a ledger with no market keys; pooling unlike series inflates rank IC. The vote is decided per market, and the BTC 1h verdict was −0.075. | Evidence → Kronos caption |
-| "Why does the fast book never trade?" | It decides once per 5-minute bar, and its one voter fires about 0.6–0.9 times a day per market. Trading more often was measured: 9–15 trades a day on 15 markets, negative after fees. | `docs/archive/HFT_TRADE_FREQUENCY.md` |
-| "Why do the overview numbers not add up?" | They should after the paper-account reset (roadmap 0.1). If a mismatch ever reappears, roadmap item M4 adds an automatic "ledger inconsistent" banner. | Paper account tab |
+| "So does it make money?" | No. Nothing passes the gate; the best standard strategy's interval is 0.81–1.37. | Overview → Strategies box |
+| "Isn't a gate that rejects everything useless?" | It is a measuring instrument. It rejected two strategies that a looser gate passed on 60 trades, and both failed on more data. | `docs/RESULTS.md` §1 |
+| "Why does the Kronos chart go above the hurdle?" | It pools every market and horizon from a ledger with no market keys; pooling unlike series inflates rank IC. The vote is decided per market: BTC 1h scored −0.075. | Evidence → Extras → Kronos caption |
+| "Why does the fast book never trade?" | Every fast strategy is a measured loser after fees; trading more often was measured too (9–15 trades a day, still negative). | `docs/RESULTS.md` §3 |
+| "Why do the overview numbers not add up?" | They do after the paper-account reset. If a gap ever appears, a "Ledger inconsistent" banner names it automatically. | Paper account tab; `docs/METHODOLOGY.md` §10 |
 | "How do you know live and backtest match?" | `make verify` runs a parity smoke: the same bars through the engine and the backtester must produce the same decisions. | `scripts/parity_smoke.py` |
 | "What did you design yourself?" | Answer from your own experience; the roadmap's M6 item prepares the architecture notes for this. | `docs/ROADMAP.md` |

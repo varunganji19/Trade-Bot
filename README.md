@@ -1,53 +1,56 @@
-# AI Trading Bot — Crypto & Forex (Paper Trading)
+# Algo — a trading research platform that refuses to fool itself
 
 [![CI](https://github.com/varunganji19/Trade-Bot/actions/workflows/ci.yml/badge.svg)](https://github.com/varunganji19/Trade-Bot/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An autonomous paper-trading bot for **crypto and forex** that decides
-**buy / sell / hold** with written reasoning, sizes and manages positions by
-itself — plus a live **dashboard** (equity curve, trade history, strategy
-attribution, decision feed, **evidence view**) and a chatbot that answers
-questions about its own trading record. A **separate, experimental fast
-book** (`mode='hft'`) trades 5-minute bars with maker-fill simulation and its
-own fee tier. It has **no proven edge**: most of its strategies are measured
-losers after fees, and the one still allowed to trade is on probation — see
-[HFT.md](HFT.md) and [docs/HFT_TRADE_FREQUENCY.md](docs/HFT_TRADE_FREQUENCY.md).
+Most trading backtests lie without meaning to: the best of many tries gets
+reported, fees are ignored, and the live bot runs different code from the
+backtest. This project is a **paper-trading platform for crypto and forex
+built to catch all three**, and the evidence of what it proved and disproved
+when pointed at its own strategies.
 
-The decision path is **deterministic**: no LLM and no news sentiment sit
-between the strategy vote and the risk manager. Both used to, and because the
-backtester did not run them, live and backtest were executing different
-decision code. The LLM still explains the book through the chatbot, where
-being wrong is free. (2026-09-19; the India/NSE universe was removed the same
-day — zero trades, zero decisions, ever. See CHANGELOG.md and HISTORY.md.)
+**Headline result: no proven edge yet.**
 
-**Why this is different** (each bullet is a measured result, not a claim):
+- Of 5 standard strategies, **3 are measured losers** after fees on
+  out-of-sample data (median profit factor 0.55–0.78) and may not trade.
+  **2 pass today's gate** (Connors mean reversion PF 1.56, VWAP scalper
+  PF 1.55), each on only about 60 out-of-sample trades — a small sample that
+  a stricter bar ([roadmap M3](docs/ROADMAP.md)) will likely reject.
+- The **fast book** (5-minute bars, separate account) is **experimental**:
+  five of its six strategies are measured losers, and the sixth was tuned
+  27 ways and lost after fees in every variant on unseen data
+  ([docs/HFT_TRADE_FREQUENCY.md](docs/HFT_TRADE_FREQUENCY.md)).
+- A published foundation model (Kronos, AAAI'26) had to earn a vote like
+  any strategy; on BTC 1h it scored **IC −0.075** against a +0.02 hurdle
+  and was rejected.
 
-- **Even a foundation model has to earn its vote.** Kronos (AAAI'26) forecasts
-  are scored against reality in a rolling IC ledger; on BTC 1h it measured
-  **IC −0.075 → denied a vote**, and it runs offline only. The Evidence tab
-  plots the whole ledger (all markets pooled) against the 0.02 hurdle.
-- **Negative results ship as results.** The RVOL volume filter (published
-  Sharpe 0.48 → 2.81 on equities) measured **neutral here → shipped OFF**
-  (BACKTESTS.md Round 5); the 5m scalper's −28% cost autopsy is kept, not deleted.
-- **The bot audits itself.** The Shadow Account replays every journaled trade
-  against its own rules — 236/428 trades *blew through their stop* and the bot
-  says so.
-- **Fees on both legs of every trade**, taker + slippage on market fills,
-  maker pricing on bracket take-profits — and purged-CV / PBO / Deflated-Sharpe
-  statistics that quantify how much of the Sharpe is trial-selection.
-- **Causality and determinism are tested**, not assumed: truncating history at
-  bar *i* cannot change the bar-*i* signal; identical inputs produce identical
-  trades. **300+ tests** + a parity smoke and a soak harness, CI on every push.
+Sources: `data/results/promotions_standard.json` and `promotions.json`
+(written by the batteries), and the docs linked above.
 
-Built for a competition with an explicit engineering thesis: **the edge is the
-process** — evidence-based strategies (researched from the most profitable
-traders in history), honest validation with fees and slippage, strict risk
-control, and full attribution of every decision. No strategy here is presented
-as "guaranteed profitable" (see [RESEARCH.md](RESEARCH.md) §4).
+**How it keeps itself honest** (each is code and tests, not a claim):
+
+- **Promotion gate.** A strategy votes only if its walk-forward,
+  out-of-sample profit factor clears 1.0 after fees (`bot/promotion.py`).
+- **Live = backtest.** The engine and the backtester run the same decision
+  code; `make verify` fails if they ever diverge (`scripts/parity_smoke.py`).
+  No LLM or news feed sits in the decision path.
+- **Cost realism.** Fees on both legs, taker fees and slippage on market
+  fills, maker pricing only where a resting order would fill, gap-aware stops.
+- **Overfitting statistics.** Purged cross-validation, probability of
+  backtest overfitting (PBO) and the Deflated Sharpe ratio
+  (`bot/validation.py`).
+- **Self-audit.** The Shadow Account replays journaled trades against the
+  bot's own rules; on the seeded replay history 236 of 428 trades blew
+  through their initial stop, and the dashboard says so.
+- **Causality and determinism are tested**: truncating history at bar *i*
+  cannot change the bar-*i* signal; identical inputs give identical trades.
+  300+ tests, a parity smoke and CI on every push.
+
+Paper trading only. No strategy here is presented as profitable.
 
 | ![Overview — equity, engine control, promotion gate](docs/screenshots/dashboard-overview.png) | ![Evidence — validation verdicts, Kronos IC, purged-CV paths, shadow account](docs/screenshots/dashboard-evidence.png) |
 |---|---|
-| **Overview** — equity, realized P&L, the engine and which strategies may vote, every decision journaled with its reasoning | **Evidence** — PBO / Deflated Sharpe verdicts, Kronos rolling IC against its hurdle, purged-CV path returns, shadow-account adherence |
+| **Overview** — equity, realized P&L, the engine and which strategies may vote, every decision journaled with its reasoning | **Evidence** — PBO / Deflated Sharpe verdicts, Kronos verdict, purged-CV path returns, shadow-account adherence |
 
 ![Portfolio — searchable trade history with strategy attribution](docs/screenshots/dashboard-portfolio.png)
 
@@ -58,15 +61,18 @@ pip install -r requirements.txt
 ALGO_NO_AUTO_RESUME=1 python3 main.py dashboard   # → http://127.0.0.1:8000
 ```
 
-1. **Overview** — equity, realized P&L and drawdown; the Engine card shows the
-   promotion gate: which strategies may vote and the measured reason the
-   others may not. Press **Start engine** to paper-trade live (Stop at any time).
-2. **Strategy Lab** — pick BTC/USDT, 1h, **Compare all**, **Run backtest**:
-   every registered strategy on the same real data, after fees and slippage.
-3. **Evidence** — the validation verdicts (PBO, Deflated Sharpe), the
+1. **Overview** — the Engine card's Strategies box is the promotion gate:
+   which strategies may vote, and the measured reason the others may not.
+2. **Evidence** — the validation verdicts (PBO, Deflated Sharpe), the
    foundation model that measured too weak to earn a vote, and the Shadow
    Account auditing the bot against its own rules.
-4. **Ask the journal** — "how much did you earn?", "which strategy is best?".
+3. **Strategy Lab** — pick BTC/USDT, 1h, **Compare all**, **Run backtest**:
+   every registered strategy on the same real data, after fees and slippage.
+4. **Fast book (experimental)** — a separate 5-minute account; each
+   strategy's verdict is listed, and none has proven an edge.
+
+A talk track for this path, with likely questions, is in
+[docs/DEMO.md](docs/DEMO.md).
 
 `ALGO_NO_AUTO_RESUME=1` keeps the engine stopped until you click Start. A
 fresh, consistent record is one click away under **Paper account → Reset**

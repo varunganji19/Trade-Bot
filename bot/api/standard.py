@@ -60,6 +60,13 @@ def api_stats():
     # (Journal.ledger_check); a gap is shown, never averaged away
     stats["ledger"] = {book: core._ledger_payload(mode) for book, mode in
                        (("standard", "paper"), ("fast", "hft"))}
+    # strategies the drift monitor demoted this week (bot/drift.py): the
+    # Strategies box shows them as silent, the banner says it just happened
+    try:
+        from bot.drift import recent_alerts
+        stats["drift_alerts"] = recent_alerts()
+    except Exception:
+        stats["drift_alerts"] = []
     if eng is not None:
         stats["llm_mode"] = eng.llm.provider if eng.llm.enabled else "quant"
         # live-state trio via the shared helper (marks come from the engine's

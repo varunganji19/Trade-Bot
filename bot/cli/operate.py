@@ -282,3 +282,39 @@ def cmd_track_record(args):
                   "these days in time")
     tr.render(chain, args.doc or tr.DEFAULT_DOC)
     print(f"[track-record] rendered {args.doc or tr.DEFAULT_DOC}")
+
+
+def cmd_drift(args):
+    """The drift monitor's view of each book (bot/drift.py): which promoted
+    strategies are watched, how their live weeks compare with the expected
+    range, and which were demoted. `clear NAME` gives one its vote back."""
+    from bot import drift
+    books = [args.book] if args.book else ["standard", "fast"]
+    if args.action == "clear":
+        if not args.name or len(books) != 1:
+            print("[drift] clear needs a strategy name and --book standard|fast")
+            sys.exit(1)
+        if not drift.clear(books[0], args.name):
+            print(f"[drift] {args.name} is not drift-demoted on the {books[0]} book")
+            sys.exit(1)
+        print(f"[drift] cleared {args.name} on the {books[0]} book: it votes again if the "
+              "gate still promotes it, and its watch restarts from the next cycle")
+        return
+    print(f"rule: demote after {drift.DRIFT_WEEKS} consecutive weeks with live PF of the "
+          f"last {drift.DRIFT_WINDOW} trades (min {drift.DRIFT_MIN_TRADES}) below the "
+          "lower end of the promoted interval")
+    for book in books:
+        print(f"\n[{book}] state {drift.drift_path(book)}")
+        rep = drift.report(book, CONFIG.db_path)
+        if not rep:
+            print("  watching nothing: no strategy is promoted on a measured interval")
+        for name, a in sorted(rep.items()):
+            lo, hi = a["expected"]
+            print(f"  watching {name}: expected PF {lo:.2f}–{hi:.2f}, "
+                  f"{a['live_trades']} live trades since {a['since'][:10]}")
+            for w in a["weeks"][-drift.DRIFT_WEEKS:]:
+                pf = "—" if w["pf"] is None else f"{w['pf']:.2f}"
+                print(f"    week to {w['week_end']}: PF {pf} over {w['trades']} trades "
+                      f"({w['state']})")
+        for name, r in sorted(drift.demotions(book).items()):
+            print(f"  DEMOTED {name} on {r['demoted_at'][:10]} — {r['why']}")

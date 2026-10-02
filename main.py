@@ -21,6 +21,7 @@ Usage:
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
   python3 main.py status                       # paper-book summary
   python3 main.py track-record append|verify|render [--start YYYY-MM-DD]
+  python3 main.py drift [report|clear NAME] [--book standard|fast]  # live-vs-expected monitor
   python3 main.py config                       # effective settings + where each came from
   python3 main.py chat "question"              # chatbot from the terminal
 """
@@ -81,7 +82,7 @@ def _load_env_file(path: str | None = None) -> None:
 _load_env_file()
 
 # the commands import config, so they load after the .env above
-from bot.cli.operate import (cmd_chat, cmd_config, cmd_dashboard,  # noqa: E402
+from bot.cli.operate import (cmd_chat, cmd_config, cmd_dashboard, cmd_drift,  # noqa: E402
                              cmd_hft_run, cmd_hft_status, cmd_pause, cmd_resume,
                              cmd_run, cmd_status, cmd_track_record)
 from bot.cli.research import (cmd_backtest, cmd_experiment,  # noqa: E402
@@ -218,6 +219,13 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--chain", default=None, help="chain file (default track_record/paper.jsonl)")
     tr.add_argument("--doc", default=None, help="document to render (default docs/TRACK_RECORD.md)")
     tr.set_defaults(fn=cmd_track_record)
+
+    dr = sub.add_parser("drift", help="drift monitor: promoted strategies' live results "
+                                      "against their expected range; clear a demotion")
+    dr.add_argument("action", nargs="?", default="report", choices=["report", "clear"])
+    dr.add_argument("name", nargs="?", default=None, help="strategy to clear")
+    dr.add_argument("--book", default=None, choices=["standard", "fast"])
+    dr.set_defaults(fn=cmd_drift)
 
     ch = sub.add_parser("chat", help="ask the journal-aware chatbot")
     ch.add_argument("question")

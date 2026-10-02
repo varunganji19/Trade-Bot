@@ -198,16 +198,39 @@ def save_verdicts(verdicts: dict, tier: str, path: str | None = None, *,
 _CACHE: dict = {"path": None, "mtime": None, "verdicts": {}}
 
 
-def load_verdicts(path: str | None = None, *, book: str = "fast") -> dict:
+def load_verdicts(path: str | None = None, *, book: str = "fast",
+                  drift: bool = True) -> dict:
     """Never raises: an unreadable file means 'no evidence', which is the
     permissive state (see the module docstring).
+
+    The book's own verdicts come back with its drift demotions applied
+    (bot/drift.py): a strategy whose live results left its expected range is
+    DEMOTED here, so every reader of the gate (the orchestrator, the
+    Strategies box, `config`) agrees, and regenerating the evidence cannot
+    quietly undo it. drift=False reads the file as the evidence wrote it.
 
     Cached on the file's mtime and re-checked on every call, so a battery
     run mid-session takes effect without a restart (a gate read once at
     construction goes stale while looking exactly like a working one). The
     stat is one syscall; the caller is about to compute indicators over
     hundreds of bars."""
-    path = path or promotions_path(book)
+    own = path is None or os.path.abspath(path) == os.path.abspath(promotions_path(book))
+    verdicts = _read_verdicts(path or promotions_path(book))
+    if not (drift and own and verdicts):
+        return verdicts
+    from bot.drift import demotions
+    drifted = demotions(book)
+    if not drifted:
+        return verdicts
+    merged = dict(verdicts)
+    for name, rec in drifted.items():
+        if name in merged:
+            merged[name] = {**merged[name], "status": DEMOTED, "drift": True,
+                            "why": rec.get("why", "drift")}
+    return merged
+
+
+def _read_verdicts(path: str) -> dict:
     try:
         mtime = os.path.getmtime(path)
     except OSError:

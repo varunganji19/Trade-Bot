@@ -216,3 +216,29 @@ independent of any market price
 and equity is that cash plus unrealized P&L. A gap beyond rounding shows a
 "Ledger inconsistent" banner naming each term, so headline numbers that
 disagree with each other can never pass unnoticed.
+
+## 11. A promoted strategy keeps its vote only while live results agree
+
+The gate's verdict is a backtest; edges decay. The drift monitor
+(`bot/drift.py`) compares every strategy the gate promotes (rule v2, so it
+has a measured interval) with that interval, its **expected range**.
+
+- Watching starts the first time an engine cycle sees the strategy promoted.
+- At each completed UTC week (Monday 00:00) it takes the strategy's last 50
+  closed live trades in its own book and computes their profit factor. The
+  week is *below* when there are at least 20 trades and the PF is under the
+  lower end of the interval.
+- **Three consecutive weeks below → demoted automatically.** The strategy
+  stops voting at the next cycle, the Strategies box lists it as
+  "demoted — drift", and a banner names it for a week.
+- The demotion lives in `results/drift_<book>.json`, beside the verdicts
+  but not in them, so `make evidence` cannot quietly hand the vote back.
+  Only `python3 main.py drift clear NAME --book BOOK` does.
+  `python3 main.py drift` shows what is watched and each recent week.
+
+The rule demotes faster than the gate promotes on purpose: a wrongly
+demoted strategy only stops trading, while a decayed one that keeps voting
+loses money. Live trades are credited to the strategy that set the trade's
+stop, so in an ensemble a strategy is judged on the trades it led. Nothing
+was promoted when this was written (2026-10-02), so the monitor was watching
+nothing.

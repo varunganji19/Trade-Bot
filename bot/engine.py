@@ -172,6 +172,22 @@ class TradingEngine(PositionManager):
             self._heartbeat_book()
             return self._run_cycle_locked()
 
+    def _check_drift(self, summary: dict) -> None:
+        """Compare this book's promoted strategies with their expected range
+        (bot/drift.py) before they vote this cycle. A failure is reported
+        with the cycle's errors and never stops the cycle."""
+        try:
+            from bot.drift import check
+            demoted = check(self.orchestrator.book, self.journal.db_path)
+        except Exception as exc:
+            summary["errors"].append(f"drift check: {type(exc).__name__}: {exc}")
+            return
+        if demoted:
+            summary["drift_demoted"] = demoted
+            if not self.quiet:
+                print(f"[engine] demoted for drift (live results below their expected "
+                      f"range): {', '.join(demoted)}")
+
     def _run_cycle_locked(self) -> dict:
         summary = {"cycle": self.cycles + 1, "opened": [], "closed": [], "holds": 0, "errors": []}
         cycle_started = time.monotonic()
@@ -199,6 +215,7 @@ class TradingEngine(PositionManager):
                 print("[engine] manual pause active — new entries blocked "
                       "(open positions still managed)"
                       + (f" · {pause_note}" if pause_note else ""))
+            self._check_drift(summary)
 
             # PASS 1 — fetch every book first, decide second. Entry sizing
             # needs START-of-cycle marked equity (approve must see unrealized,

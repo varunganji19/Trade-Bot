@@ -516,6 +516,7 @@ async function refreshStats() {
   $('#pauseNoteBox').textContent = s.paused && s.paused_note ? ' Note: ' + s.paused_note + '.' : '';
   $('#pauseLabel').textContent = s.paused ? 'Resume entries' : 'Pause entries';
   renderLedger(s.ledger);
+  renderDrift(s.drift_alerts);
 
   renderPositions(s);
   renderBars($('#stratBars'), Object.entries(s.by_strategy || {})
@@ -533,6 +534,18 @@ function renderLedger(ledger) {
     ' + realized P&L ' + fmt$(l.realized_pnl) + ' − open entry fees ' + fmt$(l.open_entry_fees) +
     ' = ' + fmt$(l.expected_cash) + ' (gap ' + fmt$(l.gap) + '). Figures from before the gap ' +
     'cannot be trusted; resetting the paper account starts a clean record.').join(' ');
+}
+
+/* a voting strategy whose live results stayed below its expected range was
+   demoted automatically (bot/drift.py); shown for a week after it happens */
+function renderDrift(alerts) {
+  const a = alerts || [];
+  $('#driftBanner').classList.toggle('show', a.length > 0);
+  $('#driftMsg').textContent = a.map(d =>
+    (d.book === 'fast' ? 'Fast book' : 'Standard book') + ', ' + d.name + ': ' +
+    d.why.replace(/^drift: /, '') + '.')
+    .join(' ') + (a.length ? ' It no longer votes; python3 main.py drift clear NAME' +
+    ' --book BOOK gives the vote back.' : '');
 }
 
 let equityHistory = [], equityDays = 0;

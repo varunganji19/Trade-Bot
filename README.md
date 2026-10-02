@@ -156,6 +156,7 @@ python3 main.py resume              # clear the manual pause
 python3 main.py config              # effective settings + where each came from
 python3 main.py track-record append # seal finished days of the paper book (docs/TRACK_RECORD.md)
 python3 main.py track-record verify # recompute every sealed day from the journal
+python3 main.py drift               # promoted strategies' live weeks vs their expected range
 make verify                         # tests + lint + live-vs-backtest parity smoke
 make evidence                       # rerun both gate declarations: every verdict + the registry
 make soak                           # drive the RUNNING dashboard and flag breakdowns
@@ -261,6 +262,7 @@ bot/
   validation.py      purged CV, PBO, Deflated Sharpe, Monte Carlo, MinTRL
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
   track_record.py    seal, verify and render the forward record (read-only)
+  drift.py           drift monitor: demote a voter whose live PF leaves its range
   kronos_signal.py   Kronos forecaster and its IC ledger (offline only)
   hft/               the fast (5m, experimental) book: config, fee tiers,
                      cost floors, descriptive harness

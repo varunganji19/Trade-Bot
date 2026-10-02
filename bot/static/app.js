@@ -578,7 +578,9 @@ async function valRun() {
     const res = await jpost('/api/validate', {
       filename: file.name, content_b64: await readAsBase64(file),
       trials: trials > 0 ? trials : null, regime_market: $('#valRegime').value || null,
+      record: $('#valRecord').checked,
     });
+    if (res.recorded) toast('Verdict stored', res.recorded + ' anonymous record(s) added on this machine.');
     status.hidden = true;
     valMarkdown = res.markdown; valName = file.name.replace(/\.[^.]+$/, '');
     valRender(res.report);

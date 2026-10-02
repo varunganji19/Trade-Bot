@@ -477,6 +477,10 @@ def cmd_validate_trades(args):
         with open(args.json, "w") as fh:
             json.dump(report, fh, indent=1, default=str)
         print(f"[validate-trades] wrote {args.json}")
+    if args.record:
+        from bot import verdict_store
+        n = verdict_store.record(report)
+        print(f"[validate-trades] added {n} anonymised record(s) to {verdict_store.store_path()}")
     n = len(report["strategies"])
     print(f"[validate-trades] {source}, {n} strateg{'y' if n == 1 else 'ies'} in "
           f"{_t.time() - t0:.1f}s")
@@ -501,3 +505,21 @@ def cmd_record_book(args):
           "Ctrl-C stops). Data terms: docs/COMPLIANCE.md Q8.")
     rec.run(args.symbols, args.speed, stop=(lambda: _t.time() >= end) if end else (lambda: False))
     print(f"[record-book] stopped: {rec.counts}")
+
+
+def cmd_verdicts(args):
+    """What the local anonymised verdict store says (bot/verdict_store.py)."""
+    from bot import verdict_store as vs
+    summ = vs.summarise(vs.load())
+    if not summ["records"]:
+        print(f"[verdicts] no records yet in {vs.store_path()} "
+              "(add them with validate-trades --record)")
+        return
+    print(f"[verdicts] {summ['records']} anonymised records in {vs.store_path()}")
+    print("  verdicts: " + ", ".join(f"{k} {v}" for k, v in summ["verdicts"].items()))
+    print("  most common failures:")
+    for code, n in summ["most_common_failures"]:
+        print(f"    {code:20s} {n}")
+    print("  verdicts by variants tried:")
+    for trials, counts in summ["verdicts_by_trials"].items():
+        print(f"    {trials:8s} " + ", ".join(f"{k} {v}" for k, v in counts.items()))

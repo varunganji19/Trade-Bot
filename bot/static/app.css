@@ -465,3 +465,10 @@ td.symbol { font-weight: 600; }
 .val-tables { margin-top: 4px; }
 .val-tables > div { min-width: 0; }
 .val-foot { margin: 4px 2px 0; }
+.check-row { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; font-size: 13px;
+  color: var(--color-muted); cursor: pointer; }
+.check-row input { margin-top: 2px; flex: none; }
+/* the verdict tables are two or three short columns: let a long result wrap
+   instead of scrolling sideways on a phone */
+.val-tables td { white-space: normal; }
+.val-tables td.num { overflow-wrap: anywhere; }

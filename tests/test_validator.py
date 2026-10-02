@@ -179,7 +179,8 @@ def test_the_cli_writes_a_markdown_report(tmp_path, capsys):
     src = _write(tmp_path, _ft_export({"A": EDGE, "B": LOSER}))
     md, js = tmp_path / "report.md", tmp_path / "report.json"
     args = type("A", (), {"file": str(src), "trials": 3, "strategy": None, "prices": None,
-                          "regime_market": None, "report": str(md), "json": str(js)})()
+                          "regime_market": None, "report": str(md), "json": str(js),
+                          "record": False})()
     cmd_validate_trades(args)
     text = md.read_text()
     assert "## A: **FRAGILE**" in text and "## B: **LIKELY OVERFIT**" in text

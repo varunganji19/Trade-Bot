@@ -26,6 +26,7 @@ Usage:
   python3 main.py drift [report|clear NAME] [--book standard|fast]  # live-vs-expected monitor
   python3 main.py testnet run|status|reconcile|kill|unkill   # Binance SPOT TESTNET only
   python3 main.py record-book [--symbols BTC/USDT ...] [--minutes N] | --summary
+  python3 main.py verdicts                     # what the anonymised verdict store says
   python3 main.py config                       # effective settings + where each came from
   python3 main.py chat "question"              # chatbot from the terminal
 """
@@ -92,7 +93,7 @@ from bot.cli.operate import (cmd_chat, cmd_config, cmd_dashboard, cmd_drift,  # 
 from bot.cli.research import (cmd_backtest, cmd_experiment,  # noqa: E402
                               cmd_hft_backtest, cmd_hft_battery, cmd_kronos,
                               cmd_record_book, cmd_shadow, cmd_validate,
-                              cmd_validate_trades)
+                              cmd_validate_trades, cmd_verdicts)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -222,7 +223,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="daily OHLC CSV (date, open, high, low, close) for the regime labels")
     vt.add_argument("--report", default=None, help="also write the Markdown report here")
     vt.add_argument("--json", default=None, help="also write the full result as JSON")
+    vt.add_argument("--record", action="store_true",
+                    help="add an anonymised summary of each verdict to the local store "
+                         "(results/verdicts.jsonl; never uploaded)")
     vt.set_defaults(fn=cmd_validate_trades)
+
+    vd = sub.add_parser("verdicts", help="summarise the local anonymised verdict store")
+    vd.set_defaults(fn=cmd_verdicts)
 
     dash = sub.add_parser("dashboard", help="start the web dashboard")
     dash.add_argument("--port", type=int, default=8000)

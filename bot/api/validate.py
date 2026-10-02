@@ -33,6 +33,8 @@ class ValidateIn(BaseModel):
     content_b64: str = Field(min_length=1, max_length=(MAX_BYTES * 4) // 3 + 8)
     trials: int | None = Field(default=None, ge=1, le=1_000_000)
     regime_market: str | None = Field(default=None, max_length=24)
+    # opt-in: add an anonymised summary to the local verdict store
+    record: bool = False
 
 
 @router.post("/api/validate")
@@ -68,4 +70,8 @@ def api_validate(body: ValidateIn):
     report["input"] = os.path.basename(body.filename)
     # timestamps and numpy scalars become plain JSON once, here
     report = json.loads(json.dumps(report, default=str))
-    return {"report": report, "markdown": v.render_markdown(report)}
+    recorded = 0
+    if body.record:
+        from bot import verdict_store
+        recorded = verdict_store.record(report)
+    return {"report": report, "markdown": v.render_markdown(report), "recorded": recorded}

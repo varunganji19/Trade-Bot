@@ -140,6 +140,8 @@ python3 main.py validate-trades backtest-result.json --trials 20 \
   --regime-market BTC/USDT                 # someone else's backtest (freqtrade export,
                                            # trade CSV): robust / fragile / likely overfit
 #   (the same check in the dashboard: the Validate tab, upload the file)
+python3 main.py verdicts                   # what the anonymised verdict store says
+                                           # (records added with validate-trades --record)
 
 # 3. dashboard
 python3 main.py dashboard           # → http://127.0.0.1:8000
@@ -295,6 +297,7 @@ bot/
   drift.py           drift monitor: demote a voter whose live PF leaves its range
   testnet.py         Binance SPOT TESTNET broker: real orders, kill switches, reconcile
   recorder.py        Binance public order-book + trade recorder (gzip, hourly files)
+  verdict_store.py   opt-in, local, anonymised record of validation verdicts
   kronos_signal.py   Kronos forecaster and its IC ledger (offline only)
   hft/               the fast (5m, experimental) book: config, fee tiers,
                      cost floors, descriptive harness

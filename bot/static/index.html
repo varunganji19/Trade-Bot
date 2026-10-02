@@ -404,6 +404,7 @@ document.documentElement.setAttribute('data-theme',t);})();
         <select id="valRegime"><option value="">Not checked</option><option value="BTC/USDT">BTC/USDT daily</option><option value="ETH/USDT">ETH/USDT daily</option></select></label>
       <button class="btn btn-primary" id="valRunBtn">Validate</button>
     </div>
+    <label class="check-row"><input type="checkbox" id="valRecord"> Add an anonymous summary of the verdict to this machine's verdict store (no names, markets or dates; never uploaded)</label>
     <p class="hint">Variants tried: every parameter set or strategy you tested before this one. Leaving it empty assumes 1, the most generous case, and the verdict cannot be <b>robust</b>. Regimes need daily prices, fetched once.</p>
     <div class="status-line" id="valStatus" hidden></div>
   </div>

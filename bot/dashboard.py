@@ -49,7 +49,7 @@ from starlette.responses import JSONResponse
 
 from bot.chatbot import ChatBot
 from bot.engine import TradingEngine
-from bot.journal import NO_OWNER, Journal
+from bot.journal import Journal
 from bot.strategies import STRATEGY_CLASSES
 from config import (CONFIG, MarketSpec, VALID_KINDS,
                     VALID_TIMEFRAMES, apply_saved_watchlist, save_watchlist, infer_kind)
@@ -369,84 +369,6 @@ def _voting_payload(book: str) -> dict:
     except Exception as exc:
         return {"voting": [], "voters": [], "silent": [], "registered": 0, "gate": {},
                 "error": f"{type(exc).__name__}: {exc}"}
-
-
-# ---------------------------------------------------------------------------
-# engine control
-
-
-# ---------------------------------------------------------------------------
-def _close_all_open_positions(eng: TradingEngine | None) -> list[dict]:
-    """Force-close every open paper position at its last mark. Returns the
-    per-position close results.
-
-    LIVE ENGINE: each position goes through eng.close_manual — the engine's
-    OWN sanctioned close path (broker fill with fees/slippage + journal row
-    + risk cooldown, under cycle_lock, identical to the Portfolio tab's
-    close button and to an engine exit).
-
-    NO ENGINE but OPEN JOURNAL ROWS (stale engine process / crash window):
-    the rows are closed DIRECTLY in the journal at their entry price — the
-    last mark the engine-off dashboard has (no data feed is running to
-    produce a fresher one). This is the same restore-anchor discipline the
-    engine itself uses on restart (journal.last_equity_point /
-    closed_cash_delta_since): the next engine start restores cash from the
-    journal's equity points and reconciles trades closed after the anchor,
-    so the close's cash effect is picked up exactly once — closing at entry
-    marks a round-trip P&L of just the fee estimate, the conservative floor
-    for a price we cannot honestly know offline."""
-    closed = []
-    if eng is not None:
-        for key in sorted({(p.symbol, p.timeframe)
-                           for p in eng.broker.positions_snapshot()}):
-            try:
-                result = eng.close_manual(key[0], key[1])
-                closed.append({**result, "symbol": key[0], "timeframe": key[1],
-                               "path": "engine close_manual"})
-            except (KeyError, RuntimeError) as exc:
-                raise HTTPException(
-                    503, f"could not close {key[0]} {key[1]} ({exc}) — the "
-                         f"market is NOT switched; retry, or close it from "
-                         f"the Portfolio tab first")
-        return closed
-    rows = journal.open_trades()
-    # "no engine" means no engine in THIS process. A standalone CLI engine in
-    # another process still holds these positions in its broker, and closing
-    # its rows underneath it would fork the two. Checked up front for a clean
-    # message, and again inside each close's own transaction (NO_OWNER below)
-    # so an engine claiming the book in between cannot slip through.
-    for owned in {t.get("mode") or "paper" for t in rows}:
-        owner = journal.book_owner(owned)
-        if owner is not None:
-            raise HTTPException(
-                409, f"the {owned} book is owned by pid {owner['pid']} on "
-                     f"{owner['host']} — the market is NOT switched; stop that "
-                     f"engine first")
-    for t in rows:
-        tf = t.get("timeframe") or _LEGACY_TF
-        entry = float(t["entry_price"])
-        qty = float(t["qty"])
-        kind = infer_kind(t["symbol"])
-        rate = CONFIG.costs.fee(kind, side=None)   # conservative max per leg
-        notional = entry * qty
-        fees = round(2 * notional * rate, 4)       # entry + exit leg estimate
-        direction = 1.0 if t["side"] == "long" else -1.0
-        # exit at the entry mark: zero gross P&L, the full fee cost — the
-        # honest floor when no live feed is available to price the exit
-        pnl = round(-fees, 2)
-        pnl_pct = round(-fees / notional * 100.0 * direction, 3) if notional else 0.0
-        journal.close_trade(trade_id=t["id"], exit_price=entry, pnl=pnl,
-                            pnl_pct=pnl_pct, fees=fees,
-                            exit_reason="market switch (no live marks)",
-                            rationale_close="closed by the market switch: no "
-                                            "engine was running to fetch a "
-                                            "live mark",
-                            mode=t.get("mode") or "paper",
-                            entry_fee=round(notional * rate, 6),
-                            owner_token=NO_OWNER)
-        closed.append({"symbol": t["symbol"], "timeframe": tf,
-                       "exit_price": entry, "path": "journal close at entry mark"})
-    return closed
 
 
 # The page lives in bot/static/ (index.html + app.css + app.js) as real

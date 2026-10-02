@@ -202,18 +202,6 @@ def test_a_database_predating_the_table_is_read_as_unowned(journal):
     assert Journal(journal.db_path).claim_book("paper")
 
 
-def test_market_switch_will_not_close_a_foreign_engines_positions(journal, monkeypatch):
-    import bot.dashboard as dashboard
-    monkeypatch.setattr(dashboard, "journal", journal)
-    journal.open_trade("TEST/USDT", "long", 1, 100, 95, None, "test", "x",
-                       mode="paper", entry_fee=0.1)
-    Journal(journal.db_path).claim_book("paper")      # a CLI engine elsewhere
-    with pytest.raises(HTTPException) as exc:
-        dashboard._close_all_open_positions(None)
-    assert exc.value.status_code == 409
-    assert len(journal.open_trades()) == 1
-
-
 def test_a_quiet_engine_on_this_host_keeps_its_book(journal):
     """A cycle interval may be an hour, and a laptop may sleep.
 
@@ -288,10 +276,12 @@ def test_a_busy_retry_never_replays_the_risk_callback(journal, monkeypatch):
 
 
 def test_the_offline_force_close_refuses_inside_its_own_transaction(journal):
-    """The up-front check and the close must not leave a claimable window."""
+    """An offline close (no engine in this process) may never close another
+    engine's positions: the ownership check runs inside the close's own
+    transaction, so no engine can claim the book between check and write."""
     trade_id = journal.open_trade("TEST/USDT", "long", 1, 100, 95, None, "test", "x",
                                   mode="paper", entry_fee=0.1)
-    Journal(journal.db_path).claim_book("paper")   # claimed AFTER the check would pass
+    Journal(journal.db_path).claim_book("paper")   # a CLI engine elsewhere
     with pytest.raises(BookOwnedError):
         journal.close_trade(trade_id, 100, -0.2, -0.2, 0.2, "market switch",
                             mode="paper", owner_token=NO_OWNER)

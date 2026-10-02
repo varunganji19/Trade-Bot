@@ -204,7 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
     dash.add_argument("--port", type=int, default=8000)
     dash.set_defaults(fn=cmd_dashboard)
 
-    st = sub.add_parser("status", help="journal summary")
+    st = sub.add_parser("status", help="paper-book summary (demo and fast-book rows left out)")
     st.set_defaults(fn=cmd_status)
 
     ch = sub.add_parser("chat", help="ask the journal-aware chatbot")

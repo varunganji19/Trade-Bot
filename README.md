@@ -154,6 +154,8 @@ python3 main.py status              # paper-book summary (+ pause state)
 python3 main.py pause "note"        # manual halt: new entries only, nothing force-closed
 python3 main.py resume              # clear the manual pause
 python3 main.py config              # effective settings + where each came from
+python3 main.py track-record append # seal finished days of the paper book (docs/TRACK_RECORD.md)
+python3 main.py track-record verify # recompute every sealed day from the journal
 make verify                         # tests + lint + live-vs-backtest parity smoke
 make evidence                       # rerun both gate declarations: every verdict + the registry
 make soak                           # drive the RUNNING dashboard and flag breakdowns
@@ -227,10 +229,13 @@ config.py            environment, costs, risk, markets (strategy params: bot/par
 main.py              CLI parser; the commands live in bot/cli/
 experiments/         pre-registered experiment declarations (TOML), their
                      results, and history.jsonl (experiments run earlier)
+track_record/        paper.jsonl: the hash chain of sealed paper-book days
+                     (created by the first `track-record append`)
 docs/
   METHODOLOGY.md     how the evidence is produced
   RESULTS.md         every strategy and experiment with its verdict
   DEMO.md            the 7-minute demo and talk track
+  TRACK_RECORD.md    the tamper-evident forward record and its limits
   ROADMAP.md         the plan from the mentor and VC reviews
   archive/           the round-by-round lab notebook, kept unchanged
 bot/
@@ -255,6 +260,7 @@ bot/
   backtest.py        event-driven backtester + walk-forward
   validation.py      purged CV, PBO, Deflated Sharpe, Monte Carlo, MinTRL
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
+  track_record.py    seal, verify and render the forward record (read-only)
   kronos_signal.py   Kronos forecaster and its IC ledger (offline only)
   hft/               the fast (5m, experimental) book: config, fee tiers,
                      cost floors, descriptive harness

@@ -247,3 +247,38 @@ def cmd_config(args):
         for name in sorted(verdicts):
             v = verdicts[name]
             print(f"             {v['status']:9s} {name:22s} {v.get('why', '')}")
+
+
+def cmd_track_record(args):
+    """Seal, verify or render the paper book's forward track record
+    (docs/TRACK_RECORD.md). Reads the journal read-only."""
+    import datetime as dt
+    from bot import track_record as tr
+    chain = args.chain or tr.DEFAULT_CHAIN
+    if args.action == "verify":
+        n = len(tr.read_chain(chain))
+        problems = tr.verify(CONFIG.db_path, chain)
+        for p_ in problems:
+            print(f"[track-record] BROKEN {p_}")
+        if problems:
+            sys.exit(1)
+        print(f"[track-record] {n} sealed days verify against {CONFIG.db_path}")
+        return
+    if args.action == "append":
+        start = dt.date.fromisoformat(args.start) if args.start else None
+        try:
+            new = tr.append(CONFIG.db_path, chain, start=start)
+        except tr.ChainError as exc:
+            print(f"[track-record] refusing: {exc}")
+            sys.exit(1)
+        for line in new:
+            n = line["trades"]
+            print(f"[track-record] sealed {line['date']}: {n} trade{'' if n == 1 else 's'}, "
+                  f"pnl {line['pnl']:+.2f} · {line['hash'][:16]}")
+        if not new:
+            print("[track-record] nothing to seal (the last finished day is already in)")
+        else:
+            print(f"[track-record] commit and push {chain} — the push is what fixes "
+                  "these days in time")
+    tr.render(chain, args.doc or tr.DEFAULT_DOC)
+    print(f"[track-record] rendered {args.doc or tr.DEFAULT_DOC}")

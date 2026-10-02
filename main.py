@@ -20,6 +20,7 @@ Usage:
   python3 main.py resume                       # clear the manual pause (new entries allowed)
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
   python3 main.py status                       # paper-book summary
+  python3 main.py track-record append|verify|render [--start YYYY-MM-DD]
   python3 main.py config                       # effective settings + where each came from
   python3 main.py chat "question"              # chatbot from the terminal
 """
@@ -82,7 +83,7 @@ _load_env_file()
 # the commands import config, so they load after the .env above
 from bot.cli.operate import (cmd_chat, cmd_config, cmd_dashboard,  # noqa: E402
                              cmd_hft_run, cmd_hft_status, cmd_pause, cmd_resume,
-                             cmd_run, cmd_status)
+                             cmd_run, cmd_status, cmd_track_record)
 from bot.cli.research import (cmd_backtest, cmd_experiment,  # noqa: E402
                               cmd_hft_backtest, cmd_hft_battery, cmd_kronos,
                               cmd_shadow, cmd_validate)
@@ -206,6 +207,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("status", help="paper-book summary (demo and fast-book rows left out)")
     st.set_defaults(fn=cmd_status)
+
+    tr = sub.add_parser("track-record",
+                        help="tamper-evident forward record of the paper book: seal "
+                             "finished days, verify them against the journal, render "
+                             "docs/TRACK_RECORD.md")
+    tr.add_argument("action", choices=["append", "verify", "render"])
+    tr.add_argument("--start", default=None,
+                    help="first day of the record, YYYY-MM-DD (only on the first append)")
+    tr.add_argument("--chain", default=None, help="chain file (default track_record/paper.jsonl)")
+    tr.add_argument("--doc", default=None, help="document to render (default docs/TRACK_RECORD.md)")
+    tr.set_defaults(fn=cmd_track_record)
 
     ch = sub.add_parser("chat", help="ask the journal-aware chatbot")
     ch.add_argument("question")

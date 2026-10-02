@@ -240,6 +240,7 @@ docs/
   RESULTS.md         every strategy and experiment with its verdict
   DEMO.md            the 7-minute demo and talk track
   TRACK_RECORD.md    the tamper-evident forward record and its limits
+  VALIDATION_SAMPLE.md  the validator run on this repo's own strategies
   ROADMAP.md         the plan from the mentor and VC reviews
   archive/           the round-by-round lab notebook, kept unchanged
 bot/

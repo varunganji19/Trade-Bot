@@ -8,6 +8,8 @@ Usage:
                            [--walk-forward] [--json out.json]
   python3 main.py validate --symbol BTC/USDT [--strategy turtle_trend]
                            [--trial-sharpes 0.8 1.1 ...] [--report REPORT.md]
+  python3 main.py validate-trades FILE [--trials N] [--regime-market BTC/USDT]
+                           # robust / fragile / likely overfit, from a trade list
   python3 main.py run [--once]                 # paper-trade (live loop or one cycle)
   python3 main.py hft-backtest [--symbol BTC/USDT] [--strategy hft_micro_breakout|hft_exhaustion_fade|hft_ofi_momentum]
   python3 main.py hft-run [--once]             # fast paper book (separate 5m account)
@@ -87,7 +89,7 @@ from bot.cli.operate import (cmd_chat, cmd_config, cmd_dashboard, cmd_drift,  # 
                              cmd_run, cmd_status, cmd_track_record)
 from bot.cli.research import (cmd_backtest, cmd_experiment,  # noqa: E402
                               cmd_hft_backtest, cmd_hft_battery, cmd_kronos,
-                              cmd_shadow, cmd_validate)
+                              cmd_shadow, cmd_validate, cmd_validate_trades)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -201,6 +203,23 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also render the report as Markdown here (e.g. REPORT.md)")
     va.add_argument("--json", default=None)
     va.set_defaults(fn=cmd_validate)
+
+    vt = sub.add_parser("validate-trades",
+                        help="validate a backtest from its trades (freqtrade export, trade "
+                             "CSV or backtest --json): robust / fragile / likely overfit")
+    vt.add_argument("file", help="freqtrade backtest-result .json/.zip, a CSV, or a JSON trade list")
+    vt.add_argument("--trials", type=int, default=None,
+                    help="how many variants (parameter sets, strategies) you tried before "
+                         "this one; prices selection into the Deflated Sharpe")
+    vt.add_argument("--strategy", default=None, help="one strategy from a multi-strategy file")
+    vt.add_argument("--regime-market", default=None,
+                    help="label market regimes from this market's daily bars, e.g. BTC/USDT "
+                         "(fetched; needs network the first time)")
+    vt.add_argument("--prices", default=None,
+                    help="daily OHLC CSV (date, open, high, low, close) for the regime labels")
+    vt.add_argument("--report", default=None, help="also write the Markdown report here")
+    vt.add_argument("--json", default=None, help="also write the full result as JSON")
+    vt.set_defaults(fn=cmd_validate_trades)
 
     dash = sub.add_parser("dashboard", help="start the web dashboard")
     dash.add_argument("--port", type=int, default=8000)

@@ -126,6 +126,9 @@ python3 main.py backtest --symbol BTC/USDT --timeframe 1h --days 365 \
 python3 main.py validate --symbol BTC/USDT --timeframe 1h --days 365 \
   --strategy turtle_trend --report REPORT.md   # purged-CV, PBO, DSR, MC + rendered report
 python3 main.py shadow                     # journal vs its own rules
+python3 main.py validate-trades backtest-result.json --trials 20 \
+  --regime-market BTC/USDT                 # someone else's backtest (freqtrade export,
+                                           # trade CSV): robust / fragile / likely overfit
 
 # 3. dashboard
 python3 main.py dashboard           # → http://127.0.0.1:8000
@@ -260,6 +263,7 @@ bot/
                      fill, manage, close
   backtest.py        event-driven backtester + walk-forward
   validation.py      purged CV, PBO, Deflated Sharpe, Monte Carlo, MinTRL
+  validator.py       validate-trades: a backtest's trade list -> a verdict report
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
   track_record.py    seal, verify and render the forward record (read-only)
   drift.py           drift monitor: demote a voter whose live PF leaves its range

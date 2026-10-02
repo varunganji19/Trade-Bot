@@ -1,6 +1,7 @@
 """Research commands: backtests (standard and fast book), the honest-statistics
-battery (`validate`), pre-registered experiments, the fast-book harness,
-the offline Kronos evaluation and the Shadow Account."""
+battery (`validate`), the validator for other people's backtests
+(`validate-trades`), pre-registered experiments, the fast-book harness, the
+offline Kronos evaluation and the Shadow Account."""
 from __future__ import annotations
 
 import json
@@ -446,3 +447,41 @@ def _parse_last_days(trades: list) -> int:
     if first.tzinfo is None:
         first = first.tz_localize("UTC")
     return max(90, int((pd.Timestamp.now(tz="UTC") - first).total_seconds() // 86400) + 7)
+
+
+def cmd_validate_trades(args):
+    """Validate someone else's backtest from its trade list (bot/validator.py):
+    a freqtrade export, a trade CSV or this repo's backtest --json."""
+    import time as _t
+    from bot import validator as v
+    t0 = _t.time()
+    try:
+        source, by_strategy = v.load_trades(args.file)
+        daily = None
+        if args.prices:
+            daily = v.load_daily(args.prices)
+        elif args.regime_market:
+            import datetime as dt
+            from bot.data import fetch_history
+            first = min((ts[0]["open"] for ts in by_strategy.values() if ts), default=None)
+            days = 260 + ((dt.datetime.now(dt.timezone.utc) - first).days if first else 0)
+            sym = args.regime_market
+            daily = fetch_history(MarketSpec(infer_kind(sym), sym, "1d", sym), days=days)
+        report = v.validate(args.file, trials=args.trials, daily=daily,
+                            strategy=args.strategy)
+    except (v.ValidatorError, OSError, ValueError) as exc:
+        print(f"[validate-trades] cannot validate {args.file}: {exc}")
+        sys.exit(1)
+    md = v.render_markdown(report)
+    print(md)
+    if args.report:
+        with open(args.report, "w") as fh:
+            fh.write(md)
+        print(f"[validate-trades] wrote {args.report}")
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(report, fh, indent=1, default=str)
+        print(f"[validate-trades] wrote {args.json}")
+    n = len(report["strategies"])
+    print(f"[validate-trades] {source}, {n} strateg{'y' if n == 1 else 'ies'} in "
+          f"{_t.time() - t0:.1f}s")

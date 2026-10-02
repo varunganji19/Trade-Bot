@@ -150,7 +150,7 @@ python3 main.py hft-status              # ALL fast-book trades, one place
 #    full fast-book trade history and decision feed)
 
 # 4. other commands
-python3 main.py status              # journal summary (+ pause state)
+python3 main.py status              # paper-book summary (+ pause state)
 python3 main.py pause "note"        # manual halt: new entries only, nothing force-closed
 python3 main.py resume              # clear the manual pause
 python3 main.py config              # effective settings + where each came from

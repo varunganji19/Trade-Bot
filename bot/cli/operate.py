@@ -151,11 +151,18 @@ def _port_owner(port: int) -> str | None:
 
 
 def cmd_status(args):
+    """The standard paper book's summary. The journal also holds seeded demo
+    rows and the fast book; pooling them would pass both off as the paper
+    bot's record, so they are left out and counted instead."""
     from bot.journal import Journal
     from bot.pause import is_paused
     j = Journal()
-    stats = j.stats()
-    print(json.dumps(stats, indent=1))
+    print("[status] standard paper book (mode='paper' journal rows):")
+    print(json.dumps(j.stats(mode="paper"), indent=1))
+    counts = j.trade_mode_counts()
+    print(f"excluded: {counts.get('demo', 0)} demo rows, "
+          f"{counts.get('hft', 0)} fast-book rows "
+          "(see `python3 main.py hft-status` for the fast book)")
     paused, pause_note = is_paused()
     if paused:
         print("trading: PAUSED (manual flag) — blocks new entries only; open positions "
@@ -163,7 +170,7 @@ def cmd_status(args):
               + (f" · note: {pause_note}" if pause_note else ""))
     else:
         print("trading: active (no manual pause)")
-    open_trades = j.open_trades()
+    open_trades = j.open_trades(mode="paper")
     if open_trades:
         print(f"open positions: {len(open_trades)}")
         for t in open_trades:

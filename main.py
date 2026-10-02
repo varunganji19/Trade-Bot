@@ -19,7 +19,7 @@ Usage:
   python3 main.py pause [note]                 # manual halt: blocks NEW entries only
   python3 main.py resume                       # clear the manual pause (new entries allowed)
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
-  python3 main.py status                       # journal summary
+  python3 main.py status                       # paper-book summary
   python3 main.py config                       # effective settings + where each came from
   python3 main.py chat "question"              # chatbot from the terminal
 """

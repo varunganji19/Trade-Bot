@@ -461,12 +461,7 @@ def cmd_validate_trades(args):
         if args.prices:
             daily = v.load_daily(args.prices)
         elif args.regime_market:
-            import datetime as dt
-            from bot.data import fetch_history
-            first = min((ts[0]["open"] for ts in by_strategy.values() if ts), default=None)
-            days = 260 + ((dt.datetime.now(dt.timezone.utc) - first).days if first else 0)
-            sym = args.regime_market
-            daily = fetch_history(MarketSpec(infer_kind(sym), sym, "1d", sym), days=days)
+            daily = v.regime_daily(by_strategy, args.regime_market)
         report = v.validate(args.file, trials=args.trials, daily=daily,
                             strategy=args.strategy)
     except (v.ValidatorError, OSError, ValueError) as exc:

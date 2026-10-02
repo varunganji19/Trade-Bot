@@ -151,13 +151,14 @@ $('#healthDismiss').addEventListener('click', () => {
 });
 
 /* ===================================================== routing */
-const VIEWS = ['overview', 'portfolio', 'hft', 'watchlist', 'lab', 'evidence', 'account', 'chat'];
+const VIEWS = ['overview', 'portfolio', 'hft', 'watchlist', 'lab', 'validate', 'evidence', 'account', 'chat'];
 const VIEW_COPY = {
   overview: ['Standard book · paper', 'Overview', 'Performance, positions and the engine at a glance.'],
   portfolio: ['Standard book · paper', 'Portfolio', 'Open exposure and every trade the bot has taken.'],
   hft: ['Fast book · paper · experimental', 'Fast book (experimental)', 'A separate 5-minute account with its own capital and fees. No proven edge.'],
   watchlist: ['Standard book · paper', 'Watchlist', 'The markets and timeframes the engine trades.'],
   lab: ['Research', 'Strategy Lab', 'Backtest any strategy on real data before trusting it.'],
+  validate: ['Research', 'Validate a strategy', 'A second opinion on a backtest you already ran: robust, fragile or likely overfit.'],
   evidence: ['Research', 'Evidence', 'Validation, forecast quality and rule adherence — measured, not claimed.'],
   account: ['Standard book · paper', 'Paper account', 'Simulated balance, deposits, withdrawals and reset.'],
   chat: ['Extras', 'Ask the journal', 'Plain-language answers drawn from the trading journal.']
@@ -547,6 +548,103 @@ function renderDrift(alerts) {
     .join(' ') + (a.length ? ' It no longer votes; python3 main.py drift clear NAME' +
     ' --book BOOK gives the vote back.' : '');
 }
+
+/* ===================================================== validate a strategy
+   (bot/api/validate.py -> bot/validator.py): the file is read here and
+   posted as base64 JSON; the server judges it and keeps nothing */
+const VAL_MAX_BYTES = 20 * 1024 * 1024;
+const VAL_CHIP = {'robust': 'on', 'fragile': 'warn', 'likely overfit': 'neg'};
+let valMarkdown = '', valName = '';
+
+function readAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',', 2)[1] || '');
+    r.onerror = () => reject(r.error || new Error('could not read the file'));
+    r.readAsDataURL(file);
+  });
+}
+
+async function valRun() {
+  const file = $('#valFile').files[0];
+  if (!file) { toast('Choose a file first', 'A freqtrade export, a trades CSV or a backtest JSON.', false); return; }
+  if (file.size > VAL_MAX_BYTES) { toast('File too large', 'The limit is 20 MB.', false); return; }
+  const trials = parseInt($('#valTrials').value, 10);
+  const status = $('#valStatus');
+  status.hidden = false; status.classList.remove('err');
+  status.textContent = 'Validating ' + file.name + ($('#valRegime').value ? ' (fetching daily prices for the regimes)…' : '…');
+  $('#valRunBtn').disabled = true;
+  try {
+    const res = await jpost('/api/validate', {
+      filename: file.name, content_b64: await readAsBase64(file),
+      trials: trials > 0 ? trials : null, regime_market: $('#valRegime').value || null,
+    });
+    status.hidden = true;
+    valMarkdown = res.markdown; valName = file.name.replace(/\.[^.]+$/, '');
+    valRender(res.report);
+  } catch (e) {
+    status.classList.add('err');
+    status.textContent = 'Could not validate: ' + (e && e.message ? e.message : e);
+  } finally {
+    $('#valRunBtn').disabled = false;
+  }
+}
+
+const valNum = (v, d = 2) => v == null ? '—' : Number(v).toFixed(d);
+function valTable(head, rows) {
+  return '<div class="tbl-wrap"><table><thead><tr>' + head.map((h, i) =>
+    '<th' + (i ? ' class="num"' : '') + '>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
+    rows.map(r => '<tr>' + r.map((c, i) => '<td' + (i ? ' class="num"' : '') + '>' + esc(c) + '</td>').join('') + '</tr>').join('') +
+    '</tbody></table></div>';
+}
+function valList(title, items, cls) {
+  if (!items || !items.length) return '';
+  return '<h3 class="val-sub">' + esc(title) + '</h3><ul class="val-list ' + cls + '">' +
+    items.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>';
+}
+
+function valRender(rep) {
+  const names = Object.keys(rep.strategies || {});
+  const pb = names.length ? rep.strategies[names[0]].pbo : null;
+  const pboLine = pb && pb.pbo != null
+    ? 'PBO across the ' + pb.configs + ' strategies in the file: ' + valNum(pb.pbo) + ' (0.5 or more: picking the best of them is worse than a coin flip).'
+    : 'PBO not measured: ' + (pb ? pb.why : 'no strategies') + '.';
+  let html = '<div class="card"><div class="card-head val-head"><div><h2>' + esc(rep.input) + '</h2><p class="hint">' +
+    esc(rep.source) + ' · variants tried: ' + esc(rep.trials || 'not given, 1 assumed') + ' · ' + esc(pboLine) +
+    '</p></div><button class="btn" data-val-download type="button">Download report</button></div></div>';
+  for (const name of names) {
+    const r = rep.strategies[name], ev = r.intervals;
+    html += '<div class="card val-card"><div class="card-head val-head"><div><h2>' + esc(name) + '</h2><p class="hint">' +
+      esc(r.trades) + ' closed trades' + (r.period ? ', ' + esc(r.period[0]) + ' to ' + esc(r.period[1]) : '') +
+      ' · net P&L ' + esc(fmtPnl(r.net_pnl)) + ' · win rate ' + esc(valNum(r.win_rate, 1)) + '%</p></div>' +
+      '<span class="status-chip ' + (VAL_CHIP[r.verdict] || '') + '">' + esc(String(r.verdict).toUpperCase()) + '</span></div>';
+    html += valList('Why it is not robust', r.reasons, 'fail') + valList('What held up', r.passed, 'pass');
+    html += '<div class="grid grid-split val-tables"><div>' + '<h3 class="val-sub">Checks</h3>' + valTable(['Check', 'Result'], [
+      ['Profit factor (90% interval)', valNum(ev.pf) + ' (' + valNum(ev.pf_lo) + '–' + valNum(ev.pf_hi) + ')'],
+      ['Sharpe per trade (90% interval)', valNum(ev.sharpe, 3) + ' (' + valNum(ev.sharpe_lo, 3) + '–' + valNum(ev.sharpe_hi, 3) + ')'],
+      ['Deflated Sharpe', r.deflated_sharpe.dsr != null ? valNum(r.deflated_sharpe.dsr) + ' for ' + r.deflated_sharpe.trials + ' variant(s)' : r.deflated_sharpe.why],
+    ]) + '<h3 class="val-sub">Profit factor per quarter</h3>' + valTable(['Period', 'Trades', 'PF'],
+      r.stability.segments.map(sg => [sg.from + ' → ' + sg.to, sg.trades, sg.measured ? valNum(sg.pf) : 'too few'])) +
+      '</div><div><h3 class="val-sub">Cost sensitivity</h3>' + (r.costs.available
+        ? valTable(['Fees', 'PF', 'Net P&L'], r.costs.rows.map(c => ['×' + c.fee_mult, valNum(c.pf), fmtPnl(c.net)]))
+        : '<p class="hint">Not checked: ' + esc(r.costs.why) + '.</p>') +
+      '<h3 class="val-sub">Market regimes</h3>' + (r.regimes.available
+        ? valTable(['Regime', 'Trades', 'PF'], r.regimes.rows.map(g => [g.regime.replace('_', ' '), g.trades, valNum(g.pf)]))
+        : '<p class="hint">Not checked: ' + esc(r.regimes.why) + '.</p>') + '</div></div></div>';
+  }
+  html += '<p class="hint val-foot">Robust means every check passed and every check ran. Likely overfit means the evidence points the other way. Anything else is fragile: not disproven, not proven. A statistical check of a backtest, not investment advice.</p>';
+  $('#valResults').innerHTML = html;
+}
+$('#valRunBtn').addEventListener('click', valRun);
+/* the result cards are rebuilt per run, so their button is handled here */
+$('#valResults').addEventListener('click', e => {
+  if (!e.target.closest('[data-val-download]')) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([valMarkdown], {type: 'text/markdown'}));
+  a.download = 'validation-' + valName + '.md';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
 
 let equityHistory = [], equityDays = 0;
 function renderEquityHistory() {

@@ -169,6 +169,17 @@ def load_daily(path: str | Path) -> pd.DataFrame:
               if "open" in df else ["high", "low", "close"]].astype(float).sort_index()
 
 
+def regime_daily(by_strategy: dict, symbol: str) -> pd.DataFrame:
+    """Daily bars of `symbol` covering every trade plus the 200+ days the
+    regime labels need before the first one (fetched, then cached)."""
+    import datetime as dt
+    from bot.data import fetch_history
+    from config import MarketSpec, infer_kind
+    first = min((ts[0]["open"] for ts in by_strategy.values() if ts), default=None)
+    days = 260 + ((dt.datetime.now(dt.timezone.utc) - first).days if first else 0)
+    return fetch_history(MarketSpec(infer_kind(symbol), symbol, "1d", symbol), days=days)
+
+
 # ------------------------------------------------------------------- checks
 def _pf(pnls) -> float | None:
     v = profit_factor(pnls)

@@ -254,6 +254,7 @@ select { appearance: none; -webkit-appearance: none; padding-right: 34px; cursor
   font-size: 12.5px; font-weight: 600; background: var(--color-surface-2); color: var(--color-muted); }
 .status-chip.on { background: var(--color-pos-soft); color: var(--color-pos); }
 .status-chip.warn { background: var(--color-warn-soft); color: var(--color-warn); }
+.status-chip.neg { background: var(--color-neg-soft); color: var(--color-neg); }
 .status-line { margin-top: 14px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--color-surface-2);
   font-size: 13px; }
 .status-line.err { background: var(--color-neg-soft); color: var(--color-neg); }
@@ -453,3 +454,14 @@ td.symbol { font-weight: 600; }
   #evExperiments .c-date { grid-row: 2; grid-column: 2; text-align: right; font-size: 12px; }
   #evExperiments .c-result { grid-row: 3; grid-column: 1 / -1; font-size: 12.5px; }
 }
+
+/* validate a strategy: verdict cards */
+.val-head { align-items: flex-start; gap: 10px 16px; }
+.val-head > div { flex: 1 1 320px; min-width: 0; overflow-wrap: anywhere; }
+.val-sub { margin: 16px 0 6px; font-size: 13px; font-weight: 650; }
+.val-list { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.5; }
+.val-list.fail li::marker { color: var(--color-neg); }
+.val-list.pass li::marker { color: var(--color-pos); }
+.val-tables { margin-top: 4px; }
+.val-tables > div { min-width: 0; }
+.val-foot { margin: 4px 2px 0; }

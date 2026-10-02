@@ -387,12 +387,14 @@ def static_path(name: str) -> str:
 # at call time. Imported last because they import this module.
 from bot.api import account as _account_api, evidence as _evidence_api  # noqa: E402
 from bot.api import fast as _fast_api, lab as _lab_api, standard as _standard_api  # noqa: E402
+from bot.api import validate as _validate_api  # noqa: E402
 
 app.include_router(_evidence_api.router)
 app.include_router(_account_api.router)
 app.include_router(_lab_api.router)
 app.include_router(_fast_api.router)
 app.include_router(_standard_api.router)
+app.include_router(_validate_api.router)
 # names other code and the tests reach through this module
 from bot.api.account import _adjust_account, api_account_reset  # noqa: E402,F401
 from bot.api.standard import api_engine_stop  # noqa: E402,F401

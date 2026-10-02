@@ -139,6 +139,7 @@ python3 main.py shadow                     # journal vs its own rules
 python3 main.py validate-trades backtest-result.json --trials 20 \
   --regime-market BTC/USDT                 # someone else's backtest (freqtrade export,
                                            # trade CSV): robust / fragile / likely overfit
+#   (the same check in the dashboard: the Validate tab, upload the file)
 
 # 3. dashboard
 python3 main.py dashboard           # → http://127.0.0.1:8000

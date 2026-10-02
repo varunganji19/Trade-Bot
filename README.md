@@ -226,7 +226,8 @@ One trade, candle to journal, in five files: `bot/data/__init__.py`
 (closed bars) → `bot/engine.py` (the cycle) → `bot/orchestrator.py` (the
 vote and the promotion gate) → `bot/positions.py` (risk approval, fill,
 management, close — via `bot/risk.py` and `bot/broker.py`) →
-`bot/journal/trades.py` (the record).
+`bot/journal/trades.py` (the record). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+draws each step.
 
 ```
 config.py            environment, costs, risk, markets (strategy params: bot/params.py)
@@ -236,6 +237,7 @@ experiments/         pre-registered experiment declarations (TOML), their
 track_record/        paper.jsonl: the hash chain of sealed paper-book days
                      (created by the first `track-record append`)
 docs/
+  ARCHITECTURE.md    decision path, risk gates, promotion gate, fill model
   METHODOLOGY.md     how the evidence is produced
   RESULTS.md         every strategy and experiment with its verdict
   DEMO.md            the 7-minute demo and talk track

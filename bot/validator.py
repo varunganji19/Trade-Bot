@@ -331,13 +331,12 @@ def verdict(r: dict) -> tuple[str, list[str], list[str]]:
     if r["trials_given"] is None:
         fails.append("number of variants tried not given (--trials): 1 was assumed, "
                      "the most generous case")
+    # PBO judges the family the strategy was picked from, so it can sink a
+    # strategy but is not listed as one of its own strengths
     pb = r["pbo"]
-    if pb["pbo"] is not None:
-        if pb["pbo"] >= 0.5:
-            overfit.append(f"PBO {pb['pbo']:.2f}: picking the best of these strategies "
-                           "does worse than a coin flip out of sample")
-        else:
-            passes.append(f"PBO {pb['pbo']:.2f} across {pb['configs']} strategies")
+    if pb["pbo"] is not None and pb["pbo"] >= 0.5:
+        overfit.append(f"PBO {pb['pbo']:.2f}: picking the best of the strategies in this "
+                       "file does worse than a coin flip out of sample")
     rg = r["regimes"]
     if not rg["available"]:
         fails.append(f"regime coverage not checked: {rg['why']}")
@@ -402,6 +401,11 @@ def render_markdown(report: dict) -> str:
            f"Source: {report['source']}. Variants tried (--trials): "
            + (str(report["trials"]) if report["trials"] else "not given, 1 assumed") + ".",
            ""]
+    pb = next(iter(report["strategies"].values()))["pbo"]
+    out += ["Probability of backtest overfitting (PBO) across the strategies in the file: "
+            + (f"**{pb['pbo']:.2f}** over {pb['configs']} strategies "
+               "(0.5 or more: picking the best of them is worse than a coin flip)."
+               if pb["pbo"] is not None else f"not measured; {pb['why']}."), ""]
     for name, r in report["strategies"].items():
         ev = r["intervals"]
         out += [f"## {name}: **{r['verdict'].upper()}**", "",
@@ -420,8 +424,6 @@ def render_markdown(report: dict) -> str:
         ds = r["deflated_sharpe"]
         out.append(f"| Deflated Sharpe ({ds.get('trials', 1)} variants) | "
                    + (_f(ds["dsr"]) if ds["dsr"] is not None else ds["why"]) + " |")
-        pb = r["pbo"]
-        out.append("| PBO | " + (_f(pb["pbo"]) if pb["pbo"] is not None else pb["why"]) + " |")
         out += ["", "Stability over time (profit factor per quarter):", "",
                 "| Period | Trades | PF |", "|---|---:|---:|"]
         out += [f"| {s['from']} → {s['to']} | {s['trades']} | "

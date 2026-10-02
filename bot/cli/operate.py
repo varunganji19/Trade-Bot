@@ -268,6 +268,9 @@ def cmd_track_record(args):
         start = dt.date.fromisoformat(args.start) if args.start else None
         try:
             new = tr.append(CONFIG.db_path, chain, start=start)
+        except tr.NotStartedYet as exc:
+            print(f"[track-record] not yet: {exc}")
+            return
         except tr.ChainError as exc:
             print(f"[track-record] refusing: {exc}")
             sys.exit(1)

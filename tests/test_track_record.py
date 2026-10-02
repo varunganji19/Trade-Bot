@@ -61,6 +61,14 @@ def test_first_append_needs_a_start_and_seals_only_finished_days(book):
     assert tr.verify(j.db_path, chain) == []
 
 
+def test_a_start_day_that_has_not_finished_says_so_and_writes_nothing(book):
+    j, chain = book
+    with pytest.raises(tr.NotStartedYet, match="2026-01-05 01:00 UTC"):
+        tr.append(j.db_path, chain, start=dt.date(2026, 1, 4),
+                  now=dt.datetime(2026, 1, 3, 2, 0, tzinfo=UTC))
+    assert not chain.exists()
+
+
 def test_later_appends_continue_the_chain_and_refuse_a_second_start(book):
     j, chain = book
     tr.append(j.db_path, chain, start=dt.date(2026, 1, 1), now=NOW)

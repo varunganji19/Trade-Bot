@@ -50,6 +50,11 @@ class ChainError(Exception):
     """The chain cannot be extended as asked (broken, or no start date)."""
 
 
+class NotStartedYet(ChainError):
+    """The start day has not finished yet, so nothing can be sealed (and the
+    start is not recorded anywhere): run the first append again later."""
+
+
 def _canonical(obj) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
@@ -176,6 +181,13 @@ def append(db_path: str | Path, chain_path: str | Path = DEFAULT_CHAIN,
             raise ChainError("no record yet: pass the start date (--start YYYY-MM-DD)")
         day, prev = start, GENESIS
     last = last_sealable_day(now or dt.datetime.now(dt.timezone.utc))
+    if not chain and day > last:
+        ready = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(),
+                                    dt.timezone.utc) + SETTLE
+        raise NotStartedYet(
+            f"the record would start on {day}, which can be sealed from "
+            f"{ready:%Y-%m-%d %H:%M} UTC; nothing was written, so run this same "
+            "command (with --start) again then")
     new = []
     with contextlib.closing(_connect_ro(db_path)) as conn:
         while day <= last:

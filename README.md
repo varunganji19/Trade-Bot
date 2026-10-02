@@ -238,6 +238,7 @@ track_record/        paper.jsonl: the hash chain of sealed paper-book days
                      (created by the first `track-record append`)
 docs/
   ARCHITECTURE.md    decision path, risk gates, promotion gate, fill model
+  SELF_CHECK.md      ten likely reviewer questions, each answered from the code
   METHODOLOGY.md     how the evidence is produced
   RESULTS.md         every strategy and experiment with its verdict
   DEMO.md            the 7-minute demo and talk track
@@ -318,6 +319,26 @@ CHANGELOG.md         dated changes
   a boot-resume happens, so trading never silently begins.
 - Without torch or the vendored model, the bot runs normally — Kronos reports
   "unavailable" and never touches the vote
+
+## How this was built
+
+- **AI coding assistants were used** to write much of the code and the
+  documents in this repository.
+- **No change is trusted on the assistant's word.** Each one is a separate
+  commit that has passed `make verify`: the full test suite, ruff and
+  eslint, and the live-vs-backtest parity smoke
+  (`scripts/parity_smoke.py`). UI changes are checked in a browser at
+  desktop and phone widths in both themes.
+- **Claims about strategies are measured, not argued.** Experiments are
+  declared in git before they run (`experiments/*.toml`), their results are
+  written next to the declaration, and `make evidence` regenerates every
+  verdict from scratch.
+- **Decisions are recorded where they were taken:** the positioning, the
+  stricter promotion bar, the licence and the testnet-only rule are in
+  [docs/ROADMAP.md](docs/ROADMAP.md); the reasoning behind individual changes
+  is in [CHANGELOG.md](CHANGELOG.md) and the commit history.
+- [docs/SELF_CHECK.md](docs/SELF_CHECK.md) lists ten questions a reviewer is
+  likely to ask, each answered with the code and the test that back it.
 
 ## Status & scope
 

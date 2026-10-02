@@ -5,7 +5,7 @@ deliverable, an acceptance check, an effort estimate and an owner: **Claude**
 (code and docs I can build in this repo) or **You** (decisions, outreach,
 money, people — things code cannot do).*
 
-## Status (2026-10-01)
+## Status (2026-10-02)
 
 **Decisions taken:** positioning as a validation platform — yes; a stricter
 promotion bar even if nothing may trade — yes; licence — MIT for now,
@@ -24,7 +24,11 @@ readiness only. The archive move (M2) was approved.
 | M5 Readable code | done: no code file over 600 lines; comment pass; source pins replaced by behaviour tests | README "Layout" |
 | M7 Learnings as a feature | done: RESULTS.md + Evidence → Experiment log | dashboard |
 | M8 Fast-book questions | done: hold length recorded (re-run reproduces it); real taker flow built (bot/flow.py, `hft_taker_flow`) and rejected by a pre-registered study (PF 0.42 vs the proxy's 0.44) | [RESULTS.md](RESULTS.md) §3 |
-| M1, M6, V1–V10 | not started (Phase 2+) | below |
+| V1 Forward track record | built: daily hash chain, `track-record append/verify/render`; **clock not started**: it waits for the 0.1 reset, which would otherwise break every sealed day | [TRACK_RECORD.md](TRACK_RECORD.md) |
+| V5 Drift monitor | done: 3 weeks below the expected range demotes automatically; banner; `drift clear` | METHODOLOGY §11 |
+| V3 Validator | MVP done as a CLI (`validate-trades`): freqtrade export / CSV / own JSON in, verdict out; sample report on our own strategies. Not yet: the dashboard tab, a run on a real freqtrade export | [VALIDATION_SAMPLE.md](VALIDATION_SAMPLE.md) |
+| M6 Show you own it | ARCHITECTURE.md done; the README "How this was built" section and the 10 self-check questions are not | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| M1, V2, V4, V6–V10 | not started | below |
 
 **Not met as written:** M5's "trace one trade in ≤ 5 files" holds only if
 the risk manager and broker count as called-through (see README "Layout");

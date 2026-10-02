@@ -321,3 +321,55 @@ def cmd_drift(args):
                       f"({w['state']})")
         for name, r in sorted(drift.demotions(book).items()):
             print(f"  DEMOTED {name} on {r['demoted_at'][:10]} — {r['why']}")
+
+
+def cmd_testnet(args):
+    """The Binance SPOT TESTNET book (bot/testnet.py): real orders, fake
+    money. `run` trades it, `status` shows it, `reconcile` checks the
+    exchange against the journal, `kill`/`unkill` are the manual switch."""
+    import os
+    from bot import testnet as tn
+    if args.action == "kill":
+        tn.set_kill("all" if args.all else "entries", args.reason or "manual")
+        print(f"[testnet] kill switch ON ({'every order' if args.all else 'new entries'})")
+        return
+    if args.action == "unkill":
+        tn.set_kill(None, "manual")
+        print("[testnet] kill switch off")
+        return
+    try:
+        if args.action == "run":
+            engine = tn.build_testnet_engine()
+            if not os.path.exists(tn.baseline_path()):
+                base = tn.snapshot_baseline(engine.broker.exchange,
+                                            [s.symbol for s in engine.cfg.watchlist])
+                print(f"[testnet] baseline balances recorded: {base}")
+            interval = args.interval or CONFIG.live_interval_seconds
+            summary = _run_owned(engine, args.once, interval, "testnet")
+            if args.once:
+                print(json.dumps(summary, indent=1, default=str))
+            return
+        exchange = tn.make_exchange()
+    except tn.NotTestnetError as exc:
+        print(f"[testnet] {exc}")
+        sys.exit(1)
+    from bot.journal import Journal
+    journal = Journal()
+    problems = tn.reconcile(exchange, journal, trip=args.action == "reconcile")
+    if args.action == "status":
+        ks = tn.kill_state()
+        print(f"[testnet] kill switch: {ks['level'] or 'off'}"
+              + (f" — {ks.get('reason')} ({ks.get('at')})" if ks["level"] else ""))
+        s = journal.stats(mode=tn.MODE)
+        print(f"  closed trades {s['closed_trades']} · pnl {s['total_pnl']:+,.2f} · "
+              f"open {s['open_trades']} · orders recorded {len(tn.recorded_orders())}")
+        bal = exchange.fetch_balance()
+        print("  balances: " + ", ".join(f"{a} {float((bal.get(a) or {}).get('total') or 0):g}"
+                                         for a in ["USDT"] + sorted({s.symbol.split('/')[0]
+                                                    for s in tn.testnet_watchlist()})))
+    for p_ in problems:
+        print(f"  MISMATCH {p_}")
+    print(f"[testnet] reconciliation: {'OK' if not problems else f'{len(problems)} mismatch(es)'}"
+          + (" — entry kill switch engaged" if problems and args.action == "reconcile" else ""))
+    if problems:
+        sys.exit(1)

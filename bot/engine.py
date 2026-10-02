@@ -56,7 +56,7 @@ class TradingEngine(PositionManager):
         return MarketData()
 
     def __init__(self, cfg=None, mode: str = "paper", quiet: bool = False,
-                 journal=None):
+                 journal=None, broker=None):
         self.cfg = cfg or CONFIG
         self.mode = mode
         self.quiet = quiet
@@ -65,8 +65,10 @@ class TradingEngine(PositionManager):
         # journal's process lock); a private instance is created only for
         # standalone CLI runs
         self.journal = journal or Journal()
-        self.broker = PaperBroker(starting_capital=self.cfg.paper_capital,
-                                  costs=self.cfg.costs)
+        # a broker may be supplied (bot/testnet.py sends real testnet orders);
+        # by default every fill is simulated
+        self.broker = broker or PaperBroker(starting_capital=self.cfg.paper_capital,
+                                            costs=self.cfg.costs)
         # guards broker-state mutations (fills, marks, account patches) across
         # the engine thread and dashboard API threads — the dashboard's
         # deposit/withdraw and stats endpoints take it via lock_for_cycle
@@ -292,7 +294,18 @@ class TradingEngine(PositionManager):
 
             # PASS 2 — manage + decide in watchlist order.
             for spec, df in due:
-                self._process_market(spec, summary, df)
+                try:
+                    self._process_market(spec, summary, df)
+                except BookOwnedError:
+                    raise
+                except Exception as exc:
+                    # a broker whose orders can fail (bot/testnet.py) must not
+                    # let one market's rejected order stop the stops on every
+                    # other market; the paper broker keeps the old behaviour
+                    if not getattr(self.broker, "isolate_market_errors", False):
+                        raise
+                    summary["errors"].append(f"{spec.symbol} {spec.timeframe}: "
+                                             f"{type(exc).__name__}: {exc}")
                 if self.mode == "hft":
                     # A failed journal write must leave this bar eligible for
                     # the next poll, including stop updates and exits.

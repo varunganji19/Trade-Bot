@@ -165,7 +165,11 @@ class PositionManager:
         not visible here — a stale-but-sane bound beats 0.0). Fail-safe: when
         the journal is unreadable the gate degrades to the local book only
         and says so loudly instead of blocking entries on a torn read."""
-        other = "hft" if self.mode == "paper" else "paper"
+        # only the two paper books share an account's worth of risk; the
+        # testnet book is a separate (exchange) account
+        other = {"paper": "hft", "hft": "paper"}.get(self.mode)
+        if other is None:
+            return 0.0
         try:
             rows = self.journal.open_trades(mode=other)
         except Exception as exc:
@@ -393,7 +397,7 @@ class PositionManager:
                                      stop=pos.stop, target=pos.target,
                                      entry_fee=pos.entry_fee,
                                      initial_stop=pos.initial_stop,
-                                     decision_bar_ts=bar_epoch)
+                                     decision_bar_ts=bar_epoch, qty=pos.qty)
         except Exception:
             # The broker fill may have succeeded before record_fill failed.
             # Undo the simulated fill as well as aborting its journal row.

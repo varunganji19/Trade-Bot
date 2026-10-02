@@ -24,6 +24,7 @@ Usage:
   python3 main.py status                       # paper-book summary
   python3 main.py track-record append|verify|render [--start YYYY-MM-DD]
   python3 main.py drift [report|clear NAME] [--book standard|fast]  # live-vs-expected monitor
+  python3 main.py testnet run|status|reconcile|kill|unkill   # Binance SPOT TESTNET only
   python3 main.py config                       # effective settings + where each came from
   python3 main.py chat "question"              # chatbot from the terminal
 """
@@ -86,7 +87,7 @@ _load_env_file()
 # the commands import config, so they load after the .env above
 from bot.cli.operate import (cmd_chat, cmd_config, cmd_dashboard, cmd_drift,  # noqa: E402
                              cmd_hft_run, cmd_hft_status, cmd_pause, cmd_resume,
-                             cmd_run, cmd_status, cmd_track_record)
+                             cmd_run, cmd_status, cmd_testnet, cmd_track_record)
 from bot.cli.research import (cmd_backtest, cmd_experiment,  # noqa: E402
                               cmd_hft_backtest, cmd_hft_battery, cmd_kronos,
                               cmd_shadow, cmd_validate, cmd_validate_trades)
@@ -245,6 +246,15 @@ def build_parser() -> argparse.ArgumentParser:
     dr.add_argument("name", nargs="?", default=None, help="strategy to clear")
     dr.add_argument("--book", default=None, choices=["standard", "fast"])
     dr.set_defaults(fn=cmd_drift)
+
+    tn = sub.add_parser("testnet", help="Binance SPOT TESTNET book (fake money, real "
+                                        "orders): run, status, reconcile, kill, unkill")
+    tn.add_argument("action", choices=["run", "status", "reconcile", "kill", "unkill"])
+    tn.add_argument("--once", action="store_true", help="run one cycle (with run)")
+    tn.add_argument("--interval", type=int, default=None, help="seconds between cycles")
+    tn.add_argument("--all", action="store_true", help="kill: block exits too, not only entries")
+    tn.add_argument("--reason", default="", help="kill: a note stored with the switch")
+    tn.set_defaults(fn=cmd_testnet)
 
     ch = sub.add_parser("chat", help="ask the journal-aware chatbot")
     ch.add_argument("question")

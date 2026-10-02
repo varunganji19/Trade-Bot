@@ -51,7 +51,7 @@ class TradesMixin:
     def record_fill(self, trade_id: int, entry_price: float, stop: float | None = None,
                     target: float | None = None, entry_fee: float | None = None,
                     initial_stop: float | None = None,
-                    decision_bar_ts: float | None = None):
+                    decision_bar_ts: float | None = None, qty: float | None = None):
         """Post-fill correction of the row the engine opens BEFORE the broker
         fill (journal-first, self-healing). Sets the fill-derived entry/stop/
         target AND their initial-risk snapshots: `initial_stop_price` latches
@@ -69,8 +69,9 @@ class TradesMixin:
             if fee is not None:
                 self._cash_event(conn, row["mode"], "entry", -fee, trade_id)
             conn.execute("UPDATE trades SET entry_price=?, entry_fee=COALESCE(?,entry_fee),"
-                         " status='OPEN', decision_bar_ts=COALESCE(?,decision_bar_ts) WHERE id=?",
-                         (entry_price, entry_fee, decision_bar_ts, trade_id))
+                         " status='OPEN', decision_bar_ts=COALESCE(?,decision_bar_ts),"
+                         " qty=COALESCE(?,qty) WHERE id=?",
+                         (entry_price, entry_fee, decision_bar_ts, qty, trade_id))
             if stop is not None:
                 conn.execute(
                     "UPDATE trades SET stop_price=?,"

@@ -258,6 +258,7 @@ docs/
   COMPETITION.md     who else does this, sourced, and where they are better
   COMPLIANCE.md      what the project does not do; questions for an adviser
   MARKET.md          sourced audience figures, labelled assumptions, pricing
+  TESTNET.md         Binance spot testnet book: setup, kill switches, reconciliation
   METHODOLOGY.md     how the evidence is produced
   RESULTS.md         every strategy and experiment with its verdict
   DEMO.md            the 7-minute demo and talk track
@@ -290,6 +291,7 @@ bot/
   shadow.py          Shadow Account: rule-adherence replay + behavior profile
   track_record.py    seal, verify and render the forward record (read-only)
   drift.py           drift monitor: demote a voter whose live PF leaves its range
+  testnet.py         Binance SPOT TESTNET broker: real orders, kill switches, reconcile
   kronos_signal.py   Kronos forecaster and its IC ledger (offline only)
   hft/               the fast (5m, experimental) book: config, fee tiers,
                      cost floors, descriptive harness
@@ -365,4 +367,5 @@ Paper trading only. No strategy here is presented as profitable. The
 `MarketSpec` and broker interfaces are where a real exchange adapter would
 slot in; the roadmap builds readiness on the Binance **testnet** first, and
 any real-money step is a separate decision for the owner, not something this
-repo does.
+repo does. The testnet book is built ([docs/TESTNET.md](docs/TESTNET.md)) and
+waits for the owner's testnet keys.

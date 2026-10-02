@@ -255,6 +255,7 @@ docs/
   ARCHITECTURE.md    decision path, risk gates, promotion gate, fill model
   SELF_CHECK.md      ten likely reviewer questions, each answered from the code
   COMPETITION.md     who else does this, sourced, and where they are better
+  COMPLIANCE.md      what the project does not do; questions for an adviser
   METHODOLOGY.md     how the evidence is produced
   RESULTS.md         every strategy and experiment with its verdict
   DEMO.md            the 7-minute demo and talk track

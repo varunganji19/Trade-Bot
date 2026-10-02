@@ -25,6 +25,7 @@ Usage:
   python3 main.py track-record append|verify|render [--start YYYY-MM-DD]
   python3 main.py drift [report|clear NAME] [--book standard|fast]  # live-vs-expected monitor
   python3 main.py testnet run|status|reconcile|kill|unkill   # Binance SPOT TESTNET only
+  python3 main.py record-book [--symbols BTC/USDT ...] [--minutes N] | --summary
   python3 main.py config                       # effective settings + where each came from
   python3 main.py chat "question"              # chatbot from the terminal
 """
@@ -90,7 +91,8 @@ from bot.cli.operate import (cmd_chat, cmd_config, cmd_dashboard, cmd_drift,  # 
                              cmd_run, cmd_status, cmd_testnet, cmd_track_record)
 from bot.cli.research import (cmd_backtest, cmd_experiment,  # noqa: E402
                               cmd_hft_backtest, cmd_hft_battery, cmd_kronos,
-                              cmd_shadow, cmd_validate, cmd_validate_trades)
+                              cmd_record_book, cmd_shadow, cmd_validate,
+                              cmd_validate_trades)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -255,6 +257,15 @@ def build_parser() -> argparse.ArgumentParser:
     tn.add_argument("--all", action="store_true", help="kill: block exits too, not only entries")
     tn.add_argument("--reason", default="", help="kill: a note stored with the switch")
     tn.set_defaults(fn=cmd_testnet)
+
+    rb = sub.add_parser("record-book", help="record Binance public order-book snapshots and "
+                                            "trades to compressed hourly files")
+    rb.add_argument("--symbols", nargs="+", default=["BTC/USDT", "ETH/USDT"])
+    rb.add_argument("--speed", default="1000ms", choices=["1000ms", "100ms"],
+                    help="depth snapshot interval (100ms is ~10x the storage)")
+    rb.add_argument("--minutes", type=float, default=None, help="stop after this long")
+    rb.add_argument("--summary", action="store_true", help="show what has been recorded")
+    rb.set_defaults(fn=cmd_record_book)
 
     ch = sub.add_parser("chat", help="ask the journal-aware chatbot")
     ch.add_argument("question")

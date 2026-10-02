@@ -480,3 +480,24 @@ def cmd_validate_trades(args):
     n = len(report["strategies"])
     print(f"[validate-trades] {source}, {n} strateg{'y' if n == 1 else 'ies'} in "
           f"{_t.time() - t0:.1f}s")
+
+
+def cmd_record_book(args):
+    """Record Binance public order-book snapshots and trades (bot/recorder.py)."""
+    import time as _t
+    from bot import recorder as r
+    if args.summary:
+        s = r.summary()
+        if not s:
+            print(f"[record-book] nothing recorded under {r.default_root()}")
+        for sym, v in s.items():
+            print(f"  {sym:10s} {v['hours']:5d} hours  {v['bytes'] / 1e6:8.1f} MB  "
+                  f"{v['first_day']} → {v['last_day']}")
+        return
+    rec = r.Recorder()
+    end = _t.time() + args.minutes * 60 if args.minutes else None
+    print(f"[record-book] recording {', '.join(args.symbols)} to {rec.root} "
+          f"(depth every {args.speed}{f', for {args.minutes} min' if args.minutes else ''}; "
+          "Ctrl-C stops). Data terms: docs/COMPLIANCE.md Q8.")
+    rec.run(args.symbols, args.speed, stop=(lambda: _t.time() >= end) if end else (lambda: False))
+    print(f"[record-book] stopped: {rec.counts}")

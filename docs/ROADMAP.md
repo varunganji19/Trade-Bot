@@ -5,7 +5,7 @@ deliverable, an acceptance check, an effort estimate and an owner: **Claude**
 (code and docs I can build in this repo) or **You** (decisions, outreach,
 money, people — things code cannot do).*
 
-## Status (2026-10-02)
+## Status (2026-10-02, after Phase 2–3 build)
 
 **Decisions taken:** positioning as a validation platform — yes; a stricter
 promotion bar even if nothing may trade — yes; licence — MIT for now,
@@ -26,9 +26,15 @@ readiness only. The archive move (M2) was approved.
 | M8 Fast-book questions | done: hold length recorded (re-run reproduces it); real taker flow built (bot/flow.py, `hft_taker_flow`) and rejected by a pre-registered study (PF 0.42 vs the proxy's 0.44) | [RESULTS.md](RESULTS.md) §3 |
 | V1 Forward track record | built: daily hash chain, `track-record append/verify/render`; **clock not started**: it waits for the 0.1 reset, which would otherwise break every sealed day | [TRACK_RECORD.md](TRACK_RECORD.md) |
 | V5 Drift monitor | done: 3 weeks below the expected range demotes automatically; banner; `drift clear` | METHODOLOGY §11 |
-| V3 Validator | MVP done as a CLI (`validate-trades`): freqtrade export / CSV / own JSON in, verdict out; sample report on our own strategies. Not yet: the dashboard tab, a run on a real freqtrade export | [VALIDATION_SAMPLE.md](VALIDATION_SAMPLE.md) |
-| M6 Show you own it | ARCHITECTURE.md done; the README "How this was built" section and the 10 self-check questions are not | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| M1, V2, V4, V6–V10 | not started | below |
+| V3 Validator | done: CLI (`validate-trades`) and the dashboard's Validate tab; sample report on our own strategies. Not yet: a run on a real freqtrade export (none was available) | [VALIDATION_SAMPLE.md](VALIDATION_SAMPLE.md) |
+| M6 Show you own it | done: ARCHITECTURE.md, SELF_CHECK.md, README "How this was built". **Waiting on you:** the paragraph on what you designed yourself (left out on purpose) | [ARCHITECTURE.md](ARCHITECTURE.md), [SELF_CHECK.md](SELF_CHECK.md) |
+| M1 Lead with what's true | done: every README number links to what produces it; two unsourced numbers corrected (test count; the shadow-account figure, which a clean checkout cannot reproduce) | [README](../README.md) |
+| V2 Competition | done: sourced matrix, where others are better; the differentiation is narrower than "the only overfitting check" | [COMPETITION.md](COMPETITION.md) |
+| V8 Compliance | checklist done. **Waiting on you:** review by a SEBI lawyer and a CA; it is not legal advice | [COMPLIANCE.md](COMPLIANCE.md) |
+| V10 Market | done: sourced figures, assumptions A1–A6 labelled; on those guesses a hobby-sized first segment | [MARKET.md](MARKET.md) |
+| V6 Testnet | built: spot-testnet broker, kill switches, reconciliation, tested against a fake exchange. **Waiting on you:** testnet keys in `.env`, then 4 weeks of running | [TESTNET.md](TESTNET.md) |
+| V7 Data asset | built: order-book recorder (live-smoked for 20 s) and opt-in local verdict store. **Waiting on you:** COMPLIANCE Q8 (Binance data terms) before recording for months; Q10 before verdicts are shared | README "Layout" |
+| V4 Traction, V9 Team | not started: mostly outreach and people (yours) | below |
 
 **Not met as written:** M5's "trace one trade in ≤ 5 files" holds only if
 the risk manager and broker count as called-through (see README "Layout");

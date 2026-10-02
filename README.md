@@ -256,6 +256,7 @@ docs/
   SELF_CHECK.md      ten likely reviewer questions, each answered from the code
   COMPETITION.md     who else does this, sourced, and where they are better
   COMPLIANCE.md      what the project does not do; questions for an adviser
+  MARKET.md          sourced audience figures, labelled assumptions, pricing
   METHODOLOGY.md     how the evidence is produced
   RESULTS.md         every strategy and experiment with its verdict
   DEMO.md            the 7-minute demo and talk track

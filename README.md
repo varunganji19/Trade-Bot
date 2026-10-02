@@ -12,18 +12,24 @@ when pointed at its own strategies.
 **Headline result: no proven edge — and under the platform's own rule,
 nothing is allowed to trade.**
 
-- **Standard book**, 2 years, 7 markets: no strategy's 90% profit-factor
-  interval clears 1.0. Three are unproven (best: time-series momentum, PF
-  1.07, interval 0.81–1.37) and two are measured losers. The two strategies
+- **Standard book**, 2 years, 7 markets
+  ([declaration](experiments/standard_gate.toml)): no strategy's 90%
+  profit-factor interval clears 1.0. Three are unproven (best: time-series
+  momentum, PF 1.07, interval 0.81–1.37) and two are measured losers
+  ([results](experiments/standard_gate.results.json)). The two strategies
   that passed the older, looser gate (PF ≈ 1.55 on ≈ 60 trades each) did
-  not survive the larger sample.
-- **Fast book** (5-minute bars, **experimental**), 90 days, 21 markets: every
-  strategy is a measured loser except a market maker whose profit vanishes
-  once quotes must trade through by 5 bp — an artefact of the fill model,
-  shown by a pre-registered study.
+  not survive the larger sample ([RESULTS §1](docs/RESULTS.md)).
+- **Fast book** (5-minute bars, **experimental**), 90 days, 21 markets
+  ([declaration](experiments/fast_gate.toml),
+  [results](experiments/fast_gate.results.json)): every strategy is a
+  measured loser except a market maker whose profit vanishes once quotes
+  must trade through by 5 bp — an artefact of the fill model, shown by a
+  pre-registered study
+  ([results](experiments/market_maker_fill_model.results.json)).
 - A published foundation model (Kronos, AAAI'26) had to earn a vote like
   any strategy; on BTC 1h it scored **IC −0.075** against a +0.02 hurdle
-  and was rejected.
+  and was rejected ([registry](experiments/history.jsonl),
+  [RESULTS §2](docs/RESULTS.md)).
 
 Every verdict, interval and study is in [docs/RESULTS.md](docs/RESULTS.md),
 and is reproduced by `make evidence` from the pre-registered declarations
@@ -34,7 +40,8 @@ in [experiments/](experiments/).
 - **Promotion gate.** A strategy votes only if the *lower* end of a 90%
   bootstrap interval on its out-of-sample profit factor clears 1.0 after
   fees, over 100+ trades in trending-up, trending-down and ranging markets
-  (`bot/promotion.py`).
+  ([`bot/promotion.py`](bot/promotion.py): `V2_MIN_TRADES`, `V2_RULE`;
+  test `test_rule_v2_promotes_only_proven_strategies`).
 - **Pre-registration.** Experiments are declared in git before they run,
   every variant is recorded, and the Deflated Sharpe reads its trial count
   from that registry (`bot/experiments.py`).
@@ -47,11 +54,14 @@ in [experiments/](experiments/).
   backtest overfitting (PBO) and the Deflated Sharpe ratio
   (`bot/validation.py`).
 - **Self-audit.** The Shadow Account replays journaled trades against the
-  bot's own rules; on the seeded replay history 236 of 428 trades blew
-  through their initial stop, and the dashboard says so.
+  bot's own rules and counts the trades that blew through their initial
+  stop; the dashboard shows the count for the current journal
+  (`python3 main.py shadow`, [`bot/shadow.py`](bot/shadow.py); test
+  `test_shadow_behavior_profile_math`).
 - **Causality and determinism are tested**: truncating history at bar *i*
   cannot change the bar-*i* signal; identical inputs give identical trades.
-  340+ tests, a parity smoke and CI on every push.
+  390+ tests ([tests/](tests/)), a parity smoke and
+  [CI](.github/workflows/ci.yml) on every push.
 
 Paper trading only. No strategy here is presented as profitable.
 
@@ -189,6 +199,10 @@ in [docs/RESULTS.md](docs/RESULTS.md) and live on the dashboard.
 | **VWAP Scalper** | Opening-range-breakout evidence (Zarattini & Aziz 2023, SSRN 4416622) + VWAP benchmark | VWAP reclaim/loss with momentum + volume confirmation, breakeven trail, time stop; optional RVOL filter (off by default) | 15m |
 | **Fast book** (separate account, **experimental**) | Carver 2025, Zarattini & Aziz 2023, Avellaneda & Stoikov 2008, Cont, Kukanov & Stoikov 2014 | exhaustion fade, micro-breakout, candle-based market making, order-flow proxy, cross-pair and funding reversion | 5m |
 
+Every number in the Style column is a setting in [bot/params.py](bot/params.py)
+(e.g. `turtle_stop_atr = 2.0`, `mr_halflife_max = 12`, `tsmom_lookback = 240`,
+`tsmom_min_ret = 0.08`).
+
 The detailed research behind each one is in
 [docs/archive/RESEARCH.md](docs/archive/RESEARCH.md) and
 [docs/archive/HFT.md](docs/archive/HFT.md).
@@ -197,7 +211,8 @@ The detailed research behind each one is in
 
 **Crypto and forex, in US dollars.** The standard book trades BTC, ETH and SOL
 on 1h (BTC and ETH also on 15m and 4h) plus EUR/USD and GBP/USD on 1h; the
-fast book trades five 5m markets with its own capital and fee tier. A
+fast book trades five 5m markets with its own capital and fee tier
+(`DEFAULT_WATCHLIST` and `HFT_WATCHLIST` in [config.py](config.py)). A
 watchlist entry whose kind or timeframe the bot no longer trades is dropped
 at load with a printed reason.
 
@@ -213,10 +228,10 @@ Kept, tested, and outside the main demo path.
   trading decision. `python3 main.py chat "explain the connors strategy"`.
 - **Kronos.** `bot/kronos_signal.py` wraps
   [Kronos](https://github.com/shiyu-coder/Kronos) (AAAI 2026, MIT), a
-  foundation model pre-trained on K-lines from 45+ exchanges. It was given
+  foundation model its authors pre-trained on K-lines from 45+ exchanges. It was given
   the same chance to earn a vote as any strategy and failed (RESULTS.md §2),
   so it runs offline only: `python3 main.py kronos --symbol BTC/USDT --days 60`
-  (about 50 minutes on CPU). It is kept as evidence that a signal has to
+  (slow on CPU). It is kept as evidence that a signal has to
   earn its vote. Its torch/transformers dependencies are optional; the bot
   and the test suite run without them.
 

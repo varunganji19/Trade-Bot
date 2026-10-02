@@ -64,8 +64,8 @@ Switch to the browser. Four stops, about 35 seconds each.
 2. **Evidence → Experiment log.** "Every experiment ever run, with its
    verdict — the red ones are the failures, and there are a lot of them."
    Then the **Shadow account**: "The bot audits itself against its own rules:
-   on the seeded replay history, 236 of 428 trades blew through their initial
-   stop, and it says so."
+   here, N of M trades blew through their initial stop, and it says so."
+   (Read N and M off the screen: they change with the journal.)
 3. **Strategy Lab → Compare all → Run.** "Every strategy on the same real
    data after fees. Anyone can check a claim here in under a minute."
 4. **Fast book (experimental).** "A separate 5-minute book, labelled

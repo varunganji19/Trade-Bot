@@ -1,0 +1,29 @@
+python3 -m pytest tests/ -q
+........................................................................ [ 13%]
+........................................................................ [ 26%]
+........................................................................ [ 39%]
+........................................................................ [ 52%]
+........................................................................ [ 65%]
+........................................................................ [ 78%]
+........................................................................ [ 91%]
+.............................................                            [100%]
+549 passed in 35.41s
+python3 -m ruff check bot main.py config.py run_battery.py tests scripts
+All checks passed!
+npm run lint:js
+
+> lint:js
+> eslint bot/static/app.js
+
+python3 scripts/parity_smoke.py
+=== live-vs-backtest parity smoke ===
+[parity] causality: truncated frame == full frame at bar i
+  12 strategies checked
+[parity] decision: engine orchestrator == backtest orchestrator
+  2 books x 4 bars checked
+[parity] books: fast strategies never vote on the standard book
+  2 books checked
+[parity] lifecycle: strategy exits and re-entry cooldowns
+  1-bar and 3-bar cooldowns checked through 80 engine cycles each
+
+[parity] OK — the engine and the backtester decide identically

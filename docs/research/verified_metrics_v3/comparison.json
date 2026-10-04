@@ -1,0 +1,6423 @@
+{
+ "metrics_version": 3,
+ "capital_model": "fixed_starting_capital",
+ "return_basis": "net_pnl_over_starting_capital",
+ "network": "disabled",
+ "historical_reports_unchanged": true,
+ "git_head": "0c74d1b372ffbe29894e13d9ea5800a924d6e7a9",
+ "baseline_ref": "0c74d1b",
+ "baseline_commit": "0c74d1b372ffbe29894e13d9ea5800a924d6e7a9",
+ "baseline_metrics_version": 1,
+ "current_source_sha256": {
+  "bot/backtest.py": "1ae996e698cc19a13128b2d1e4c2bd0b6de180700684b081aee9a845f16809bf",
+  "bot/broker.py": "ee05fe2577a157580de9c2ed2e90a22e5534c9172684dce72c3d9d6df1704ad2",
+  "bot/risk.py": "07defa971568ba425648e5d0168880a8821df2f7678bd8084846b298c01ac55f",
+  "config.py": "fefd2a9510e0302dcdde8a7cc2d35d0fa482a38a0177102ee0727024ca79e289",
+  "bot/experiments.py": "2c473a10497cc84e3889d2dde7b80a6228a1733dca29e92d2bec94d964f72a62",
+  "bot/validation.py": "b471a79e3404dccee0fc3abfcb241e831a884e5c350b75d0be2617d8eab8283c",
+  "scripts/pinned_runs.py": "0748aa68d59ced5dc3b351416d4f93050b7e1afd7145b521961ee07b32c06ae2",
+  "scripts/rerun_corrected_research.py": "fc0edf391780ec326a46aad6acc10a6561a473822f619689ae576c389f60edce"
+ },
+ "v1_backtest_source_sha256": "71774bcbcd25da46915229e1d787d193b2ca15ef72af00ff191cb58bd3b81216",
+ "comparison_scope": "v1/v3 backtest loops and statistics use identical current configuration and shared risk/broker modules; verified prior_v2 uses the same inputs; archived differences may also include historical configuration changes",
+ "configuration": {
+  "params": {
+   "turtle_entry_period": 20,
+   "turtle_exit_period": 10,
+   "turtle_atr_period": 14,
+   "turtle_stop_atr": 2.0,
+   "turtle_adx_min": 20.0,
+   "mr_rsi_period": 2,
+   "mr_rsi_buy_below": 5.0,
+   "mr_rsi_sell_above": 95.0,
+   "mr_exit_long_rsi": 65.0,
+   "mr_exit_short_rsi": 35.0,
+   "mr_trend_ema": 200,
+   "mr_exit_ema": 5,
+   "mr_stop_atr": 3.0,
+   "mr_time_stop_bars": 12,
+   "mr_halflife_max": 12.0,
+   "scalper_ema_fast": 9,
+   "scalper_ema_slow": 21,
+   "scalper_stop_atr": 2.0,
+   "scalper_time_stop_bars": 12,
+   "scalper_range_period": 12,
+   "scalper_vol_ratio_min": 1.15,
+   "scalper_rvol_min": 0.0,
+   "scalper_break_even_rr": 1.0,
+   "scalper_min_confidence": 0.62,
+   "scalper_short_min_confidence": 1.01,
+   "scalper_trend_filter": true,
+   "scalper_adx_min": 25.0,
+   "scalper_target_rr": null,
+   "scalper_vwap_buffer_atr": 0.25,
+   "scalper_exit_confirm_bars": 2,
+   "scalper_cooldown_bars": 12,
+   "fxmr_z_window": 100,
+   "fxmr_z_entry": 2.0,
+   "fxmr_z_exit": 0.5,
+   "fxmr_halflife_max": 12.0,
+   "fxmr_stop_atr": 1.5,
+   "fxmr_target_rr": 1.5,
+   "fxmr_time_stop_bars": 24,
+   "fxmr_min_atr_pct": 0.0002,
+   "tsmom_lookback": 240,
+   "tsmom_min_ret": 0.08,
+   "tsmom_52w_bars": 2450,
+   "tsmom_52w_prox": 0.1,
+   "tsmom_stop_atr": 2.5,
+   "tsmom_exit_ret": 0.0,
+   "hft_bo_range": 12,
+   "hft_bo_atr_min_pct": 0.0008,
+   "hft_bo_stop_atr": 1.0,
+   "hft_bo_target_rr": 2.0,
+   "hft_bo_time_stop": 12,
+   "hft_bo_vol_ratio_min": 1.3,
+   "hft_fade_z_entry": 2.5,
+   "hft_fade_vol_spike": 3.0,
+   "hft_fade_clv_max": -0.8,
+   "hft_fade_stop_atr": 2.0,
+   "hft_fade_time_stop": 9,
+   "hft_fade_limit_exit_bps": null,
+   "hft_mm_gamma": 0.1,
+   "hft_mm_width_frac_atr": 0.5,
+   "hft_mm_min_width_bps": 2.0,
+   "hft_mm_max_width_bps": 15.0,
+   "hft_mm_target_rr": 0.34,
+   "hft_mm_stop_widths": 3.0,
+   "hft_mm_time_stop": 12,
+   "hft_cost_floor_bps": 16.0,
+   "hft_maker_cost_floor_bps": 10.0,
+   "hft_cost_buffer": 1.25,
+   "hft_ofi_window": 3,
+   "hft_ofi_z_entry": 1.5,
+   "hft_ofi_stop_atr": 1.0,
+   "hft_ofi_target_rr": 1.5,
+   "hft_ofi_time_stop": 3,
+   "hft_xr_z_entry": 2.0,
+   "hft_xr_halflife_window": 200,
+   "hft_xr_halflife_max": 24.0,
+   "hft_xr_stop_atr": 2.5,
+   "hft_xr_time_stop": 36,
+   "hft_fund_z_entry": 2.0,
+   "hft_fund_price_z": 1.0,
+   "hft_fund_stop_atr": 2.0,
+   "hft_fund_target_rr": 2.0,
+   "hft_fund_time_stop": 36
+  },
+  "risk": {
+   "risk_per_trade": 0.01,
+   "max_position_pct": 0.25,
+   "max_open_positions": 4,
+   "max_gross_leverage": 1.0,
+   "max_cluster_leverage": 0.6,
+   "daily_loss_kill_switch": 0.03,
+   "min_confidence": 0.55,
+   "max_r_per_trade": 0.1,
+   "min_rr_per_trade": 1.2,
+   "cooldown_bars_after_stop": 3,
+   "drawdown_half_risk_at": 0.1,
+   "drawdown_quarter_risk_at": 0.2
+  },
+  "costs": {
+   "fee_crypto": 0.001,
+   "fee_forex": 0.0002,
+   "maker_fee_crypto": 0.001,
+   "maker_fee_forex": 0.0001,
+   "slippage_crypto": 0.0005,
+   "slippage_forex": 0.0001,
+   "maker_pricing": true
+  },
+  "capital": 10000.0
+ },
+ "prior_reuse": {
+  "directory": "/Users/varun/Downloads/Varun/Algo/docs/research/verified_metrics_v2",
+  "metrics_version": 2,
+  "comparison": {
+   "path": "docs/research/verified_metrics_v2/comparison.json",
+   "sha256": "7571387bc973e137fee57953dad83f7d8878eef3087a01a517207fe94d117042"
+  },
+  "export_checks": {
+   "path": "docs/research/verified_metrics_v2/export_checks.json",
+   "sha256": "725cff5c34bb0e3d5538885033f52c1188e3f43777691f770bd4759cde9cfaed"
+  },
+  "verified_files": 120,
+  "reuse": "v1_same_config_only; current results computed afresh",
+  "pinned_v1_reused": 7,
+  "experiment_v1_reused": 225
+ },
+ "pinned_completed": 7,
+ "pinned_declared": 8,
+ "pinned": [
+  {
+   "run": "BTCUSDT_1h_turtle",
+   "symbol": "BTC/USDT",
+   "timeframe": "1h",
+   "strategy": "turtle_trend",
+   "requested_window": [
+    "2025-09-03",
+    "2026-09-04"
+   ],
+   "actual_window": [
+    "2025-09-03 00:00:00+00:00",
+    "2026-09-03 23:00:00+00:00"
+   ],
+   "bars": 8784,
+   "input": {
+    "path": "data/cache/BTCUSDT_1h_2025-09-03_2026-09-04.parquet",
+    "sha256": "b84f0cfe5264cb50afa3ef25b70eb48980e0792eba09608462035d60e8506185"
+   },
+   "input_attrs": {
+    "caliber": "raw",
+    "source": "binance"
+   },
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_same_config": {
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "strategy": "turtle_trend",
+    "trades": 116,
+    "win_rate_pct": 23.3,
+    "total_pnl": -471.86,
+    "fees": 560.64,
+    "profit_factor": 0.83,
+    "avg_win": 84.61,
+    "avg_loss": -30.97,
+    "max_drawdown_pct": -10.03,
+    "sharpe": -1.32,
+    "return_pct": -4.72,
+    "start_equity": 10000.0,
+    "end_equity": 9528.16
+   },
+   "v3": {
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "strategy": "turtle_trend",
+    "trades": 115,
+    "win_rate_pct": 23.5,
+    "total_pnl": -440.66,
+    "fees": 556.51,
+    "profit_factor": 0.84,
+    "avg_win": 84.71,
+    "avg_loss": -31.0,
+    "max_drawdown_pct": -9.73,
+    "sharpe": -0.67,
+    "return_pct": -4.41,
+    "start_equity": 10000.0,
+    "end_equity": 9559.34,
+    "starting_capital": 10000.0,
+    "metrics_version": 3,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 8563
+   },
+   "v1_reused": true,
+   "same_config_differences": {
+    "symbol": {
+     "before": "BTC/USDT",
+     "after": "BTC/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "1h",
+     "after": "1h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "turtle_trend",
+     "after": "turtle_trend",
+     "delta": null
+    },
+    "trades": {
+     "before": 116,
+     "after": 115,
+     "delta": -1
+    },
+    "win_rate_pct": {
+     "before": 23.3,
+     "after": 23.5,
+     "delta": 0.2
+    },
+    "total_pnl": {
+     "before": -471.86,
+     "after": -440.66,
+     "delta": 31.2
+    },
+    "fees": {
+     "before": 560.64,
+     "after": 556.51,
+     "delta": -4.13
+    },
+    "profit_factor": {
+     "before": 0.83,
+     "after": 0.84,
+     "delta": 0.01
+    },
+    "avg_win": {
+     "before": 84.61,
+     "after": 84.71,
+     "delta": 0.1
+    },
+    "avg_loss": {
+     "before": -30.97,
+     "after": -31.0,
+     "delta": -0.03
+    },
+    "max_drawdown_pct": {
+     "before": -10.03,
+     "after": -9.73,
+     "delta": 0.3
+    },
+    "sharpe": {
+     "before": -1.32,
+     "after": -0.67,
+     "delta": 0.65
+    },
+    "return_pct": {
+     "before": -4.72,
+     "after": -4.41,
+     "delta": 0.31
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 9528.16,
+     "after": 9559.34,
+     "delta": 31.18
+    }
+   },
+   "historical_reports": {
+    "before": {
+     "report": {
+      "path": "data/results/pinned_before/BTCUSDT_1h_turtle.json",
+      "sha256": "109459f7d7fac24a531abff84831af3ca72cd9271b40d72d895acf528ee7b7b7"
+     },
+     "stats": {
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "strategy": "turtle_trend",
+      "trades": 116,
+      "win_rate_pct": 23.3,
+      "total_pnl": -511.42,
+      "fees": 559.02,
+      "profit_factor": 0.82,
+      "avg_win": 84.35,
+      "avg_loss": -31.34,
+      "max_drawdown_pct": -10.09,
+      "sharpe": -1.44,
+      "return_pct": -5.11,
+      "start_equity": 10000.0,
+      "end_equity": 9488.6
+     },
+     "differences": {
+      "symbol": {
+       "before": "BTC/USDT",
+       "after": "BTC/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "1h",
+       "after": "1h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "turtle_trend",
+       "after": "turtle_trend",
+       "delta": null
+      },
+      "trades": {
+       "before": 116,
+       "after": 115,
+       "delta": -1
+      },
+      "win_rate_pct": {
+       "before": 23.3,
+       "after": 23.5,
+       "delta": 0.2
+      },
+      "total_pnl": {
+       "before": -511.42,
+       "after": -440.66,
+       "delta": 70.76
+      },
+      "fees": {
+       "before": 559.02,
+       "after": 556.51,
+       "delta": -2.51
+      },
+      "profit_factor": {
+       "before": 0.82,
+       "after": 0.84,
+       "delta": 0.02
+      },
+      "avg_win": {
+       "before": 84.35,
+       "after": 84.71,
+       "delta": 0.36
+      },
+      "avg_loss": {
+       "before": -31.34,
+       "after": -31.0,
+       "delta": 0.34
+      },
+      "max_drawdown_pct": {
+       "before": -10.09,
+       "after": -9.73,
+       "delta": 0.36
+      },
+      "sharpe": {
+       "before": -1.44,
+       "after": -0.67,
+       "delta": 0.77
+      },
+      "return_pct": {
+       "before": -5.11,
+       "after": -4.41,
+       "delta": 0.7
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 9488.6,
+       "after": 9559.34,
+       "delta": 70.74
+      }
+     }
+    },
+    "mid": {
+     "report": {
+      "path": "data/results/pinned_mid/BTCUSDT_1h_turtle.json",
+      "sha256": "109459f7d7fac24a531abff84831af3ca72cd9271b40d72d895acf528ee7b7b7"
+     },
+     "stats": {
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "strategy": "turtle_trend",
+      "trades": 116,
+      "win_rate_pct": 23.3,
+      "total_pnl": -511.42,
+      "fees": 559.02,
+      "profit_factor": 0.82,
+      "avg_win": 84.35,
+      "avg_loss": -31.34,
+      "max_drawdown_pct": -10.09,
+      "sharpe": -1.44,
+      "return_pct": -5.11,
+      "start_equity": 10000.0,
+      "end_equity": 9488.6
+     },
+     "differences": {
+      "symbol": {
+       "before": "BTC/USDT",
+       "after": "BTC/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "1h",
+       "after": "1h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "turtle_trend",
+       "after": "turtle_trend",
+       "delta": null
+      },
+      "trades": {
+       "before": 116,
+       "after": 115,
+       "delta": -1
+      },
+      "win_rate_pct": {
+       "before": 23.3,
+       "after": 23.5,
+       "delta": 0.2
+      },
+      "total_pnl": {
+       "before": -511.42,
+       "after": -440.66,
+       "delta": 70.76
+      },
+      "fees": {
+       "before": 559.02,
+       "after": 556.51,
+       "delta": -2.51
+      },
+      "profit_factor": {
+       "before": 0.82,
+       "after": 0.84,
+       "delta": 0.02
+      },
+      "avg_win": {
+       "before": 84.35,
+       "after": 84.71,
+       "delta": 0.36
+      },
+      "avg_loss": {
+       "before": -31.34,
+       "after": -31.0,
+       "delta": 0.34
+      },
+      "max_drawdown_pct": {
+       "before": -10.09,
+       "after": -9.73,
+       "delta": 0.36
+      },
+      "sharpe": {
+       "before": -1.44,
+       "after": -0.67,
+       "delta": 0.77
+      },
+      "return_pct": {
+       "before": -5.11,
+       "after": -4.41,
+       "delta": 0.7
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 9488.6,
+       "after": 9559.34,
+       "delta": 70.74
+      }
+     }
+    },
+    "after": {
+     "report": {
+      "path": "data/results/pinned_after/BTCUSDT_1h_turtle.json",
+      "sha256": "4100ec5639e504170c6bf74ce473f2cc8f60cf90e19bb1887ee7c64fcdae9737"
+     },
+     "stats": {
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "strategy": "turtle_trend",
+      "trades": 116,
+      "win_rate_pct": 23.3,
+      "total_pnl": -471.86,
+      "fees": 560.65,
+      "profit_factor": 0.83,
+      "avg_win": 84.61,
+      "avg_loss": -30.97,
+      "max_drawdown_pct": -10.03,
+      "sharpe": -1.32,
+      "return_pct": -4.72,
+      "start_equity": 10000.0,
+      "end_equity": 9528.16
+     },
+     "differences": {
+      "symbol": {
+       "before": "BTC/USDT",
+       "after": "BTC/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "1h",
+       "after": "1h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "turtle_trend",
+       "after": "turtle_trend",
+       "delta": null
+      },
+      "trades": {
+       "before": 116,
+       "after": 115,
+       "delta": -1
+      },
+      "win_rate_pct": {
+       "before": 23.3,
+       "after": 23.5,
+       "delta": 0.2
+      },
+      "total_pnl": {
+       "before": -471.86,
+       "after": -440.66,
+       "delta": 31.2
+      },
+      "fees": {
+       "before": 560.65,
+       "after": 556.51,
+       "delta": -4.14
+      },
+      "profit_factor": {
+       "before": 0.83,
+       "after": 0.84,
+       "delta": 0.01
+      },
+      "avg_win": {
+       "before": 84.61,
+       "after": 84.71,
+       "delta": 0.1
+      },
+      "avg_loss": {
+       "before": -30.97,
+       "after": -31.0,
+       "delta": -0.03
+      },
+      "max_drawdown_pct": {
+       "before": -10.03,
+       "after": -9.73,
+       "delta": 0.3
+      },
+      "sharpe": {
+       "before": -1.32,
+       "after": -0.67,
+       "delta": 0.65
+      },
+      "return_pct": {
+       "before": -4.72,
+       "after": -4.41,
+       "delta": 0.31
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 9528.16,
+       "after": 9559.34,
+       "delta": 31.18
+      }
+     }
+    }
+   },
+   "corrected_cv": {
+    "metrics_version": 2,
+    "starting_capital": 10000.0,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_paths": 28,
+    "n_active_paths": 28,
+    "paths": [
+     {
+      "trades": 26,
+      "return_pct": -1.18,
+      "win_rate_pct": 34.6,
+      "total_pnl": -118.49
+     },
+     {
+      "trades": 23,
+      "return_pct": -2.08,
+      "win_rate_pct": 30.4,
+      "total_pnl": -208.28
+     },
+     {
+      "trades": 23,
+      "return_pct": 3.32,
+      "win_rate_pct": 39.1,
+      "total_pnl": 331.78
+     },
+     {
+      "trades": 27,
+      "return_pct": -3.15,
+      "win_rate_pct": 25.9,
+      "total_pnl": -314.77
+     },
+     {
+      "trades": 28,
+      "return_pct": -3.93,
+      "win_rate_pct": 17.9,
+      "total_pnl": -393.28
+     },
+     {
+      "trades": 22,
+      "return_pct": -2.57,
+      "win_rate_pct": 27.3,
+      "total_pnl": -257.33
+     },
+     {
+      "trades": 20,
+      "return_pct": 2.24,
+      "win_rate_pct": 30.0,
+      "total_pnl": 224.14
+     },
+     {
+      "trades": 29,
+      "return_pct": -5.01,
+      "win_rate_pct": 24.1,
+      "total_pnl": -501.08
+     },
+     {
+      "trades": 28,
+      "return_pct": 0.88,
+      "win_rate_pct": 32.1,
+      "total_pnl": 88.11
+     },
+     {
+      "trades": 32,
+      "return_pct": -5.58,
+      "win_rate_pct": 21.9,
+      "total_pnl": -558.44
+     },
+     {
+      "trades": 33,
+      "return_pct": -6.37,
+      "win_rate_pct": 15.2,
+      "total_pnl": -636.95
+     },
+     {
+      "trades": 27,
+      "return_pct": -5.01,
+      "win_rate_pct": 22.2,
+      "total_pnl": -501.0
+     },
+     {
+      "trades": 25,
+      "return_pct": -0.2,
+      "win_rate_pct": 24.0,
+      "total_pnl": -19.52
+     },
+     {
+      "trades": 27,
+      "return_pct": 1.09,
+      "win_rate_pct": 29.6,
+      "total_pnl": 109.04
+     },
+     {
+      "trades": 30,
+      "return_pct": -5.21,
+      "win_rate_pct": 20.0,
+      "total_pnl": -521.21
+     },
+     {
+      "trades": 31,
+      "return_pct": -6.0,
+      "win_rate_pct": 12.9,
+      "total_pnl": -599.72
+     },
+     {
+      "trades": 25,
+      "return_pct": -4.64,
+      "win_rate_pct": 20.0,
+      "total_pnl": -463.78
+     },
+     {
+      "trades": 23,
+      "return_pct": 0.18,
+      "win_rate_pct": 21.7,
+      "total_pnl": 17.7
+     },
+     {
+      "trades": 31,
+      "return_pct": 0.16,
+      "win_rate_pct": 25.8,
+      "total_pnl": 15.97
+     },
+     {
+      "trades": 31,
+      "return_pct": -0.6,
+      "win_rate_pct": 19.4,
+      "total_pnl": -59.66
+     },
+     {
+      "trades": 25,
+      "return_pct": 0.76,
+      "win_rate_pct": 28.0,
+      "total_pnl": 76.28
+     },
+     {
+      "trades": 23,
+      "return_pct": 5.58,
+      "win_rate_pct": 30.4,
+      "total_pnl": 557.76
+     },
+     {
+      "trades": 35,
+      "return_pct": -7.06,
+      "win_rate_pct": 11.4,
+      "total_pnl": -706.21
+     },
+     {
+      "trades": 29,
+      "return_pct": -5.7,
+      "win_rate_pct": 17.2,
+      "total_pnl": -570.27
+     },
+     {
+      "trades": 27,
+      "return_pct": -0.89,
+      "win_rate_pct": 18.5,
+      "total_pnl": -88.79
+     },
+     {
+      "trades": 31,
+      "return_pct": -2.87,
+      "win_rate_pct": 12.9,
+      "total_pnl": -287.31
+     },
+     {
+      "trades": 28,
+      "return_pct": -1.67,
+      "win_rate_pct": 10.7,
+      "total_pnl": -167.3
+     },
+     {
+      "trades": 23,
+      "return_pct": -0.25,
+      "win_rate_pct": 21.7,
+      "total_pnl": -25.0
+     }
+    ],
+    "mean_return_pct": -1.99,
+    "std_return_pct": 3.21,
+    "t_stat": -3.29,
+    "pct_paths_profitable": 28.6,
+    "purged_trades": 1,
+    "kept_trades_unique": 114,
+    "total_trades": 115
+   },
+   "prior_metrics_version": 2,
+   "prior_v2": {
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "strategy": "turtle_trend",
+    "trades": 115,
+    "win_rate_pct": 23.5,
+    "total_pnl": -440.66,
+    "fees": 556.51,
+    "profit_factor": 0.84,
+    "avg_win": 84.71,
+    "avg_loss": -31.0,
+    "max_drawdown_pct": -9.73,
+    "sharpe": -0.67,
+    "return_pct": -4.41,
+    "start_equity": 10000.0,
+    "end_equity": 9559.34,
+    "starting_capital": 10000.0,
+    "metrics_version": 2,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 8563
+   },
+   "prior_v2_differences": {
+    "symbol": {
+     "before": "BTC/USDT",
+     "after": "BTC/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "1h",
+     "after": "1h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "turtle_trend",
+     "after": "turtle_trend",
+     "delta": null
+    },
+    "trades": {
+     "before": 115,
+     "after": 115,
+     "delta": 0
+    },
+    "win_rate_pct": {
+     "before": 23.5,
+     "after": 23.5,
+     "delta": 0.0
+    },
+    "total_pnl": {
+     "before": -440.66,
+     "after": -440.66,
+     "delta": 0.0
+    },
+    "fees": {
+     "before": 556.51,
+     "after": 556.51,
+     "delta": 0.0
+    },
+    "profit_factor": {
+     "before": 0.84,
+     "after": 0.84,
+     "delta": 0.0
+    },
+    "avg_win": {
+     "before": 84.71,
+     "after": 84.71,
+     "delta": 0.0
+    },
+    "avg_loss": {
+     "before": -31.0,
+     "after": -31.0,
+     "delta": 0.0
+    },
+    "max_drawdown_pct": {
+     "before": -9.73,
+     "after": -9.73,
+     "delta": 0.0
+    },
+    "sharpe": {
+     "before": -0.67,
+     "after": -0.67,
+     "delta": 0.0
+    },
+    "return_pct": {
+     "before": -4.41,
+     "after": -4.41,
+     "delta": 0.0
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 9559.34,
+     "after": 9559.34,
+     "delta": 0.0
+    },
+    "starting_capital": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "metrics_version": {
+     "before": 2,
+     "after": 3,
+     "delta": 1
+    },
+    "capital_model": {
+     "before": "fixed_starting_capital",
+     "after": "fixed_starting_capital",
+     "delta": null
+    },
+    "return_basis": {
+     "before": "net_pnl_over_starting_capital",
+     "after": "net_pnl_over_starting_capital",
+     "delta": null
+    },
+    "n_return_observations": {
+     "before": 8563,
+     "after": 8563,
+     "delta": 0
+    }
+   }
+  },
+  {
+   "run": "ETHUSDT_1h_turtle",
+   "symbol": "ETH/USDT",
+   "timeframe": "1h",
+   "strategy": "turtle_trend",
+   "requested_window": [
+    "2026-01-04",
+    "2026-09-04"
+   ],
+   "actual_window": [
+    "2026-01-04 00:00:00+00:00",
+    "2026-09-03 23:00:00+00:00"
+   ],
+   "bars": 5832,
+   "input": {
+    "path": "data/cache/ETHUSDT_1h_2026-01-04_2026-09-04.parquet",
+    "sha256": "9733eb8a9f0960756dc1ffe2f1e75862816884aebefea4b18721948a9b029fe3"
+   },
+   "input_attrs": {
+    "caliber": "raw",
+    "source": "binance"
+   },
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_same_config": {
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "strategy": "turtle_trend",
+    "trades": 71,
+    "win_rate_pct": 22.5,
+    "total_pnl": 38.48,
+    "fees": 352.75,
+    "profit_factor": 1.02,
+    "avg_win": 138.54,
+    "avg_loss": -39.6,
+    "max_drawdown_pct": -9.72,
+    "sharpe": 0.26,
+    "return_pct": 0.39,
+    "start_equity": 10000.0,
+    "end_equity": 10038.51
+   },
+   "v3": {
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "strategy": "turtle_trend",
+    "trades": 70,
+    "win_rate_pct": 22.9,
+    "total_pnl": 78.44,
+    "fees": 348.5,
+    "profit_factor": 1.04,
+    "avg_win": 138.82,
+    "avg_loss": -39.68,
+    "max_drawdown_pct": -9.44,
+    "sharpe": 0.18,
+    "return_pct": 0.78,
+    "start_equity": 10000.0,
+    "end_equity": 10078.44,
+    "starting_capital": 10000.0,
+    "metrics_version": 3,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 5611
+   },
+   "v1_reused": true,
+   "same_config_differences": {
+    "symbol": {
+     "before": "ETH/USDT",
+     "after": "ETH/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "1h",
+     "after": "1h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "turtle_trend",
+     "after": "turtle_trend",
+     "delta": null
+    },
+    "trades": {
+     "before": 71,
+     "after": 70,
+     "delta": -1
+    },
+    "win_rate_pct": {
+     "before": 22.5,
+     "after": 22.9,
+     "delta": 0.4
+    },
+    "total_pnl": {
+     "before": 38.48,
+     "after": 78.44,
+     "delta": 39.96
+    },
+    "fees": {
+     "before": 352.75,
+     "after": 348.5,
+     "delta": -4.25
+    },
+    "profit_factor": {
+     "before": 1.02,
+     "after": 1.04,
+     "delta": 0.02
+    },
+    "avg_win": {
+     "before": 138.54,
+     "after": 138.82,
+     "delta": 0.28
+    },
+    "avg_loss": {
+     "before": -39.6,
+     "after": -39.68,
+     "delta": -0.08
+    },
+    "max_drawdown_pct": {
+     "before": -9.72,
+     "after": -9.44,
+     "delta": 0.28
+    },
+    "sharpe": {
+     "before": 0.26,
+     "after": 0.18,
+     "delta": -0.08
+    },
+    "return_pct": {
+     "before": 0.39,
+     "after": 0.78,
+     "delta": 0.39
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 10038.51,
+     "after": 10078.44,
+     "delta": 39.93
+    }
+   },
+   "historical_reports": {
+    "before": {
+     "report": {
+      "path": "data/results/pinned_before/ETHUSDT_1h_turtle.json",
+      "sha256": "f0e64e7aecba70cd172f671f30f43a42dd534119ca5d7706f14e1de6e755df54"
+     },
+     "stats": {
+      "symbol": "ETH/USDT",
+      "timeframe": "1h",
+      "strategy": "turtle_trend",
+      "trades": 71,
+      "win_rate_pct": 22.5,
+      "total_pnl": 29.01,
+      "fees": 352.7,
+      "profit_factor": 1.01,
+      "avg_win": 138.5,
+      "avg_loss": -39.76,
+      "max_drawdown_pct": -9.8,
+      "sharpe": 0.23,
+      "return_pct": 0.29,
+      "start_equity": 10000.0,
+      "end_equity": 10029.0
+     },
+     "differences": {
+      "symbol": {
+       "before": "ETH/USDT",
+       "after": "ETH/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "1h",
+       "after": "1h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "turtle_trend",
+       "after": "turtle_trend",
+       "delta": null
+      },
+      "trades": {
+       "before": 71,
+       "after": 70,
+       "delta": -1
+      },
+      "win_rate_pct": {
+       "before": 22.5,
+       "after": 22.9,
+       "delta": 0.4
+      },
+      "total_pnl": {
+       "before": 29.01,
+       "after": 78.44,
+       "delta": 49.43
+      },
+      "fees": {
+       "before": 352.7,
+       "after": 348.5,
+       "delta": -4.2
+      },
+      "profit_factor": {
+       "before": 1.01,
+       "after": 1.04,
+       "delta": 0.03
+      },
+      "avg_win": {
+       "before": 138.5,
+       "after": 138.82,
+       "delta": 0.32
+      },
+      "avg_loss": {
+       "before": -39.76,
+       "after": -39.68,
+       "delta": 0.08
+      },
+      "max_drawdown_pct": {
+       "before": -9.8,
+       "after": -9.44,
+       "delta": 0.36
+      },
+      "sharpe": {
+       "before": 0.23,
+       "after": 0.18,
+       "delta": -0.05
+      },
+      "return_pct": {
+       "before": 0.29,
+       "after": 0.78,
+       "delta": 0.49
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 10029.0,
+       "after": 10078.44,
+       "delta": 49.44
+      }
+     }
+    },
+    "mid": {
+     "report": {
+      "path": "data/results/pinned_mid/ETHUSDT_1h_turtle.json",
+      "sha256": "f0e64e7aecba70cd172f671f30f43a42dd534119ca5d7706f14e1de6e755df54"
+     },
+     "stats": {
+      "symbol": "ETH/USDT",
+      "timeframe": "1h",
+      "strategy": "turtle_trend",
+      "trades": 71,
+      "win_rate_pct": 22.5,
+      "total_pnl": 29.01,
+      "fees": 352.7,
+      "profit_factor": 1.01,
+      "avg_win": 138.5,
+      "avg_loss": -39.76,
+      "max_drawdown_pct": -9.8,
+      "sharpe": 0.23,
+      "return_pct": 0.29,
+      "start_equity": 10000.0,
+      "end_equity": 10029.0
+     },
+     "differences": {
+      "symbol": {
+       "before": "ETH/USDT",
+       "after": "ETH/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "1h",
+       "after": "1h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "turtle_trend",
+       "after": "turtle_trend",
+       "delta": null
+      },
+      "trades": {
+       "before": 71,
+       "after": 70,
+       "delta": -1
+      },
+      "win_rate_pct": {
+       "before": 22.5,
+       "after": 22.9,
+       "delta": 0.4
+      },
+      "total_pnl": {
+       "before": 29.01,
+       "after": 78.44,
+       "delta": 49.43
+      },
+      "fees": {
+       "before": 352.7,
+       "after": 348.5,
+       "delta": -4.2
+      },
+      "profit_factor": {
+       "before": 1.01,
+       "after": 1.04,
+       "delta": 0.03
+      },
+      "avg_win": {
+       "before": 138.5,
+       "after": 138.82,
+       "delta": 0.32
+      },
+      "avg_loss": {
+       "before": -39.76,
+       "after": -39.68,
+       "delta": 0.08
+      },
+      "max_drawdown_pct": {
+       "before": -9.8,
+       "after": -9.44,
+       "delta": 0.36
+      },
+      "sharpe": {
+       "before": 0.23,
+       "after": 0.18,
+       "delta": -0.05
+      },
+      "return_pct": {
+       "before": 0.29,
+       "after": 0.78,
+       "delta": 0.49
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 10029.0,
+       "after": 10078.44,
+       "delta": 49.44
+      }
+     }
+    },
+    "after": {
+     "report": {
+      "path": "data/results/pinned_after/ETHUSDT_1h_turtle.json",
+      "sha256": "f42f34f57b947fee2465dc882d8fcf449df90bb71e656e6611d3d1b4c47942f4"
+     },
+     "stats": {
+      "symbol": "ETH/USDT",
+      "timeframe": "1h",
+      "strategy": "turtle_trend",
+      "trades": 71,
+      "win_rate_pct": 22.5,
+      "total_pnl": 38.53,
+      "fees": 352.75,
+      "profit_factor": 1.02,
+      "avg_win": 138.54,
+      "avg_loss": -39.6,
+      "max_drawdown_pct": -9.72,
+      "sharpe": 0.26,
+      "return_pct": 0.39,
+      "start_equity": 10000.0,
+      "end_equity": 10038.53
+     },
+     "differences": {
+      "symbol": {
+       "before": "ETH/USDT",
+       "after": "ETH/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "1h",
+       "after": "1h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "turtle_trend",
+       "after": "turtle_trend",
+       "delta": null
+      },
+      "trades": {
+       "before": 71,
+       "after": 70,
+       "delta": -1
+      },
+      "win_rate_pct": {
+       "before": 22.5,
+       "after": 22.9,
+       "delta": 0.4
+      },
+      "total_pnl": {
+       "before": 38.53,
+       "after": 78.44,
+       "delta": 39.91
+      },
+      "fees": {
+       "before": 352.75,
+       "after": 348.5,
+       "delta": -4.25
+      },
+      "profit_factor": {
+       "before": 1.02,
+       "after": 1.04,
+       "delta": 0.02
+      },
+      "avg_win": {
+       "before": 138.54,
+       "after": 138.82,
+       "delta": 0.28
+      },
+      "avg_loss": {
+       "before": -39.6,
+       "after": -39.68,
+       "delta": -0.08
+      },
+      "max_drawdown_pct": {
+       "before": -9.72,
+       "after": -9.44,
+       "delta": 0.28
+      },
+      "sharpe": {
+       "before": 0.26,
+       "after": 0.18,
+       "delta": -0.08
+      },
+      "return_pct": {
+       "before": 0.39,
+       "after": 0.78,
+       "delta": 0.39
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 10038.53,
+       "after": 10078.44,
+       "delta": 39.91
+      }
+     }
+    }
+   },
+   "corrected_cv": {
+    "metrics_version": 2,
+    "starting_capital": 10000.0,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_paths": 28,
+    "n_active_paths": 28,
+    "paths": [
+     {
+      "trades": 12,
+      "return_pct": 3.61,
+      "win_rate_pct": 41.7,
+      "total_pnl": 360.84
+     },
+     {
+      "trades": 15,
+      "return_pct": -2.15,
+      "win_rate_pct": 26.7,
+      "total_pnl": -215.38
+     },
+     {
+      "trades": 15,
+      "return_pct": -1.98,
+      "win_rate_pct": 26.7,
+      "total_pnl": -197.72
+     },
+     {
+      "trades": 16,
+      "return_pct": -3.53,
+      "win_rate_pct": 18.8,
+      "total_pnl": -352.66
+     },
+     {
+      "trades": 12,
+      "return_pct": -2.92,
+      "win_rate_pct": 25.0,
+      "total_pnl": -292.1
+     },
+     {
+      "trades": 13,
+      "return_pct": -2.08,
+      "win_rate_pct": 30.8,
+      "total_pnl": -208.37
+     },
+     {
+      "trades": 12,
+      "return_pct": 3.26,
+      "win_rate_pct": 25.0,
+      "total_pnl": 326.08
+     },
+     {
+      "trades": 16,
+      "return_pct": -2.36,
+      "win_rate_pct": 25.0,
+      "total_pnl": -235.82
+     },
+     {
+      "trades": 15,
+      "return_pct": -1.56,
+      "win_rate_pct": 26.7,
+      "total_pnl": -155.94
+     },
+     {
+      "trades": 16,
+      "return_pct": -3.11,
+      "win_rate_pct": 18.8,
+      "total_pnl": -310.87
+     },
+     {
+      "trades": 12,
+      "return_pct": -2.5,
+      "win_rate_pct": 25.0,
+      "total_pnl": -250.31
+     },
+     {
+      "trades": 13,
+      "return_pct": -1.67,
+      "win_rate_pct": 30.8,
+      "total_pnl": -166.58
+     },
+     {
+      "trades": 12,
+      "return_pct": 3.68,
+      "win_rate_pct": 25.0,
+      "total_pnl": 367.86
+     },
+     {
+      "trades": 21,
+      "return_pct": -3.47,
+      "win_rate_pct": 19.0,
+      "total_pnl": -346.51
+     },
+     {
+      "trades": 21,
+      "return_pct": -4.75,
+      "win_rate_pct": 14.3,
+      "total_pnl": -474.6
+     },
+     {
+      "trades": 17,
+      "return_pct": -4.14,
+      "win_rate_pct": 17.6,
+      "total_pnl": -414.04
+     },
+     {
+      "trades": 18,
+      "return_pct": -3.3,
+      "win_rate_pct": 22.2,
+      "total_pnl": -330.31
+     },
+     {
+      "trades": 17,
+      "return_pct": 2.04,
+      "win_rate_pct": 17.6,
+      "total_pnl": 204.13
+     },
+     {
+      "trades": 21,
+      "return_pct": -4.57,
+      "win_rate_pct": 14.3,
+      "total_pnl": -456.94
+     },
+     {
+      "trades": 17,
+      "return_pct": -3.96,
+      "win_rate_pct": 17.6,
+      "total_pnl": -396.38
+     },
+     {
+      "trades": 18,
+      "return_pct": -3.13,
+      "win_rate_pct": 22.2,
+      "total_pnl": -312.65
+     },
+     {
+      "trades": 17,
+      "return_pct": 2.22,
+      "win_rate_pct": 17.6,
+      "total_pnl": 221.79
+     },
+     {
+      "trades": 19,
+      "return_pct": -1.22,
+      "win_rate_pct": 15.8,
+      "total_pnl": -121.6
+     },
+     {
+      "trades": 19,
+      "return_pct": -4.68,
+      "win_rate_pct": 15.8,
+      "total_pnl": -467.59
+     },
+     {
+      "trades": 18,
+      "return_pct": 0.67,
+      "win_rate_pct": 11.1,
+      "total_pnl": 66.85
+     },
+     {
+      "trades": 17,
+      "return_pct": -3.7,
+      "win_rate_pct": 23.5,
+      "total_pnl": -370.24
+     },
+     {
+      "trades": 14,
+      "return_pct": 1.27,
+      "win_rate_pct": 14.3,
+      "total_pnl": 127.41
+     },
+     {
+      "trades": 15,
+      "return_pct": 2.11,
+      "win_rate_pct": 20.0,
+      "total_pnl": 211.14
+     }
+    ],
+    "mean_return_pct": -1.5,
+    "std_return_pct": 2.7,
+    "t_stat": -2.93,
+    "pct_paths_profitable": 28.6,
+    "purged_trades": 0,
+    "kept_trades_unique": 70,
+    "total_trades": 70
+   },
+   "prior_metrics_version": 2,
+   "prior_v2": {
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "strategy": "turtle_trend",
+    "trades": 69,
+    "win_rate_pct": 23.2,
+    "total_pnl": 151.27,
+    "fees": 345.8,
+    "profit_factor": 1.07,
+    "avg_win": 139.79,
+    "avg_loss": -39.35,
+    "max_drawdown_pct": -9.44,
+    "sharpe": 0.31,
+    "return_pct": 1.51,
+    "start_equity": 10000.0,
+    "end_equity": 10151.27,
+    "starting_capital": 10000.0,
+    "metrics_version": 2,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 5611
+   },
+   "prior_v2_differences": {
+    "symbol": {
+     "before": "ETH/USDT",
+     "after": "ETH/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "1h",
+     "after": "1h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "turtle_trend",
+     "after": "turtle_trend",
+     "delta": null
+    },
+    "trades": {
+     "before": 69,
+     "after": 70,
+     "delta": 1
+    },
+    "win_rate_pct": {
+     "before": 23.2,
+     "after": 22.9,
+     "delta": -0.3
+    },
+    "total_pnl": {
+     "before": 151.27,
+     "after": 78.44,
+     "delta": -72.83
+    },
+    "fees": {
+     "before": 345.8,
+     "after": 348.5,
+     "delta": 2.7
+    },
+    "profit_factor": {
+     "before": 1.07,
+     "after": 1.04,
+     "delta": -0.03
+    },
+    "avg_win": {
+     "before": 139.79,
+     "after": 138.82,
+     "delta": -0.97
+    },
+    "avg_loss": {
+     "before": -39.35,
+     "after": -39.68,
+     "delta": -0.33
+    },
+    "max_drawdown_pct": {
+     "before": -9.44,
+     "after": -9.44,
+     "delta": 0.0
+    },
+    "sharpe": {
+     "before": 0.31,
+     "after": 0.18,
+     "delta": -0.13
+    },
+    "return_pct": {
+     "before": 1.51,
+     "after": 0.78,
+     "delta": -0.73
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 10151.27,
+     "after": 10078.44,
+     "delta": -72.83
+    },
+    "starting_capital": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "metrics_version": {
+     "before": 2,
+     "after": 3,
+     "delta": 1
+    },
+    "capital_model": {
+     "before": "fixed_starting_capital",
+     "after": "fixed_starting_capital",
+     "delta": null
+    },
+    "return_basis": {
+     "before": "net_pnl_over_starting_capital",
+     "after": "net_pnl_over_starting_capital",
+     "delta": null
+    },
+    "n_return_observations": {
+     "before": 5611,
+     "after": 5611,
+     "delta": 0
+    }
+   }
+  },
+  {
+   "run": "SOLUSDT_1h_turtle",
+   "symbol": "SOL/USDT",
+   "timeframe": "1h",
+   "strategy": "turtle_trend",
+   "requested_window": [
+    "2026-01-10",
+    "2026-09-04"
+   ],
+   "actual_window": [
+    "2026-01-10 00:00:00+00:00",
+    "2026-09-03 23:00:00+00:00"
+   ],
+   "bars": 5688,
+   "input": {
+    "path": "data/cache/SOLUSDT_1h_2026-01-10_2026-09-04.parquet",
+    "sha256": "e53e13b59fc96c5bb703e7d78f28d3defe2b621659443695695c52004f7f92c0"
+   },
+   "input_attrs": {
+    "caliber": "raw",
+    "source": "binance"
+   },
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_same_config": {
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "strategy": "turtle_trend",
+    "trades": 57,
+    "win_rate_pct": 42.1,
+    "total_pnl": 1036.49,
+    "fees": 298.12,
+    "profit_factor": 1.66,
+    "avg_win": 109.02,
+    "avg_loss": -47.87,
+    "max_drawdown_pct": -7.46,
+    "sharpe": 3.27,
+    "return_pct": 10.36,
+    "start_equity": 10000.0,
+    "end_equity": 11036.46
+   },
+   "v3": {
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "strategy": "turtle_trend",
+    "trades": 56,
+    "win_rate_pct": 41.1,
+    "total_pnl": 1048.81,
+    "fees": 293.5,
+    "profit_factor": 1.67,
+    "avg_win": 113.24,
+    "avg_loss": -47.14,
+    "max_drawdown_pct": -7.49,
+    "sharpe": 1.71,
+    "return_pct": 10.49,
+    "start_equity": 10000.0,
+    "end_equity": 11048.81,
+    "starting_capital": 10000.0,
+    "metrics_version": 3,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 5467
+   },
+   "v1_reused": true,
+   "same_config_differences": {
+    "symbol": {
+     "before": "SOL/USDT",
+     "after": "SOL/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "1h",
+     "after": "1h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "turtle_trend",
+     "after": "turtle_trend",
+     "delta": null
+    },
+    "trades": {
+     "before": 57,
+     "after": 56,
+     "delta": -1
+    },
+    "win_rate_pct": {
+     "before": 42.1,
+     "after": 41.1,
+     "delta": -1.0
+    },
+    "total_pnl": {
+     "before": 1036.49,
+     "after": 1048.81,
+     "delta": 12.32
+    },
+    "fees": {
+     "before": 298.12,
+     "after": 293.5,
+     "delta": -4.62
+    },
+    "profit_factor": {
+     "before": 1.66,
+     "after": 1.67,
+     "delta": 0.01
+    },
+    "avg_win": {
+     "before": 109.02,
+     "after": 113.24,
+     "delta": 4.22
+    },
+    "avg_loss": {
+     "before": -47.87,
+     "after": -47.14,
+     "delta": 0.73
+    },
+    "max_drawdown_pct": {
+     "before": -7.46,
+     "after": -7.49,
+     "delta": -0.03
+    },
+    "sharpe": {
+     "before": 3.27,
+     "after": 1.71,
+     "delta": -1.56
+    },
+    "return_pct": {
+     "before": 10.36,
+     "after": 10.49,
+     "delta": 0.13
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 11036.46,
+     "after": 11048.81,
+     "delta": 12.35
+    }
+   },
+   "historical_reports": {
+    "before": {
+     "report": {
+      "path": "data/results/pinned_before/SOLUSDT_1h_turtle.json",
+      "sha256": "bc38491733a61f3b67bda6c35c1dd652c5bef713033d1c6732d289d4dac1f7bf"
+     },
+     "stats": {
+      "symbol": "SOL/USDT",
+      "timeframe": "1h",
+      "strategy": "turtle_trend",
+      "trades": 57,
+      "win_rate_pct": 42.1,
+      "total_pnl": 1031.59,
+      "fees": 298.06,
+      "profit_factor": 1.65,
+      "avg_win": 108.99,
+      "avg_loss": -48.01,
+      "max_drawdown_pct": -7.5,
+      "sharpe": 3.25,
+      "return_pct": 10.32,
+      "start_equity": 10000.0,
+      "end_equity": 11031.58
+     },
+     "differences": {
+      "symbol": {
+       "before": "SOL/USDT",
+       "after": "SOL/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "1h",
+       "after": "1h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "turtle_trend",
+       "after": "turtle_trend",
+       "delta": null
+      },
+      "trades": {
+       "before": 57,
+       "after": 56,
+       "delta": -1
+      },
+      "win_rate_pct": {
+       "before": 42.1,
+       "after": 41.1,
+       "delta": -1.0
+      },
+      "total_pnl": {
+       "before": 1031.59,
+       "after": 1048.81,
+       "delta": 17.22
+      },
+      "fees": {
+       "before": 298.06,
+       "after": 293.5,
+       "delta": -4.56
+      },
+      "profit_factor": {
+       "before": 1.65,
+       "after": 1.67,
+       "delta": 0.02
+      },
+      "avg_win": {
+       "before": 108.99,
+       "after": 113.24,
+       "delta": 4.25
+      },
+      "avg_loss": {
+       "before": -48.01,
+       "after": -47.14,
+       "delta": 0.87
+      },
+      "max_drawdown_pct": {
+       "before": -7.5,
+       "after": -7.49,
+       "delta": 0.01
+      },
+      "sharpe": {
+       "before": 3.25,
+       "after": 1.71,
+       "delta": -1.54
+      },
+      "return_pct": {
+       "before": 10.32,
+       "after": 10.49,
+       "delta": 0.17
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 11031.58,
+       "after": 11048.81,
+       "delta": 17.23
+      }
+     }
+    },
+    "mid": {
+     "report": {
+      "path": "data/results/pinned_mid/SOLUSDT_1h_turtle.json",
+      "sha256": "bc38491733a61f3b67bda6c35c1dd652c5bef713033d1c6732d289d4dac1f7bf"
+     },
+     "stats": {
+      "symbol": "SOL/USDT",
+      "timeframe": "1h",
+      "strategy": "turtle_trend",
+      "trades": 57,
+      "win_rate_pct": 42.1,
+      "total_pnl": 1031.59,
+      "fees": 298.06,
+      "profit_factor": 1.65,
+      "avg_win": 108.99,
+      "avg_loss": -48.01,
+      "max_drawdown_pct": -7.5,
+      "sharpe": 3.25,
+      "return_pct": 10.32,
+      "start_equity": 10000.0,
+      "end_equity": 11031.58
+     },
+     "differences": {
+      "symbol": {
+       "before": "SOL/USDT",
+       "after": "SOL/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "1h",
+       "after": "1h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "turtle_trend",
+       "after": "turtle_trend",
+       "delta": null
+      },
+      "trades": {
+       "before": 57,
+       "after": 56,
+       "delta": -1
+      },
+      "win_rate_pct": {
+       "before": 42.1,
+       "after": 41.1,
+       "delta": -1.0
+      },
+      "total_pnl": {
+       "before": 1031.59,
+       "after": 1048.81,
+       "delta": 17.22
+      },
+      "fees": {
+       "before": 298.06,
+       "after": 293.5,
+       "delta": -4.56
+      },
+      "profit_factor": {
+       "before": 1.65,
+       "after": 1.67,
+       "delta": 0.02
+      },
+      "avg_win": {
+       "before": 108.99,
+       "after": 113.24,
+       "delta": 4.25
+      },
+      "avg_loss": {
+       "before": -48.01,
+       "after": -47.14,
+       "delta": 0.87
+      },
+      "max_drawdown_pct": {
+       "before": -7.5,
+       "after": -7.49,
+       "delta": 0.01
+      },
+      "sharpe": {
+       "before": 3.25,
+       "after": 1.71,
+       "delta": -1.54
+      },
+      "return_pct": {
+       "before": 10.32,
+       "after": 10.49,
+       "delta": 0.17
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 11031.58,
+       "after": 11048.81,
+       "delta": 17.23
+      }
+     }
+    },
+    "after": {
+     "report": {
+      "path": "data/results/pinned_after/SOLUSDT_1h_turtle.json",
+      "sha256": "38acb10643a706ead9a3c8cef23ab40af9050f8cd48aa64c5ee8544c0e88882c"
+     },
+     "stats": {
+      "symbol": "SOL/USDT",
+      "timeframe": "1h",
+      "strategy": "turtle_trend",
+      "trades": 57,
+      "win_rate_pct": 42.1,
+      "total_pnl": 1036.53,
+      "fees": 298.13,
+      "profit_factor": 1.66,
+      "avg_win": 109.02,
+      "avg_loss": -47.87,
+      "max_drawdown_pct": -7.46,
+      "sharpe": 3.27,
+      "return_pct": 10.37,
+      "start_equity": 10000.0,
+      "end_equity": 11036.54
+     },
+     "differences": {
+      "symbol": {
+       "before": "SOL/USDT",
+       "after": "SOL/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "1h",
+       "after": "1h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "turtle_trend",
+       "after": "turtle_trend",
+       "delta": null
+      },
+      "trades": {
+       "before": 57,
+       "after": 56,
+       "delta": -1
+      },
+      "win_rate_pct": {
+       "before": 42.1,
+       "after": 41.1,
+       "delta": -1.0
+      },
+      "total_pnl": {
+       "before": 1036.53,
+       "after": 1048.81,
+       "delta": 12.28
+      },
+      "fees": {
+       "before": 298.13,
+       "after": 293.5,
+       "delta": -4.63
+      },
+      "profit_factor": {
+       "before": 1.66,
+       "after": 1.67,
+       "delta": 0.01
+      },
+      "avg_win": {
+       "before": 109.02,
+       "after": 113.24,
+       "delta": 4.22
+      },
+      "avg_loss": {
+       "before": -47.87,
+       "after": -47.14,
+       "delta": 0.73
+      },
+      "max_drawdown_pct": {
+       "before": -7.46,
+       "after": -7.49,
+       "delta": -0.03
+      },
+      "sharpe": {
+       "before": 3.27,
+       "after": 1.71,
+       "delta": -1.56
+      },
+      "return_pct": {
+       "before": 10.37,
+       "after": 10.49,
+       "delta": 0.12
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 11036.54,
+       "after": 11048.81,
+       "delta": 12.27
+      }
+     }
+    }
+   },
+   "corrected_cv": {
+    "metrics_version": 2,
+    "starting_capital": 10000.0,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_paths": 28,
+    "n_active_paths": 28,
+    "paths": [
+     {
+      "trades": 13,
+      "return_pct": 6.28,
+      "win_rate_pct": 61.5,
+      "total_pnl": 628.24
+     },
+     {
+      "trades": 13,
+      "return_pct": 8.03,
+      "win_rate_pct": 61.5,
+      "total_pnl": 803.06
+     },
+     {
+      "trades": 13,
+      "return_pct": 5.2,
+      "win_rate_pct": 46.2,
+      "total_pnl": 520.27
+     },
+     {
+      "trades": 13,
+      "return_pct": 7.16,
+      "win_rate_pct": 53.8,
+      "total_pnl": 715.88
+     },
+     {
+      "trades": 11,
+      "return_pct": 7.75,
+      "win_rate_pct": 63.6,
+      "total_pnl": 775.12
+     },
+     {
+      "trades": 11,
+      "return_pct": 7.37,
+      "win_rate_pct": 63.6,
+      "total_pnl": 736.75
+     },
+     {
+      "trades": 13,
+      "return_pct": 13.41,
+      "win_rate_pct": 61.5,
+      "total_pnl": 1340.67
+     },
+     {
+      "trades": 15,
+      "return_pct": -1.98,
+      "win_rate_pct": 40.0,
+      "total_pnl": -198.06
+     },
+     {
+      "trades": 14,
+      "return_pct": -4.06,
+      "win_rate_pct": 28.6,
+      "total_pnl": -405.51
+     },
+     {
+      "trades": 14,
+      "return_pct": -2.1,
+      "win_rate_pct": 35.7,
+      "total_pnl": -209.9
+     },
+     {
+      "trades": 12,
+      "return_pct": -1.51,
+      "win_rate_pct": 41.7,
+      "total_pnl": -150.67
+     },
+     {
+      "trades": 12,
+      "return_pct": -1.89,
+      "win_rate_pct": 41.7,
+      "total_pnl": -189.04
+     },
+     {
+      "trades": 14,
+      "return_pct": 4.15,
+      "win_rate_pct": 42.9,
+      "total_pnl": 414.89
+     },
+     {
+      "trades": 14,
+      "return_pct": -2.31,
+      "win_rate_pct": 28.6,
+      "total_pnl": -230.69
+     },
+     {
+      "trades": 14,
+      "return_pct": -0.35,
+      "win_rate_pct": 35.7,
+      "total_pnl": -35.08
+     },
+     {
+      "trades": 12,
+      "return_pct": 0.24,
+      "win_rate_pct": 41.7,
+      "total_pnl": 24.16
+     },
+     {
+      "trades": 12,
+      "return_pct": -0.14,
+      "win_rate_pct": 41.7,
+      "total_pnl": -14.22
+     },
+     {
+      "trades": 14,
+      "return_pct": 5.9,
+      "win_rate_pct": 42.9,
+      "total_pnl": 589.71
+     },
+     {
+      "trades": 16,
+      "return_pct": -3.01,
+      "win_rate_pct": 25.0,
+      "total_pnl": -300.66
+     },
+     {
+      "trades": 12,
+      "return_pct": -2.59,
+      "win_rate_pct": 25.0,
+      "total_pnl": -258.63
+     },
+     {
+      "trades": 12,
+      "return_pct": -2.97,
+      "win_rate_pct": 25.0,
+      "total_pnl": -297.0
+     },
+     {
+      "trades": 14,
+      "return_pct": 3.07,
+      "win_rate_pct": 28.6,
+      "total_pnl": 306.92
+     },
+     {
+      "trades": 13,
+      "return_pct": 2.27,
+      "win_rate_pct": 38.5,
+      "total_pnl": 226.68
+     },
+     {
+      "trades": 12,
+      "return_pct": -1.01,
+      "win_rate_pct": 33.3,
+      "total_pnl": -101.4
+     },
+     {
+      "trades": 14,
+      "return_pct": 5.03,
+      "win_rate_pct": 35.7,
+      "total_pnl": 502.53
+     },
+     {
+      "trades": 10,
+      "return_pct": -0.42,
+      "win_rate_pct": 40.0,
+      "total_pnl": -42.16
+     },
+     {
+      "trades": 12,
+      "return_pct": 5.62,
+      "win_rate_pct": 41.7,
+      "total_pnl": 561.76
+     },
+     {
+      "trades": 12,
+      "return_pct": 5.23,
+      "win_rate_pct": 41.7,
+      "total_pnl": 523.39
+     }
+    ],
+    "mean_return_pct": 2.23,
+    "std_return_pct": 4.51,
+    "t_stat": 2.61,
+    "pct_paths_profitable": 53.6,
+    "purged_trades": 1,
+    "kept_trades_unique": 55,
+    "total_trades": 56
+   },
+   "prior_metrics_version": 2,
+   "prior_v2": {
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "strategy": "turtle_trend",
+    "trades": 56,
+    "win_rate_pct": 41.1,
+    "total_pnl": 1048.81,
+    "fees": 293.5,
+    "profit_factor": 1.67,
+    "avg_win": 113.24,
+    "avg_loss": -47.14,
+    "max_drawdown_pct": -7.49,
+    "sharpe": 1.71,
+    "return_pct": 10.49,
+    "start_equity": 10000.0,
+    "end_equity": 11048.81,
+    "starting_capital": 10000.0,
+    "metrics_version": 2,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 5467
+   },
+   "prior_v2_differences": {
+    "symbol": {
+     "before": "SOL/USDT",
+     "after": "SOL/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "1h",
+     "after": "1h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "turtle_trend",
+     "after": "turtle_trend",
+     "delta": null
+    },
+    "trades": {
+     "before": 56,
+     "after": 56,
+     "delta": 0
+    },
+    "win_rate_pct": {
+     "before": 41.1,
+     "after": 41.1,
+     "delta": 0.0
+    },
+    "total_pnl": {
+     "before": 1048.81,
+     "after": 1048.81,
+     "delta": 0.0
+    },
+    "fees": {
+     "before": 293.5,
+     "after": 293.5,
+     "delta": 0.0
+    },
+    "profit_factor": {
+     "before": 1.67,
+     "after": 1.67,
+     "delta": 0.0
+    },
+    "avg_win": {
+     "before": 113.24,
+     "after": 113.24,
+     "delta": 0.0
+    },
+    "avg_loss": {
+     "before": -47.14,
+     "after": -47.14,
+     "delta": 0.0
+    },
+    "max_drawdown_pct": {
+     "before": -7.49,
+     "after": -7.49,
+     "delta": 0.0
+    },
+    "sharpe": {
+     "before": 1.71,
+     "after": 1.71,
+     "delta": 0.0
+    },
+    "return_pct": {
+     "before": 10.49,
+     "after": 10.49,
+     "delta": 0.0
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 11048.81,
+     "after": 11048.81,
+     "delta": 0.0
+    },
+    "starting_capital": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "metrics_version": {
+     "before": 2,
+     "after": 3,
+     "delta": 1
+    },
+    "capital_model": {
+     "before": "fixed_starting_capital",
+     "after": "fixed_starting_capital",
+     "delta": null
+    },
+    "return_basis": {
+     "before": "net_pnl_over_starting_capital",
+     "after": "net_pnl_over_starting_capital",
+     "delta": null
+    },
+    "n_return_observations": {
+     "before": 5467,
+     "after": 5467,
+     "delta": 0
+    }
+   }
+  },
+  {
+   "run": "BTCUSDT_4h_connors",
+   "symbol": "BTC/USDT",
+   "timeframe": "4h",
+   "strategy": "connors_meanrev",
+   "requested_window": [
+    "2026-03-09",
+    "2026-09-06"
+   ],
+   "actual_window": [
+    "2026-03-09 00:00:00+00:00",
+    "2026-09-05 20:00:00+00:00"
+   ],
+   "bars": 1086,
+   "input": {
+    "path": "data/cache/BTCUSDT_4h_2026-03-09_2026-09-06.parquet",
+    "sha256": "6da05f466af36cece2a1bad68c15a955f0f056d2edce3bf80a05ac1c9fbc87bd"
+   },
+   "input_attrs": {
+    "caliber": "raw",
+    "source": "binance"
+   },
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_same_config": {
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "strategy": "connors_meanrev",
+    "trades": 6,
+    "win_rate_pct": 83.3,
+    "total_pnl": 76.91,
+    "fees": 28.1,
+    "profit_factor": 14.93,
+    "avg_win": 16.49,
+    "avg_loss": -5.52,
+    "max_drawdown_pct": -0.18,
+    "sharpe": 14.86,
+    "return_pct": 0.77,
+    "start_equity": 10000.0,
+    "end_equity": 10076.91
+   },
+   "v3": {
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "strategy": "connors_meanrev",
+    "trades": 6,
+    "win_rate_pct": 83.3,
+    "total_pnl": 76.91,
+    "fees": 28.1,
+    "profit_factor": 14.93,
+    "avg_win": 16.49,
+    "avg_loss": -5.52,
+    "max_drawdown_pct": -0.19,
+    "sharpe": 1.81,
+    "return_pct": 0.77,
+    "start_equity": 10000.0,
+    "end_equity": 10076.91,
+    "starting_capital": 10000.0,
+    "metrics_version": 3,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 865
+   },
+   "v1_reused": true,
+   "same_config_differences": {
+    "symbol": {
+     "before": "BTC/USDT",
+     "after": "BTC/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "4h",
+     "after": "4h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "connors_meanrev",
+     "after": "connors_meanrev",
+     "delta": null
+    },
+    "trades": {
+     "before": 6,
+     "after": 6,
+     "delta": 0
+    },
+    "win_rate_pct": {
+     "before": 83.3,
+     "after": 83.3,
+     "delta": 0.0
+    },
+    "total_pnl": {
+     "before": 76.91,
+     "after": 76.91,
+     "delta": 0.0
+    },
+    "fees": {
+     "before": 28.1,
+     "after": 28.1,
+     "delta": 0.0
+    },
+    "profit_factor": {
+     "before": 14.93,
+     "after": 14.93,
+     "delta": 0.0
+    },
+    "avg_win": {
+     "before": 16.49,
+     "after": 16.49,
+     "delta": 0.0
+    },
+    "avg_loss": {
+     "before": -5.52,
+     "after": -5.52,
+     "delta": 0.0
+    },
+    "max_drawdown_pct": {
+     "before": -0.18,
+     "after": -0.19,
+     "delta": -0.01
+    },
+    "sharpe": {
+     "before": 14.86,
+     "after": 1.81,
+     "delta": -13.05
+    },
+    "return_pct": {
+     "before": 0.77,
+     "after": 0.77,
+     "delta": 0.0
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 10076.91,
+     "after": 10076.91,
+     "delta": 0.0
+    }
+   },
+   "historical_reports": {
+    "before": {
+     "report": {
+      "path": "data/results/pinned_before/BTCUSDT_4h_connors.json",
+      "sha256": "603ee9dbe2a9299a285d5f3e0f9aa6f34eacdfe8b3f7e0b7dc87e96a4e349deb"
+     },
+     "stats": {
+      "symbol": "BTC/USDT",
+      "timeframe": "4h",
+      "strategy": "connors_meanrev",
+      "trades": 6,
+      "win_rate_pct": 83.3,
+      "total_pnl": 76.91,
+      "fees": 28.1,
+      "profit_factor": 14.93,
+      "avg_win": 16.49,
+      "avg_loss": -5.52,
+      "max_drawdown_pct": -0.18,
+      "sharpe": 14.87,
+      "return_pct": 0.77,
+      "start_equity": 10000.0,
+      "end_equity": 10076.91
+     },
+     "differences": {
+      "symbol": {
+       "before": "BTC/USDT",
+       "after": "BTC/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "4h",
+       "after": "4h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "connors_meanrev",
+       "after": "connors_meanrev",
+       "delta": null
+      },
+      "trades": {
+       "before": 6,
+       "after": 6,
+       "delta": 0
+      },
+      "win_rate_pct": {
+       "before": 83.3,
+       "after": 83.3,
+       "delta": 0.0
+      },
+      "total_pnl": {
+       "before": 76.91,
+       "after": 76.91,
+       "delta": 0.0
+      },
+      "fees": {
+       "before": 28.1,
+       "after": 28.1,
+       "delta": 0.0
+      },
+      "profit_factor": {
+       "before": 14.93,
+       "after": 14.93,
+       "delta": 0.0
+      },
+      "avg_win": {
+       "before": 16.49,
+       "after": 16.49,
+       "delta": 0.0
+      },
+      "avg_loss": {
+       "before": -5.52,
+       "after": -5.52,
+       "delta": 0.0
+      },
+      "max_drawdown_pct": {
+       "before": -0.18,
+       "after": -0.19,
+       "delta": -0.01
+      },
+      "sharpe": {
+       "before": 14.87,
+       "after": 1.81,
+       "delta": -13.06
+      },
+      "return_pct": {
+       "before": 0.77,
+       "after": 0.77,
+       "delta": 0.0
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 10076.91,
+       "after": 10076.91,
+       "delta": 0.0
+      }
+     }
+    },
+    "mid": {
+     "report": {
+      "path": "data/results/pinned_mid/BTCUSDT_4h_connors.json",
+      "sha256": "603ee9dbe2a9299a285d5f3e0f9aa6f34eacdfe8b3f7e0b7dc87e96a4e349deb"
+     },
+     "stats": {
+      "symbol": "BTC/USDT",
+      "timeframe": "4h",
+      "strategy": "connors_meanrev",
+      "trades": 6,
+      "win_rate_pct": 83.3,
+      "total_pnl": 76.91,
+      "fees": 28.1,
+      "profit_factor": 14.93,
+      "avg_win": 16.49,
+      "avg_loss": -5.52,
+      "max_drawdown_pct": -0.18,
+      "sharpe": 14.87,
+      "return_pct": 0.77,
+      "start_equity": 10000.0,
+      "end_equity": 10076.91
+     },
+     "differences": {
+      "symbol": {
+       "before": "BTC/USDT",
+       "after": "BTC/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "4h",
+       "after": "4h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "connors_meanrev",
+       "after": "connors_meanrev",
+       "delta": null
+      },
+      "trades": {
+       "before": 6,
+       "after": 6,
+       "delta": 0
+      },
+      "win_rate_pct": {
+       "before": 83.3,
+       "after": 83.3,
+       "delta": 0.0
+      },
+      "total_pnl": {
+       "before": 76.91,
+       "after": 76.91,
+       "delta": 0.0
+      },
+      "fees": {
+       "before": 28.1,
+       "after": 28.1,
+       "delta": 0.0
+      },
+      "profit_factor": {
+       "before": 14.93,
+       "after": 14.93,
+       "delta": 0.0
+      },
+      "avg_win": {
+       "before": 16.49,
+       "after": 16.49,
+       "delta": 0.0
+      },
+      "avg_loss": {
+       "before": -5.52,
+       "after": -5.52,
+       "delta": 0.0
+      },
+      "max_drawdown_pct": {
+       "before": -0.18,
+       "after": -0.19,
+       "delta": -0.01
+      },
+      "sharpe": {
+       "before": 14.87,
+       "after": 1.81,
+       "delta": -13.06
+      },
+      "return_pct": {
+       "before": 0.77,
+       "after": 0.77,
+       "delta": 0.0
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 10076.91,
+       "after": 10076.91,
+       "delta": 0.0
+      }
+     }
+    },
+    "after": {
+     "report": {
+      "path": "data/results/pinned_after/BTCUSDT_4h_connors.json",
+      "sha256": "603ee9dbe2a9299a285d5f3e0f9aa6f34eacdfe8b3f7e0b7dc87e96a4e349deb"
+     },
+     "stats": {
+      "symbol": "BTC/USDT",
+      "timeframe": "4h",
+      "strategy": "connors_meanrev",
+      "trades": 6,
+      "win_rate_pct": 83.3,
+      "total_pnl": 76.91,
+      "fees": 28.1,
+      "profit_factor": 14.93,
+      "avg_win": 16.49,
+      "avg_loss": -5.52,
+      "max_drawdown_pct": -0.18,
+      "sharpe": 14.87,
+      "return_pct": 0.77,
+      "start_equity": 10000.0,
+      "end_equity": 10076.91
+     },
+     "differences": {
+      "symbol": {
+       "before": "BTC/USDT",
+       "after": "BTC/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "4h",
+       "after": "4h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "connors_meanrev",
+       "after": "connors_meanrev",
+       "delta": null
+      },
+      "trades": {
+       "before": 6,
+       "after": 6,
+       "delta": 0
+      },
+      "win_rate_pct": {
+       "before": 83.3,
+       "after": 83.3,
+       "delta": 0.0
+      },
+      "total_pnl": {
+       "before": 76.91,
+       "after": 76.91,
+       "delta": 0.0
+      },
+      "fees": {
+       "before": 28.1,
+       "after": 28.1,
+       "delta": 0.0
+      },
+      "profit_factor": {
+       "before": 14.93,
+       "after": 14.93,
+       "delta": 0.0
+      },
+      "avg_win": {
+       "before": 16.49,
+       "after": 16.49,
+       "delta": 0.0
+      },
+      "avg_loss": {
+       "before": -5.52,
+       "after": -5.52,
+       "delta": 0.0
+      },
+      "max_drawdown_pct": {
+       "before": -0.18,
+       "after": -0.19,
+       "delta": -0.01
+      },
+      "sharpe": {
+       "before": 14.87,
+       "after": 1.81,
+       "delta": -13.06
+      },
+      "return_pct": {
+       "before": 0.77,
+       "after": 0.77,
+       "delta": 0.0
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 10076.91,
+       "after": 10076.91,
+       "delta": 0.0
+      }
+     }
+    }
+   },
+   "corrected_cv": {
+    "metrics_version": 2,
+    "starting_capital": 10000.0,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_paths": 28,
+    "n_active_paths": 13,
+    "paths": [
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 3,
+      "return_pct": 0.26,
+      "win_rate_pct": 66.7,
+      "total_pnl": 25.63
+     },
+     {
+      "trades": 2,
+      "return_pct": 0.29,
+      "win_rate_pct": 100.0,
+      "total_pnl": 28.8
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 3,
+      "return_pct": 0.26,
+      "win_rate_pct": 66.7,
+      "total_pnl": 25.63
+     },
+     {
+      "trades": 2,
+      "return_pct": 0.29,
+      "win_rate_pct": 100.0,
+      "total_pnl": 28.8
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 3,
+      "return_pct": 0.26,
+      "win_rate_pct": 66.7,
+      "total_pnl": 25.63
+     },
+     {
+      "trades": 2,
+      "return_pct": 0.29,
+      "win_rate_pct": 100.0,
+      "total_pnl": 28.8
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 6,
+      "return_pct": 0.77,
+      "win_rate_pct": 83.3,
+      "total_pnl": 76.91
+     },
+     {
+      "trades": 3,
+      "return_pct": 0.26,
+      "win_rate_pct": 66.7,
+      "total_pnl": 25.63
+     },
+     {
+      "trades": 3,
+      "return_pct": 0.26,
+      "win_rate_pct": 66.7,
+      "total_pnl": 25.63
+     },
+     {
+      "trades": 3,
+      "return_pct": 0.26,
+      "win_rate_pct": 66.7,
+      "total_pnl": 25.63
+     },
+     {
+      "trades": 2,
+      "return_pct": 0.29,
+      "win_rate_pct": 100.0,
+      "total_pnl": 28.8
+     },
+     {
+      "trades": 2,
+      "return_pct": 0.29,
+      "win_rate_pct": 100.0,
+      "total_pnl": 28.8
+     },
+     {
+      "trades": 2,
+      "return_pct": 0.29,
+      "win_rate_pct": 100.0,
+      "total_pnl": 28.8
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     }
+    ],
+    "mean_return_pct": 0.31,
+    "std_return_pct": 0.14,
+    "t_stat": 8.07,
+    "pct_paths_profitable": 100.0,
+    "purged_trades": 0,
+    "kept_trades_unique": 6,
+    "total_trades": 6
+   },
+   "prior_metrics_version": 2,
+   "prior_v2": {
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "strategy": "connors_meanrev",
+    "trades": 6,
+    "win_rate_pct": 83.3,
+    "total_pnl": 76.91,
+    "fees": 28.1,
+    "profit_factor": 14.93,
+    "avg_win": 16.49,
+    "avg_loss": -5.52,
+    "max_drawdown_pct": -0.19,
+    "sharpe": 1.81,
+    "return_pct": 0.77,
+    "start_equity": 10000.0,
+    "end_equity": 10076.91,
+    "starting_capital": 10000.0,
+    "metrics_version": 2,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 865
+   },
+   "prior_v2_differences": {
+    "symbol": {
+     "before": "BTC/USDT",
+     "after": "BTC/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "4h",
+     "after": "4h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "connors_meanrev",
+     "after": "connors_meanrev",
+     "delta": null
+    },
+    "trades": {
+     "before": 6,
+     "after": 6,
+     "delta": 0
+    },
+    "win_rate_pct": {
+     "before": 83.3,
+     "after": 83.3,
+     "delta": 0.0
+    },
+    "total_pnl": {
+     "before": 76.91,
+     "after": 76.91,
+     "delta": 0.0
+    },
+    "fees": {
+     "before": 28.1,
+     "after": 28.1,
+     "delta": 0.0
+    },
+    "profit_factor": {
+     "before": 14.93,
+     "after": 14.93,
+     "delta": 0.0
+    },
+    "avg_win": {
+     "before": 16.49,
+     "after": 16.49,
+     "delta": 0.0
+    },
+    "avg_loss": {
+     "before": -5.52,
+     "after": -5.52,
+     "delta": 0.0
+    },
+    "max_drawdown_pct": {
+     "before": -0.19,
+     "after": -0.19,
+     "delta": 0.0
+    },
+    "sharpe": {
+     "before": 1.81,
+     "after": 1.81,
+     "delta": 0.0
+    },
+    "return_pct": {
+     "before": 0.77,
+     "after": 0.77,
+     "delta": 0.0
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 10076.91,
+     "after": 10076.91,
+     "delta": 0.0
+    },
+    "starting_capital": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "metrics_version": {
+     "before": 2,
+     "after": 3,
+     "delta": 1
+    },
+    "capital_model": {
+     "before": "fixed_starting_capital",
+     "after": "fixed_starting_capital",
+     "delta": null
+    },
+    "return_basis": {
+     "before": "net_pnl_over_starting_capital",
+     "after": "net_pnl_over_starting_capital",
+     "delta": null
+    },
+    "n_return_observations": {
+     "before": 865,
+     "after": 865,
+     "delta": 0
+    }
+   }
+  },
+  {
+   "run": "ETHUSDT_4h_connors",
+   "symbol": "ETH/USDT",
+   "timeframe": "4h",
+   "strategy": "connors_meanrev",
+   "requested_window": [
+    "2026-03-09",
+    "2026-09-06"
+   ],
+   "actual_window": [
+    "2026-03-09 00:00:00+00:00",
+    "2026-09-05 20:00:00+00:00"
+   ],
+   "bars": 1086,
+   "input": {
+    "path": "data/cache/ETHUSDT_4h_2026-03-09_2026-09-06.parquet",
+    "sha256": "09978f16db826b817e92604b0c8fdf37780a817728048964fa27bb9d39f39caa"
+   },
+   "input_attrs": {
+    "caliber": "raw",
+    "source": "binance"
+   },
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_same_config": {
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "strategy": "connors_meanrev",
+    "trades": 4,
+    "win_rate_pct": 50.0,
+    "total_pnl": -23.16,
+    "fees": 14.93,
+    "profit_factor": 0.57,
+    "avg_win": 15.55,
+    "avg_loss": -27.13,
+    "max_drawdown_pct": -0.86,
+    "sharpe": null,
+    "return_pct": -0.23,
+    "start_equity": 10000.0,
+    "end_equity": 9976.83
+   },
+   "v3": {
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "strategy": "connors_meanrev",
+    "trades": 4,
+    "win_rate_pct": 50.0,
+    "total_pnl": -23.17,
+    "fees": 14.93,
+    "profit_factor": 0.57,
+    "avg_win": 15.55,
+    "avg_loss": -27.13,
+    "max_drawdown_pct": -0.89,
+    "sharpe": -0.52,
+    "return_pct": -0.23,
+    "start_equity": 10000.0,
+    "end_equity": 9976.83,
+    "starting_capital": 10000.0,
+    "metrics_version": 3,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 865
+   },
+   "v1_reused": true,
+   "same_config_differences": {
+    "symbol": {
+     "before": "ETH/USDT",
+     "after": "ETH/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "4h",
+     "after": "4h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "connors_meanrev",
+     "after": "connors_meanrev",
+     "delta": null
+    },
+    "trades": {
+     "before": 4,
+     "after": 4,
+     "delta": 0
+    },
+    "win_rate_pct": {
+     "before": 50.0,
+     "after": 50.0,
+     "delta": 0.0
+    },
+    "total_pnl": {
+     "before": -23.16,
+     "after": -23.17,
+     "delta": -0.01
+    },
+    "fees": {
+     "before": 14.93,
+     "after": 14.93,
+     "delta": 0.0
+    },
+    "profit_factor": {
+     "before": 0.57,
+     "after": 0.57,
+     "delta": 0.0
+    },
+    "avg_win": {
+     "before": 15.55,
+     "after": 15.55,
+     "delta": 0.0
+    },
+    "avg_loss": {
+     "before": -27.13,
+     "after": -27.13,
+     "delta": 0.0
+    },
+    "max_drawdown_pct": {
+     "before": -0.86,
+     "after": -0.89,
+     "delta": -0.03
+    },
+    "sharpe": {
+     "before": null,
+     "after": -0.52,
+     "delta": null
+    },
+    "return_pct": {
+     "before": -0.23,
+     "after": -0.23,
+     "delta": 0.0
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 9976.83,
+     "after": 9976.83,
+     "delta": 0.0
+    }
+   },
+   "historical_reports": {
+    "before": {
+     "report": {
+      "path": "data/results/pinned_before/ETHUSDT_4h_connors.json",
+      "sha256": "1128c87a56e5c153e57e14e48da77446c531047b0e169648996eb2af06f60007"
+     },
+     "stats": {
+      "symbol": "ETH/USDT",
+      "timeframe": "4h",
+      "strategy": "connors_meanrev",
+      "trades": 4,
+      "win_rate_pct": 50.0,
+      "total_pnl": -23.16,
+      "fees": 14.93,
+      "profit_factor": 0.57,
+      "avg_win": 15.55,
+      "avg_loss": -27.13,
+      "max_drawdown_pct": -0.86,
+      "sharpe": null,
+      "return_pct": -0.23,
+      "start_equity": 10000.0,
+      "end_equity": 9976.83
+     },
+     "differences": {
+      "symbol": {
+       "before": "ETH/USDT",
+       "after": "ETH/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "4h",
+       "after": "4h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "connors_meanrev",
+       "after": "connors_meanrev",
+       "delta": null
+      },
+      "trades": {
+       "before": 4,
+       "after": 4,
+       "delta": 0
+      },
+      "win_rate_pct": {
+       "before": 50.0,
+       "after": 50.0,
+       "delta": 0.0
+      },
+      "total_pnl": {
+       "before": -23.16,
+       "after": -23.17,
+       "delta": -0.01
+      },
+      "fees": {
+       "before": 14.93,
+       "after": 14.93,
+       "delta": 0.0
+      },
+      "profit_factor": {
+       "before": 0.57,
+       "after": 0.57,
+       "delta": 0.0
+      },
+      "avg_win": {
+       "before": 15.55,
+       "after": 15.55,
+       "delta": 0.0
+      },
+      "avg_loss": {
+       "before": -27.13,
+       "after": -27.13,
+       "delta": 0.0
+      },
+      "max_drawdown_pct": {
+       "before": -0.86,
+       "after": -0.89,
+       "delta": -0.03
+      },
+      "sharpe": {
+       "before": null,
+       "after": -0.52,
+       "delta": null
+      },
+      "return_pct": {
+       "before": -0.23,
+       "after": -0.23,
+       "delta": 0.0
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 9976.83,
+       "after": 9976.83,
+       "delta": 0.0
+      }
+     }
+    },
+    "mid": {
+     "report": {
+      "path": "data/results/pinned_mid/ETHUSDT_4h_connors.json",
+      "sha256": "1128c87a56e5c153e57e14e48da77446c531047b0e169648996eb2af06f60007"
+     },
+     "stats": {
+      "symbol": "ETH/USDT",
+      "timeframe": "4h",
+      "strategy": "connors_meanrev",
+      "trades": 4,
+      "win_rate_pct": 50.0,
+      "total_pnl": -23.16,
+      "fees": 14.93,
+      "profit_factor": 0.57,
+      "avg_win": 15.55,
+      "avg_loss": -27.13,
+      "max_drawdown_pct": -0.86,
+      "sharpe": null,
+      "return_pct": -0.23,
+      "start_equity": 10000.0,
+      "end_equity": 9976.83
+     },
+     "differences": {
+      "symbol": {
+       "before": "ETH/USDT",
+       "after": "ETH/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "4h",
+       "after": "4h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "connors_meanrev",
+       "after": "connors_meanrev",
+       "delta": null
+      },
+      "trades": {
+       "before": 4,
+       "after": 4,
+       "delta": 0
+      },
+      "win_rate_pct": {
+       "before": 50.0,
+       "after": 50.0,
+       "delta": 0.0
+      },
+      "total_pnl": {
+       "before": -23.16,
+       "after": -23.17,
+       "delta": -0.01
+      },
+      "fees": {
+       "before": 14.93,
+       "after": 14.93,
+       "delta": 0.0
+      },
+      "profit_factor": {
+       "before": 0.57,
+       "after": 0.57,
+       "delta": 0.0
+      },
+      "avg_win": {
+       "before": 15.55,
+       "after": 15.55,
+       "delta": 0.0
+      },
+      "avg_loss": {
+       "before": -27.13,
+       "after": -27.13,
+       "delta": 0.0
+      },
+      "max_drawdown_pct": {
+       "before": -0.86,
+       "after": -0.89,
+       "delta": -0.03
+      },
+      "sharpe": {
+       "before": null,
+       "after": -0.52,
+       "delta": null
+      },
+      "return_pct": {
+       "before": -0.23,
+       "after": -0.23,
+       "delta": 0.0
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 9976.83,
+       "after": 9976.83,
+       "delta": 0.0
+      }
+     }
+    },
+    "after": {
+     "report": {
+      "path": "data/results/pinned_after/ETHUSDT_4h_connors.json",
+      "sha256": "1128c87a56e5c153e57e14e48da77446c531047b0e169648996eb2af06f60007"
+     },
+     "stats": {
+      "symbol": "ETH/USDT",
+      "timeframe": "4h",
+      "strategy": "connors_meanrev",
+      "trades": 4,
+      "win_rate_pct": 50.0,
+      "total_pnl": -23.16,
+      "fees": 14.93,
+      "profit_factor": 0.57,
+      "avg_win": 15.55,
+      "avg_loss": -27.13,
+      "max_drawdown_pct": -0.86,
+      "sharpe": null,
+      "return_pct": -0.23,
+      "start_equity": 10000.0,
+      "end_equity": 9976.83
+     },
+     "differences": {
+      "symbol": {
+       "before": "ETH/USDT",
+       "after": "ETH/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "4h",
+       "after": "4h",
+       "delta": null
+      },
+      "strategy": {
+       "before": "connors_meanrev",
+       "after": "connors_meanrev",
+       "delta": null
+      },
+      "trades": {
+       "before": 4,
+       "after": 4,
+       "delta": 0
+      },
+      "win_rate_pct": {
+       "before": 50.0,
+       "after": 50.0,
+       "delta": 0.0
+      },
+      "total_pnl": {
+       "before": -23.16,
+       "after": -23.17,
+       "delta": -0.01
+      },
+      "fees": {
+       "before": 14.93,
+       "after": 14.93,
+       "delta": 0.0
+      },
+      "profit_factor": {
+       "before": 0.57,
+       "after": 0.57,
+       "delta": 0.0
+      },
+      "avg_win": {
+       "before": 15.55,
+       "after": 15.55,
+       "delta": 0.0
+      },
+      "avg_loss": {
+       "before": -27.13,
+       "after": -27.13,
+       "delta": 0.0
+      },
+      "max_drawdown_pct": {
+       "before": -0.86,
+       "after": -0.89,
+       "delta": -0.03
+      },
+      "sharpe": {
+       "before": null,
+       "after": -0.52,
+       "delta": null
+      },
+      "return_pct": {
+       "before": -0.23,
+       "after": -0.23,
+       "delta": 0.0
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 9976.83,
+       "after": 9976.83,
+       "delta": 0.0
+      }
+     }
+    }
+   },
+   "corrected_cv": {
+    "metrics_version": 2,
+    "starting_capital": 10000.0,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_paths": 28,
+    "n_active_paths": 13,
+    "paths": [
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.27,
+      "win_rate_pct": 100.0,
+      "total_pnl": 27.44
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.04,
+      "win_rate_pct": 100.0,
+      "total_pnl": 3.66
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.27,
+      "win_rate_pct": 100.0,
+      "total_pnl": 27.44
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.04,
+      "win_rate_pct": 100.0,
+      "total_pnl": 3.66
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.27,
+      "win_rate_pct": 100.0,
+      "total_pnl": 27.44
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.04,
+      "win_rate_pct": 100.0,
+      "total_pnl": 3.66
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 3,
+      "return_pct": 0.29,
+      "win_rate_pct": 66.7,
+      "total_pnl": 29.19
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.27,
+      "win_rate_pct": 100.0,
+      "total_pnl": 27.44
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.27,
+      "win_rate_pct": 100.0,
+      "total_pnl": 27.44
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.27,
+      "win_rate_pct": 100.0,
+      "total_pnl": 27.44
+     },
+     {
+      "trades": 2,
+      "return_pct": -0.49,
+      "win_rate_pct": 50.0,
+      "total_pnl": -48.69
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.04,
+      "win_rate_pct": 100.0,
+      "total_pnl": 3.66
+     },
+     {
+      "trades": 1,
+      "return_pct": 0.04,
+      "win_rate_pct": 100.0,
+      "total_pnl": 3.66
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     },
+     {
+      "trades": 0,
+      "return_pct": 0.0,
+      "win_rate_pct": 0.0,
+      "total_pnl": 0.0
+     }
+    ],
+    "mean_return_pct": 0.13,
+    "std_return_pct": 0.22,
+    "t_stat": 2.07,
+    "pct_paths_profitable": 92.3,
+    "purged_trades": 0,
+    "kept_trades_unique": 4,
+    "total_trades": 4
+   },
+   "prior_metrics_version": 2,
+   "prior_v2": {
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "strategy": "connors_meanrev",
+    "trades": 4,
+    "win_rate_pct": 50.0,
+    "total_pnl": -23.17,
+    "fees": 14.93,
+    "profit_factor": 0.57,
+    "avg_win": 15.55,
+    "avg_loss": -27.13,
+    "max_drawdown_pct": -0.89,
+    "sharpe": -0.52,
+    "return_pct": -0.23,
+    "start_equity": 10000.0,
+    "end_equity": 9976.83,
+    "starting_capital": 10000.0,
+    "metrics_version": 2,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 865
+   },
+   "prior_v2_differences": {
+    "symbol": {
+     "before": "ETH/USDT",
+     "after": "ETH/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "4h",
+     "after": "4h",
+     "delta": null
+    },
+    "strategy": {
+     "before": "connors_meanrev",
+     "after": "connors_meanrev",
+     "delta": null
+    },
+    "trades": {
+     "before": 4,
+     "after": 4,
+     "delta": 0
+    },
+    "win_rate_pct": {
+     "before": 50.0,
+     "after": 50.0,
+     "delta": 0.0
+    },
+    "total_pnl": {
+     "before": -23.17,
+     "after": -23.17,
+     "delta": 0.0
+    },
+    "fees": {
+     "before": 14.93,
+     "after": 14.93,
+     "delta": 0.0
+    },
+    "profit_factor": {
+     "before": 0.57,
+     "after": 0.57,
+     "delta": 0.0
+    },
+    "avg_win": {
+     "before": 15.55,
+     "after": 15.55,
+     "delta": 0.0
+    },
+    "avg_loss": {
+     "before": -27.13,
+     "after": -27.13,
+     "delta": 0.0
+    },
+    "max_drawdown_pct": {
+     "before": -0.89,
+     "after": -0.89,
+     "delta": 0.0
+    },
+    "sharpe": {
+     "before": -0.52,
+     "after": -0.52,
+     "delta": 0.0
+    },
+    "return_pct": {
+     "before": -0.23,
+     "after": -0.23,
+     "delta": 0.0
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 9976.83,
+     "after": 9976.83,
+     "delta": 0.0
+    },
+    "starting_capital": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "metrics_version": {
+     "before": 2,
+     "after": 3,
+     "delta": 1
+    },
+    "capital_model": {
+     "before": "fixed_starting_capital",
+     "after": "fixed_starting_capital",
+     "delta": null
+    },
+    "return_basis": {
+     "before": "net_pnl_over_starting_capital",
+     "after": "net_pnl_over_starting_capital",
+     "delta": null
+    },
+    "n_return_observations": {
+     "before": 865,
+     "after": 865,
+     "delta": 0
+    }
+   }
+  },
+  {
+   "run": "BTCUSDT_15m_scalper",
+   "symbol": "BTC/USDT",
+   "timeframe": "15m",
+   "strategy": "vwap_scalper",
+   "requested_window": [
+    "2026-03-09",
+    "2026-09-06"
+   ],
+   "actual_window": [
+    "2026-03-09 00:00:00+00:00",
+    "2026-09-05 23:45:00+00:00"
+   ],
+   "bars": 17376,
+   "input": {
+    "path": "data/cache/BTCUSDT_15m_2026-03-09_2026-09-06.parquet",
+    "sha256": "36fc7efabdb8226635fbf3df892f73464b2721e5bd884ddea32b6da73c5ca164"
+   },
+   "input_attrs": {
+    "caliber": "raw",
+    "source": "binance"
+   },
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_same_config": {
+    "symbol": "BTC/USDT",
+    "timeframe": "15m",
+    "strategy": "vwap_scalper",
+    "trades": 115,
+    "win_rate_pct": 20.0,
+    "total_pnl": -999.15,
+    "fees": 538.02,
+    "profit_factor": 0.31,
+    "avg_win": 19.46,
+    "avg_loss": -15.73,
+    "max_drawdown_pct": -12.08,
+    "sharpe": -27.76,
+    "return_pct": -9.99,
+    "start_equity": 10000.0,
+    "end_equity": 9000.82
+   },
+   "v3": {
+    "symbol": "BTC/USDT",
+    "timeframe": "15m",
+    "strategy": "vwap_scalper",
+    "trades": 114,
+    "win_rate_pct": 20.2,
+    "total_pnl": -968.9,
+    "fees": 534.12,
+    "profit_factor": 0.32,
+    "avg_win": 19.5,
+    "avg_loss": -15.58,
+    "max_drawdown_pct": -11.97,
+    "sharpe": -6.35,
+    "return_pct": -9.69,
+    "start_equity": 10000.0,
+    "end_equity": 9031.1,
+    "starting_capital": 10000.0,
+    "metrics_version": 3,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 17155
+   },
+   "v1_reused": true,
+   "same_config_differences": {
+    "symbol": {
+     "before": "BTC/USDT",
+     "after": "BTC/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "15m",
+     "after": "15m",
+     "delta": null
+    },
+    "strategy": {
+     "before": "vwap_scalper",
+     "after": "vwap_scalper",
+     "delta": null
+    },
+    "trades": {
+     "before": 115,
+     "after": 114,
+     "delta": -1
+    },
+    "win_rate_pct": {
+     "before": 20.0,
+     "after": 20.2,
+     "delta": 0.2
+    },
+    "total_pnl": {
+     "before": -999.15,
+     "after": -968.9,
+     "delta": 30.25
+    },
+    "fees": {
+     "before": 538.02,
+     "after": 534.12,
+     "delta": -3.9
+    },
+    "profit_factor": {
+     "before": 0.31,
+     "after": 0.32,
+     "delta": 0.01
+    },
+    "avg_win": {
+     "before": 19.46,
+     "after": 19.5,
+     "delta": 0.04
+    },
+    "avg_loss": {
+     "before": -15.73,
+     "after": -15.58,
+     "delta": 0.15
+    },
+    "max_drawdown_pct": {
+     "before": -12.08,
+     "after": -11.97,
+     "delta": 0.11
+    },
+    "sharpe": {
+     "before": -27.76,
+     "after": -6.35,
+     "delta": 21.41
+    },
+    "return_pct": {
+     "before": -9.99,
+     "after": -9.69,
+     "delta": 0.3
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 9000.82,
+     "after": 9031.1,
+     "delta": 30.28
+    }
+   },
+   "historical_reports": {
+    "before": {
+     "report": {
+      "path": "data/results/pinned_before/BTCUSDT_15m_scalper.json",
+      "sha256": "db4e27b45e6647264174a49bda868aba8d440994d09d763f9622020bc9e6333b"
+     },
+     "stats": {
+      "symbol": "BTC/USDT",
+      "timeframe": "15m",
+      "strategy": "vwap_scalper",
+      "trades": 136,
+      "win_rate_pct": 17.6,
+      "total_pnl": -1140.86,
+      "fees": 628.61,
+      "profit_factor": 0.3,
+      "avg_win": 20.26,
+      "avg_loss": -14.53,
+      "max_drawdown_pct": -13.89,
+      "sharpe": -30.53,
+      "return_pct": -11.41,
+      "start_equity": 10000.0,
+      "end_equity": 8859.16
+     },
+     "differences": {
+      "symbol": {
+       "before": "BTC/USDT",
+       "after": "BTC/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "15m",
+       "after": "15m",
+       "delta": null
+      },
+      "strategy": {
+       "before": "vwap_scalper",
+       "after": "vwap_scalper",
+       "delta": null
+      },
+      "trades": {
+       "before": 136,
+       "after": 114,
+       "delta": -22
+      },
+      "win_rate_pct": {
+       "before": 17.6,
+       "after": 20.2,
+       "delta": 2.6
+      },
+      "total_pnl": {
+       "before": -1140.86,
+       "after": -968.9,
+       "delta": 171.96
+      },
+      "fees": {
+       "before": 628.61,
+       "after": 534.12,
+       "delta": -94.49
+      },
+      "profit_factor": {
+       "before": 0.3,
+       "after": 0.32,
+       "delta": 0.02
+      },
+      "avg_win": {
+       "before": 20.26,
+       "after": 19.5,
+       "delta": -0.76
+      },
+      "avg_loss": {
+       "before": -14.53,
+       "after": -15.58,
+       "delta": -1.05
+      },
+      "max_drawdown_pct": {
+       "before": -13.89,
+       "after": -11.97,
+       "delta": 1.92
+      },
+      "sharpe": {
+       "before": -30.53,
+       "after": -6.35,
+       "delta": 24.18
+      },
+      "return_pct": {
+       "before": -11.41,
+       "after": -9.69,
+       "delta": 1.72
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 8859.16,
+       "after": 9031.1,
+       "delta": 171.94
+      }
+     }
+    },
+    "mid": {
+     "report": {
+      "path": "data/results/pinned_mid/BTCUSDT_15m_scalper.json",
+      "sha256": "db4e27b45e6647264174a49bda868aba8d440994d09d763f9622020bc9e6333b"
+     },
+     "stats": {
+      "symbol": "BTC/USDT",
+      "timeframe": "15m",
+      "strategy": "vwap_scalper",
+      "trades": 136,
+      "win_rate_pct": 17.6,
+      "total_pnl": -1140.86,
+      "fees": 628.61,
+      "profit_factor": 0.3,
+      "avg_win": 20.26,
+      "avg_loss": -14.53,
+      "max_drawdown_pct": -13.89,
+      "sharpe": -30.53,
+      "return_pct": -11.41,
+      "start_equity": 10000.0,
+      "end_equity": 8859.16
+     },
+     "differences": {
+      "symbol": {
+       "before": "BTC/USDT",
+       "after": "BTC/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "15m",
+       "after": "15m",
+       "delta": null
+      },
+      "strategy": {
+       "before": "vwap_scalper",
+       "after": "vwap_scalper",
+       "delta": null
+      },
+      "trades": {
+       "before": 136,
+       "after": 114,
+       "delta": -22
+      },
+      "win_rate_pct": {
+       "before": 17.6,
+       "after": 20.2,
+       "delta": 2.6
+      },
+      "total_pnl": {
+       "before": -1140.86,
+       "after": -968.9,
+       "delta": 171.96
+      },
+      "fees": {
+       "before": 628.61,
+       "after": 534.12,
+       "delta": -94.49
+      },
+      "profit_factor": {
+       "before": 0.3,
+       "after": 0.32,
+       "delta": 0.02
+      },
+      "avg_win": {
+       "before": 20.26,
+       "after": 19.5,
+       "delta": -0.76
+      },
+      "avg_loss": {
+       "before": -14.53,
+       "after": -15.58,
+       "delta": -1.05
+      },
+      "max_drawdown_pct": {
+       "before": -13.89,
+       "after": -11.97,
+       "delta": 1.92
+      },
+      "sharpe": {
+       "before": -30.53,
+       "after": -6.35,
+       "delta": 24.18
+      },
+      "return_pct": {
+       "before": -11.41,
+       "after": -9.69,
+       "delta": 1.72
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 8859.16,
+       "after": 9031.1,
+       "delta": 171.94
+      }
+     }
+    },
+    "after": {
+     "report": {
+      "path": "data/results/pinned_after/BTCUSDT_15m_scalper.json",
+      "sha256": "079696aec5731400f8409a354edb83a612dbec7414b443c97503494e9a8739a5"
+     },
+     "stats": {
+      "symbol": "BTC/USDT",
+      "timeframe": "15m",
+      "strategy": "vwap_scalper",
+      "trades": 136,
+      "win_rate_pct": 17.6,
+      "total_pnl": -1123.14,
+      "fees": 629.67,
+      "profit_factor": 0.3,
+      "avg_win": 20.29,
+      "avg_loss": -14.38,
+      "max_drawdown_pct": -13.72,
+      "sharpe": -30.07,
+      "return_pct": -11.23,
+      "start_equity": 10000.0,
+      "end_equity": 8876.81
+     },
+     "differences": {
+      "symbol": {
+       "before": "BTC/USDT",
+       "after": "BTC/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "15m",
+       "after": "15m",
+       "delta": null
+      },
+      "strategy": {
+       "before": "vwap_scalper",
+       "after": "vwap_scalper",
+       "delta": null
+      },
+      "trades": {
+       "before": 136,
+       "after": 114,
+       "delta": -22
+      },
+      "win_rate_pct": {
+       "before": 17.6,
+       "after": 20.2,
+       "delta": 2.6
+      },
+      "total_pnl": {
+       "before": -1123.14,
+       "after": -968.9,
+       "delta": 154.24
+      },
+      "fees": {
+       "before": 629.67,
+       "after": 534.12,
+       "delta": -95.55
+      },
+      "profit_factor": {
+       "before": 0.3,
+       "after": 0.32,
+       "delta": 0.02
+      },
+      "avg_win": {
+       "before": 20.29,
+       "after": 19.5,
+       "delta": -0.79
+      },
+      "avg_loss": {
+       "before": -14.38,
+       "after": -15.58,
+       "delta": -1.2
+      },
+      "max_drawdown_pct": {
+       "before": -13.72,
+       "after": -11.97,
+       "delta": 1.75
+      },
+      "sharpe": {
+       "before": -30.07,
+       "after": -6.35,
+       "delta": 23.72
+      },
+      "return_pct": {
+       "before": -11.23,
+       "after": -9.69,
+       "delta": 1.54
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 8876.81,
+       "after": 9031.1,
+       "delta": 154.29
+      }
+     }
+    }
+   },
+   "corrected_cv": {
+    "metrics_version": 2,
+    "starting_capital": 10000.0,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_paths": 28,
+    "n_active_paths": 28,
+    "paths": [
+     {
+      "trades": 34,
+      "return_pct": -3.29,
+      "win_rate_pct": 17.6,
+      "total_pnl": -328.56
+     },
+     {
+      "trades": 24,
+      "return_pct": -3.0,
+      "win_rate_pct": 12.5,
+      "total_pnl": -300.22
+     },
+     {
+      "trades": 19,
+      "return_pct": -2.75,
+      "win_rate_pct": 10.5,
+      "total_pnl": -275.38
+     },
+     {
+      "trades": 26,
+      "return_pct": -3.54,
+      "win_rate_pct": 15.4,
+      "total_pnl": -354.21
+     },
+     {
+      "trades": 27,
+      "return_pct": -3.29,
+      "win_rate_pct": 14.8,
+      "total_pnl": -329.42
+     },
+     {
+      "trades": 19,
+      "return_pct": -2.26,
+      "win_rate_pct": 15.8,
+      "total_pnl": -225.95
+     },
+     {
+      "trades": 24,
+      "return_pct": 0.74,
+      "win_rate_pct": 50.0,
+      "total_pnl": 74.17
+     },
+     {
+      "trades": 37,
+      "return_pct": -3.48,
+      "win_rate_pct": 13.5,
+      "total_pnl": -347.81
+     },
+     {
+      "trades": 32,
+      "return_pct": -3.23,
+      "win_rate_pct": 12.5,
+      "total_pnl": -322.98
+     },
+     {
+      "trades": 39,
+      "return_pct": -4.02,
+      "win_rate_pct": 15.4,
+      "total_pnl": -401.8
+     },
+     {
+      "trades": 40,
+      "return_pct": -3.77,
+      "win_rate_pct": 15.0,
+      "total_pnl": -377.02
+     },
+     {
+      "trades": 32,
+      "return_pct": -2.74,
+      "win_rate_pct": 15.6,
+      "total_pnl": -273.54
+     },
+     {
+      "trades": 37,
+      "return_pct": 0.27,
+      "win_rate_pct": 37.8,
+      "total_pnl": 26.58
+     },
+     {
+      "trades": 23,
+      "return_pct": -3.21,
+      "win_rate_pct": 4.3,
+      "total_pnl": -320.72
+     },
+     {
+      "trades": 30,
+      "return_pct": -4.0,
+      "win_rate_pct": 10.0,
+      "total_pnl": -399.54
+     },
+     {
+      "trades": 31,
+      "return_pct": -3.75,
+      "win_rate_pct": 9.7,
+      "total_pnl": -374.76
+     },
+     {
+      "trades": 23,
+      "return_pct": -2.71,
+      "win_rate_pct": 8.7,
+      "total_pnl": -271.29
+     },
+     {
+      "trades": 28,
+      "return_pct": 0.29,
+      "win_rate_pct": 39.3,
+      "total_pnl": 28.83
+     },
+     {
+      "trades": 26,
+      "return_pct": -3.69,
+      "win_rate_pct": 11.5,
+      "total_pnl": -368.69
+     },
+     {
+      "trades": 26,
+      "return_pct": -3.5,
+      "win_rate_pct": 7.7,
+      "total_pnl": -349.92
+     },
+     {
+      "trades": 18,
+      "return_pct": -2.46,
+      "win_rate_pct": 5.6,
+      "total_pnl": -246.45
+     },
+     {
+      "trades": 23,
+      "return_pct": 0.54,
+      "win_rate_pct": 43.5,
+      "total_pnl": 53.67
+     },
+     {
+      "trades": 33,
+      "return_pct": -4.29,
+      "win_rate_pct": 12.1,
+      "total_pnl": -428.75
+     },
+     {
+      "trades": 25,
+      "return_pct": -3.25,
+      "win_rate_pct": 12.0,
+      "total_pnl": -325.28
+     },
+     {
+      "trades": 30,
+      "return_pct": -0.25,
+      "win_rate_pct": 40.0,
+      "total_pnl": -25.16
+     },
+     {
+      "trades": 26,
+      "return_pct": -3.0,
+      "win_rate_pct": 11.5,
+      "total_pnl": -300.49
+     },
+     {
+      "trades": 31,
+      "return_pct": -0.0,
+      "win_rate_pct": 38.7,
+      "total_pnl": -0.37
+     },
+     {
+      "trades": 23,
+      "return_pct": 1.03,
+      "win_rate_pct": 47.8,
+      "total_pnl": 103.1
+     }
+    ],
+    "mean_return_pct": -2.38,
+    "std_return_pct": 1.69,
+    "t_stat": -7.43,
+    "pct_paths_profitable": 17.9,
+    "purged_trades": 0,
+    "kept_trades_unique": 114,
+    "total_trades": 114
+   },
+   "prior_metrics_version": 2,
+   "prior_v2": {
+    "symbol": "BTC/USDT",
+    "timeframe": "15m",
+    "strategy": "vwap_scalper",
+    "trades": 113,
+    "win_rate_pct": 19.5,
+    "total_pnl": -971.49,
+    "fees": 529.66,
+    "profit_factor": 0.31,
+    "avg_win": 20.27,
+    "avg_loss": -15.58,
+    "max_drawdown_pct": -11.97,
+    "sharpe": -6.39,
+    "return_pct": -9.71,
+    "start_equity": 10000.0,
+    "end_equity": 9028.51,
+    "starting_capital": 10000.0,
+    "metrics_version": 2,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 17155
+   },
+   "prior_v2_differences": {
+    "symbol": {
+     "before": "BTC/USDT",
+     "after": "BTC/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "15m",
+     "after": "15m",
+     "delta": null
+    },
+    "strategy": {
+     "before": "vwap_scalper",
+     "after": "vwap_scalper",
+     "delta": null
+    },
+    "trades": {
+     "before": 113,
+     "after": 114,
+     "delta": 1
+    },
+    "win_rate_pct": {
+     "before": 19.5,
+     "after": 20.2,
+     "delta": 0.7
+    },
+    "total_pnl": {
+     "before": -971.49,
+     "after": -968.9,
+     "delta": 2.59
+    },
+    "fees": {
+     "before": 529.66,
+     "after": 534.12,
+     "delta": 4.46
+    },
+    "profit_factor": {
+     "before": 0.31,
+     "after": 0.32,
+     "delta": 0.01
+    },
+    "avg_win": {
+     "before": 20.27,
+     "after": 19.5,
+     "delta": -0.77
+    },
+    "avg_loss": {
+     "before": -15.58,
+     "after": -15.58,
+     "delta": 0.0
+    },
+    "max_drawdown_pct": {
+     "before": -11.97,
+     "after": -11.97,
+     "delta": 0.0
+    },
+    "sharpe": {
+     "before": -6.39,
+     "after": -6.35,
+     "delta": 0.04
+    },
+    "return_pct": {
+     "before": -9.71,
+     "after": -9.69,
+     "delta": 0.02
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 9028.51,
+     "after": 9031.1,
+     "delta": 2.59
+    },
+    "starting_capital": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "metrics_version": {
+     "before": 2,
+     "after": 3,
+     "delta": 1
+    },
+    "capital_model": {
+     "before": "fixed_starting_capital",
+     "after": "fixed_starting_capital",
+     "delta": null
+    },
+    "return_basis": {
+     "before": "net_pnl_over_starting_capital",
+     "after": "net_pnl_over_starting_capital",
+     "delta": null
+    },
+    "n_return_observations": {
+     "before": 17155,
+     "after": 17155,
+     "delta": 0
+    }
+   }
+  },
+  {
+   "run": "ETHUSDT_15m_scalper",
+   "symbol": "ETH/USDT",
+   "timeframe": "15m",
+   "strategy": "vwap_scalper",
+   "requested_window": [
+    "2026-01-05",
+    "2026-09-05"
+   ],
+   "actual_window": [
+    "2026-01-05 00:00:00+00:00",
+    "2026-09-04 23:45:00+00:00"
+   ],
+   "bars": 23328,
+   "input": {
+    "path": "data/cache/ETHUSDT_15m_2026-01-05_2026-09-05.parquet",
+    "sha256": "d3f0c3ac7db054d535c271954c989bd75ca5feeb373c6be11ddb43bf7a52ca33"
+   },
+   "input_attrs": {
+    "caliber": "raw",
+    "source": "binance"
+   },
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_same_config": {
+    "symbol": "ETH/USDT",
+    "timeframe": "15m",
+    "strategy": "vwap_scalper",
+    "trades": 157,
+    "win_rate_pct": 29.9,
+    "total_pnl": -786.22,
+    "fees": 739.76,
+    "profit_factor": 0.6,
+    "avg_win": 25.51,
+    "avg_loss": -18.05,
+    "max_drawdown_pct": -9.32,
+    "sharpe": -12.39,
+    "return_pct": -7.86,
+    "start_equity": 10000.0,
+    "end_equity": 9213.83
+   },
+   "v3": {
+    "symbol": "ETH/USDT",
+    "timeframe": "15m",
+    "strategy": "vwap_scalper",
+    "trades": 157,
+    "win_rate_pct": 28.7,
+    "total_pnl": -840.78,
+    "fees": 736.89,
+    "profit_factor": 0.58,
+    "avg_win": 26.32,
+    "avg_loss": -18.08,
+    "max_drawdown_pct": -9.92,
+    "sharpe": -3.1,
+    "return_pct": -8.41,
+    "start_equity": 10000.0,
+    "end_equity": 9159.22,
+    "starting_capital": 10000.0,
+    "metrics_version": 3,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 23107
+   },
+   "v1_reused": true,
+   "same_config_differences": {
+    "symbol": {
+     "before": "ETH/USDT",
+     "after": "ETH/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "15m",
+     "after": "15m",
+     "delta": null
+    },
+    "strategy": {
+     "before": "vwap_scalper",
+     "after": "vwap_scalper",
+     "delta": null
+    },
+    "trades": {
+     "before": 157,
+     "after": 157,
+     "delta": 0
+    },
+    "win_rate_pct": {
+     "before": 29.9,
+     "after": 28.7,
+     "delta": -1.2
+    },
+    "total_pnl": {
+     "before": -786.22,
+     "after": -840.78,
+     "delta": -54.56
+    },
+    "fees": {
+     "before": 739.76,
+     "after": 736.89,
+     "delta": -2.87
+    },
+    "profit_factor": {
+     "before": 0.6,
+     "after": 0.58,
+     "delta": -0.02
+    },
+    "avg_win": {
+     "before": 25.51,
+     "after": 26.32,
+     "delta": 0.81
+    },
+    "avg_loss": {
+     "before": -18.05,
+     "after": -18.08,
+     "delta": -0.03
+    },
+    "max_drawdown_pct": {
+     "before": -9.32,
+     "after": -9.92,
+     "delta": -0.6
+    },
+    "sharpe": {
+     "before": -12.39,
+     "after": -3.1,
+     "delta": 9.29
+    },
+    "return_pct": {
+     "before": -7.86,
+     "after": -8.41,
+     "delta": -0.55
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 9213.83,
+     "after": 9159.22,
+     "delta": -54.61
+    }
+   },
+   "historical_reports": {
+    "before": {
+     "report": {
+      "path": "data/results/pinned_before/ETHUSDT_15m_scalper.json",
+      "sha256": "bcaf0b0b55fa6fafc1157e77f40d97825612227fbd018a984f39492408c1b433"
+     },
+     "stats": {
+      "symbol": "ETH/USDT",
+      "timeframe": "15m",
+      "strategy": "vwap_scalper",
+      "trades": 163,
+      "win_rate_pct": 29.4,
+      "total_pnl": -859.15,
+      "fees": 768.05,
+      "profit_factor": 0.58,
+      "avg_win": 24.99,
+      "avg_loss": -17.9,
+      "max_drawdown_pct": -9.84,
+      "sharpe": -13.28,
+      "return_pct": -8.59,
+      "start_equity": 10000.0,
+      "end_equity": 9140.88
+     },
+     "differences": {
+      "symbol": {
+       "before": "ETH/USDT",
+       "after": "ETH/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "15m",
+       "after": "15m",
+       "delta": null
+      },
+      "strategy": {
+       "before": "vwap_scalper",
+       "after": "vwap_scalper",
+       "delta": null
+      },
+      "trades": {
+       "before": 163,
+       "after": 157,
+       "delta": -6
+      },
+      "win_rate_pct": {
+       "before": 29.4,
+       "after": 28.7,
+       "delta": -0.7
+      },
+      "total_pnl": {
+       "before": -859.15,
+       "after": -840.78,
+       "delta": 18.37
+      },
+      "fees": {
+       "before": 768.05,
+       "after": 736.89,
+       "delta": -31.16
+      },
+      "profit_factor": {
+       "before": 0.58,
+       "after": 0.58,
+       "delta": 0.0
+      },
+      "avg_win": {
+       "before": 24.99,
+       "after": 26.32,
+       "delta": 1.33
+      },
+      "avg_loss": {
+       "before": -17.9,
+       "after": -18.08,
+       "delta": -0.18
+      },
+      "max_drawdown_pct": {
+       "before": -9.84,
+       "after": -9.92,
+       "delta": -0.08
+      },
+      "sharpe": {
+       "before": -13.28,
+       "after": -3.1,
+       "delta": 10.18
+      },
+      "return_pct": {
+       "before": -8.59,
+       "after": -8.41,
+       "delta": 0.18
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 9140.88,
+       "after": 9159.22,
+       "delta": 18.34
+      }
+     }
+    },
+    "mid": {
+     "report": {
+      "path": "data/results/pinned_mid/ETHUSDT_15m_scalper.json",
+      "sha256": "bcaf0b0b55fa6fafc1157e77f40d97825612227fbd018a984f39492408c1b433"
+     },
+     "stats": {
+      "symbol": "ETH/USDT",
+      "timeframe": "15m",
+      "strategy": "vwap_scalper",
+      "trades": 163,
+      "win_rate_pct": 29.4,
+      "total_pnl": -859.15,
+      "fees": 768.05,
+      "profit_factor": 0.58,
+      "avg_win": 24.99,
+      "avg_loss": -17.9,
+      "max_drawdown_pct": -9.84,
+      "sharpe": -13.28,
+      "return_pct": -8.59,
+      "start_equity": 10000.0,
+      "end_equity": 9140.88
+     },
+     "differences": {
+      "symbol": {
+       "before": "ETH/USDT",
+       "after": "ETH/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "15m",
+       "after": "15m",
+       "delta": null
+      },
+      "strategy": {
+       "before": "vwap_scalper",
+       "after": "vwap_scalper",
+       "delta": null
+      },
+      "trades": {
+       "before": 163,
+       "after": 157,
+       "delta": -6
+      },
+      "win_rate_pct": {
+       "before": 29.4,
+       "after": 28.7,
+       "delta": -0.7
+      },
+      "total_pnl": {
+       "before": -859.15,
+       "after": -840.78,
+       "delta": 18.37
+      },
+      "fees": {
+       "before": 768.05,
+       "after": 736.89,
+       "delta": -31.16
+      },
+      "profit_factor": {
+       "before": 0.58,
+       "after": 0.58,
+       "delta": 0.0
+      },
+      "avg_win": {
+       "before": 24.99,
+       "after": 26.32,
+       "delta": 1.33
+      },
+      "avg_loss": {
+       "before": -17.9,
+       "after": -18.08,
+       "delta": -0.18
+      },
+      "max_drawdown_pct": {
+       "before": -9.84,
+       "after": -9.92,
+       "delta": -0.08
+      },
+      "sharpe": {
+       "before": -13.28,
+       "after": -3.1,
+       "delta": 10.18
+      },
+      "return_pct": {
+       "before": -8.59,
+       "after": -8.41,
+       "delta": 0.18
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 9140.88,
+       "after": 9159.22,
+       "delta": 18.34
+      }
+     }
+    },
+    "after": {
+     "report": {
+      "path": "data/results/pinned_after/ETHUSDT_15m_scalper.json",
+      "sha256": "6ce7b17616d7febbf57ffda483c28dd5cb530c4303827a2cb799619ccd1f8c62"
+     },
+     "stats": {
+      "symbol": "ETH/USDT",
+      "timeframe": "15m",
+      "strategy": "vwap_scalper",
+      "trades": 163,
+      "win_rate_pct": 29.4,
+      "total_pnl": -796.81,
+      "fees": 769.0,
+      "profit_factor": 0.6,
+      "avg_win": 25.03,
+      "avg_loss": -17.38,
+      "max_drawdown_pct": -9.56,
+      "sharpe": -12.37,
+      "return_pct": -7.97,
+      "start_equity": 10000.0,
+      "end_equity": 9203.22
+     },
+     "differences": {
+      "symbol": {
+       "before": "ETH/USDT",
+       "after": "ETH/USDT",
+       "delta": null
+      },
+      "timeframe": {
+       "before": "15m",
+       "after": "15m",
+       "delta": null
+      },
+      "strategy": {
+       "before": "vwap_scalper",
+       "after": "vwap_scalper",
+       "delta": null
+      },
+      "trades": {
+       "before": 163,
+       "after": 157,
+       "delta": -6
+      },
+      "win_rate_pct": {
+       "before": 29.4,
+       "after": 28.7,
+       "delta": -0.7
+      },
+      "total_pnl": {
+       "before": -796.81,
+       "after": -840.78,
+       "delta": -43.97
+      },
+      "fees": {
+       "before": 769.0,
+       "after": 736.89,
+       "delta": -32.11
+      },
+      "profit_factor": {
+       "before": 0.6,
+       "after": 0.58,
+       "delta": -0.02
+      },
+      "avg_win": {
+       "before": 25.03,
+       "after": 26.32,
+       "delta": 1.29
+      },
+      "avg_loss": {
+       "before": -17.38,
+       "after": -18.08,
+       "delta": -0.7
+      },
+      "max_drawdown_pct": {
+       "before": -9.56,
+       "after": -9.92,
+       "delta": -0.36
+      },
+      "sharpe": {
+       "before": -12.37,
+       "after": -3.1,
+       "delta": 9.27
+      },
+      "return_pct": {
+       "before": -7.97,
+       "after": -8.41,
+       "delta": -0.44
+      },
+      "start_equity": {
+       "before": 10000.0,
+       "after": 10000.0,
+       "delta": 0.0
+      },
+      "end_equity": {
+       "before": 9203.22,
+       "after": 9159.22,
+       "delta": -44.0
+      }
+     }
+    }
+   },
+   "corrected_cv": {
+    "metrics_version": 2,
+    "starting_capital": 10000.0,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_paths": 28,
+    "n_active_paths": 28,
+    "paths": [
+     {
+      "trades": 33,
+      "return_pct": -4.53,
+      "win_rate_pct": 24.2,
+      "total_pnl": -453.07
+     },
+     {
+      "trades": 35,
+      "return_pct": -4.22,
+      "win_rate_pct": 25.7,
+      "total_pnl": -422.2
+     },
+     {
+      "trades": 39,
+      "return_pct": -2.44,
+      "win_rate_pct": 23.1,
+      "total_pnl": -244.11
+     },
+     {
+      "trades": 26,
+      "return_pct": -3.77,
+      "win_rate_pct": 19.2,
+      "total_pnl": -377.25
+     },
+     {
+      "trades": 37,
+      "return_pct": -3.21,
+      "win_rate_pct": 24.3,
+      "total_pnl": -320.92
+     },
+     {
+      "trades": 39,
+      "return_pct": -3.32,
+      "win_rate_pct": 28.2,
+      "total_pnl": -332.13
+     },
+     {
+      "trades": 37,
+      "return_pct": -1.81,
+      "win_rate_pct": 29.7,
+      "total_pnl": -181.24
+     },
+     {
+      "trades": 38,
+      "return_pct": -3.87,
+      "win_rate_pct": 28.9,
+      "total_pnl": -387.17
+     },
+     {
+      "trades": 42,
+      "return_pct": -2.09,
+      "win_rate_pct": 26.2,
+      "total_pnl": -209.09
+     },
+     {
+      "trades": 29,
+      "return_pct": -3.42,
+      "win_rate_pct": 24.1,
+      "total_pnl": -342.22
+     },
+     {
+      "trades": 40,
+      "return_pct": -2.86,
+      "win_rate_pct": 27.5,
+      "total_pnl": -285.89
+     },
+     {
+      "trades": 42,
+      "return_pct": -2.97,
+      "win_rate_pct": 31.0,
+      "total_pnl": -297.11
+     },
+     {
+      "trades": 40,
+      "return_pct": -1.46,
+      "win_rate_pct": 32.5,
+      "total_pnl": -146.22
+     },
+     {
+      "trades": 45,
+      "return_pct": -1.52,
+      "win_rate_pct": 28.9,
+      "total_pnl": -152.36
+     },
+     {
+      "trades": 31,
+      "return_pct": -3.11,
+      "win_rate_pct": 25.8,
+      "total_pnl": -311.35
+     },
+     {
+      "trades": 42,
+      "return_pct": -2.55,
+      "win_rate_pct": 28.6,
+      "total_pnl": -255.02
+     },
+     {
+      "trades": 44,
+      "return_pct": -2.66,
+      "win_rate_pct": 31.8,
+      "total_pnl": -266.24
+     },
+     {
+      "trades": 42,
+      "return_pct": -1.15,
+      "win_rate_pct": 33.3,
+      "total_pnl": -115.35
+     },
+     {
+      "trades": 35,
+      "return_pct": -1.33,
+      "win_rate_pct": 22.9,
+      "total_pnl": -133.27
+     },
+     {
+      "trades": 46,
+      "return_pct": -0.77,
+      "win_rate_pct": 26.1,
+      "total_pnl": -76.94
+     },
+     {
+      "trades": 48,
+      "return_pct": -0.88,
+      "win_rate_pct": 29.2,
+      "total_pnl": -88.16
+     },
+     {
+      "trades": 46,
+      "return_pct": 0.63,
+      "win_rate_pct": 30.4,
+      "total_pnl": 62.74
+     },
+     {
+      "trades": 33,
+      "return_pct": -2.1,
+      "win_rate_pct": 24.2,
+      "total_pnl": -210.07
+     },
+     {
+      "trades": 35,
+      "return_pct": -2.21,
+      "win_rate_pct": 28.6,
+      "total_pnl": -221.29
+     },
+     {
+      "trades": 33,
+      "return_pct": -0.7,
+      "win_rate_pct": 30.3,
+      "total_pnl": -70.4
+     },
+     {
+      "trades": 46,
+      "return_pct": -1.65,
+      "win_rate_pct": 30.4,
+      "total_pnl": -164.96
+     },
+     {
+      "trades": 44,
+      "return_pct": -0.14,
+      "win_rate_pct": 31.8,
+      "total_pnl": -14.07
+     },
+     {
+      "trades": 46,
+      "return_pct": -0.25,
+      "win_rate_pct": 34.8,
+      "total_pnl": -25.28
+     }
+    ],
+    "mean_return_pct": -2.16,
+    "std_return_pct": 1.31,
+    "t_stat": -8.73,
+    "pct_paths_profitable": 3.6,
+    "purged_trades": 0,
+    "kept_trades_unique": 157,
+    "total_trades": 157
+   },
+   "prior_metrics_version": 2,
+   "prior_v2": {
+    "symbol": "ETH/USDT",
+    "timeframe": "15m",
+    "strategy": "vwap_scalper",
+    "trades": 155,
+    "win_rate_pct": 29.0,
+    "total_pnl": -782.95,
+    "fees": 730.71,
+    "profit_factor": 0.6,
+    "avg_win": 26.46,
+    "avg_loss": -17.94,
+    "max_drawdown_pct": -9.35,
+    "sharpe": -2.89,
+    "return_pct": -7.83,
+    "start_equity": 10000.0,
+    "end_equity": 9217.05,
+    "starting_capital": 10000.0,
+    "metrics_version": 2,
+    "capital_model": "fixed_starting_capital",
+    "return_basis": "net_pnl_over_starting_capital",
+    "n_return_observations": 23107
+   },
+   "prior_v2_differences": {
+    "symbol": {
+     "before": "ETH/USDT",
+     "after": "ETH/USDT",
+     "delta": null
+    },
+    "timeframe": {
+     "before": "15m",
+     "after": "15m",
+     "delta": null
+    },
+    "strategy": {
+     "before": "vwap_scalper",
+     "after": "vwap_scalper",
+     "delta": null
+    },
+    "trades": {
+     "before": 155,
+     "after": 157,
+     "delta": 2
+    },
+    "win_rate_pct": {
+     "before": 29.0,
+     "after": 28.7,
+     "delta": -0.3
+    },
+    "total_pnl": {
+     "before": -782.95,
+     "after": -840.78,
+     "delta": -57.83
+    },
+    "fees": {
+     "before": 730.71,
+     "after": 736.89,
+     "delta": 6.18
+    },
+    "profit_factor": {
+     "before": 0.6,
+     "after": 0.58,
+     "delta": -0.02
+    },
+    "avg_win": {
+     "before": 26.46,
+     "after": 26.32,
+     "delta": -0.14
+    },
+    "avg_loss": {
+     "before": -17.94,
+     "after": -18.08,
+     "delta": -0.14
+    },
+    "max_drawdown_pct": {
+     "before": -9.35,
+     "after": -9.92,
+     "delta": -0.57
+    },
+    "sharpe": {
+     "before": -2.89,
+     "after": -3.1,
+     "delta": -0.21
+    },
+    "return_pct": {
+     "before": -7.83,
+     "after": -8.41,
+     "delta": -0.58
+    },
+    "start_equity": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "end_equity": {
+     "before": 9217.05,
+     "after": 9159.22,
+     "delta": -57.83
+    },
+    "starting_capital": {
+     "before": 10000.0,
+     "after": 10000.0,
+     "delta": 0.0
+    },
+    "metrics_version": {
+     "before": 2,
+     "after": 3,
+     "delta": 1
+    },
+    "capital_model": {
+     "before": "fixed_starting_capital",
+     "after": "fixed_starting_capital",
+     "delta": null
+    },
+    "return_basis": {
+     "before": "net_pnl_over_starting_capital",
+     "after": "net_pnl_over_starting_capital",
+     "delta": null
+    },
+    "n_return_observations": {
+     "before": 23107,
+     "after": 23107,
+     "delta": 0
+    }
+   }
+  }
+ ],
+ "skipped_pinned": [
+  {
+   "run": "EURUSD_1h_fxmr",
+   "reason": "exact pinned cache unavailable",
+   "expected": [
+    "data/cache/forex_EURUSD_1h_2026-01-04_2026-09-04.parquet",
+    "data/cache/EURUSD_1h_2026-01-04_2026-09-04.parquet"
+   ]
+  }
+ ],
+ "experiments": [
+  {
+   "id": "standard_gate",
+   "declaration": {
+    "path": "experiments/standard_gate.toml",
+    "sha256": "9714b14bd0f60e95852cba97f4af2e77a34f7acae2b3c7eddeaa41384a701400"
+   },
+   "historical_report": {
+    "path": "experiments/standard_gate.results.json",
+    "sha256": "d3c4ffda9b1d26f3378bf3396bfd3902d81c936249d7c90d93cfee257a7875be"
+   },
+   "inputs": [
+    {
+     "symbol": "BTC/USDT",
+     "timeframe": "15m",
+     "bars": 70079,
+     "ohlcv": {
+      "path": "data/cache/crypto_BTCUSDT_15m_730d_20261001.parquet",
+      "sha256": "3442b03360757ba70daa0d52f45d9b5cf0495a4dfae4a0140e46adc1ed140000"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "BTC/USDT",
+     "timeframe": "1h",
+     "bars": 17519,
+     "ohlcv": {
+      "path": "data/cache/crypto_BTCUSDT_1h_730d_20261001.parquet",
+      "sha256": "45485d05a70563c5fa1bf16dda81e2554abd751fca364fd6cf60cee8b2c6b45b"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "BTC/USDT",
+     "timeframe": "4h",
+     "bars": 4379,
+     "ohlcv": {
+      "path": "data/cache/crypto_BTCUSDT_4h_730d_20261001.parquet",
+      "sha256": "ee82eeb5b918630470b858ff16e87ac8f646408a744165a8105eafb9f011c043"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "ETH/USDT",
+     "timeframe": "15m",
+     "bars": 70079,
+     "ohlcv": {
+      "path": "data/cache/crypto_ETHUSDT_15m_730d_20261001.parquet",
+      "sha256": "078890625b3e53ea735496b91e6ccfb713e8604d39f5302ba6556ef1853e0bfb"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "ETH/USDT",
+     "timeframe": "1h",
+     "bars": 17519,
+     "ohlcv": {
+      "path": "data/cache/crypto_ETHUSDT_1h_730d_20261001.parquet",
+      "sha256": "b6c857cc25d8c12949f16ccc69e62aa2e88aa6dcc2f15bdfcf4fc377c7e577bd"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "ETH/USDT",
+     "timeframe": "4h",
+     "bars": 4379,
+     "ohlcv": {
+      "path": "data/cache/crypto_ETHUSDT_4h_730d_20261001.parquet",
+      "sha256": "1b51ec65b0b6e0c9a1e1f3270108285c8afadd4d93878de43f3ecbf098372a98"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "SOL/USDT",
+     "timeframe": "15m",
+     "bars": 70079,
+     "ohlcv": {
+      "path": "data/cache/crypto_SOLUSDT_15m_730d_20261001.parquet",
+      "sha256": "7aee3badff7b920f047bbfe205895b9fe597b91f1c7d2bd278c92b4e60557d0c"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "SOL/USDT",
+     "timeframe": "1h",
+     "bars": 17519,
+     "ohlcv": {
+      "path": "data/cache/crypto_SOLUSDT_1h_730d_20261001.parquet",
+      "sha256": "9702e6343b74f99c5a4db701acfbf11fb275c0f315a6d7d2fadeae6427121154"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "SOL/USDT",
+     "timeframe": "4h",
+     "bars": 4379,
+     "ohlcv": {
+      "path": "data/cache/crypto_SOLUSDT_4h_730d_20261001.parquet",
+      "sha256": "fc6dfe5aeffc4d627114f643c20ca61f1ff80c83ef921bf0ea35c913a8779538"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "BNB/USDT",
+     "timeframe": "15m",
+     "bars": 70079,
+     "ohlcv": {
+      "path": "data/cache/crypto_BNBUSDT_15m_730d_20261001.parquet",
+      "sha256": "8fd233d4572dc768fa1310a8af1cdf0a0a6a979dd757136c32a7a98c503dab3c"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "BNB/USDT",
+     "timeframe": "1h",
+     "bars": 17519,
+     "ohlcv": {
+      "path": "data/cache/crypto_BNBUSDT_1h_730d_20261001.parquet",
+      "sha256": "de27611c36b0f8c3d84662dd5872869591f5d01feb8955a1cd8dce821454c182"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "BNB/USDT",
+     "timeframe": "4h",
+     "bars": 4379,
+     "ohlcv": {
+      "path": "data/cache/crypto_BNBUSDT_4h_730d_20261001.parquet",
+      "sha256": "b17b7e5b551f411885a9b97baae2651b571a9e57c153fd9c7cdc1f5923330129"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "XRP/USDT",
+     "timeframe": "15m",
+     "bars": 70079,
+     "ohlcv": {
+      "path": "data/cache/crypto_XRPUSDT_15m_730d_20261001.parquet",
+      "sha256": "3ba158a86d7ee379faec150b02df3129472390e0a0d65b0fb831e21b96450d82"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "XRP/USDT",
+     "timeframe": "1h",
+     "bars": 17519,
+     "ohlcv": {
+      "path": "data/cache/crypto_XRPUSDT_1h_730d_20261001.parquet",
+      "sha256": "3b2614367645f7036501b46c8f6e6a258d049197556188cb51297bfce0474e70"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "XRP/USDT",
+     "timeframe": "4h",
+     "bars": 4379,
+     "ohlcv": {
+      "path": "data/cache/crypto_XRPUSDT_4h_730d_20261001.parquet",
+      "sha256": "772c2d26eb8b8239e4b54e56002a430cbae78e5ed80adeff2673bd589f3b06a4"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "EURUSD=X",
+     "timeframe": "1h",
+     "bars": 17230,
+     "ohlcv": {
+      "path": "data/cache/forex_EURUSD_1h_730d_20261001.parquet",
+      "sha256": "bbc79feb273ac121a6036b0a154e3c96a655c8c9d39b4a995042b05b12602191"
+     },
+     "auxiliary": []
+    },
+    {
+     "symbol": "GBPUSD=X",
+     "timeframe": "1h",
+     "bars": 17232,
+     "ohlcv": {
+      "path": "data/cache/forex_GBPUSD_1h_730d_20261001.parquet",
+      "sha256": "82b8e608828003fd6818284551c2da35ee313ade82983aa475d5c95a427fc41c"
+     },
+     "auxiliary": []
+    }
+   ],
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_reused_units": 36,
+   "declaration_matches_historical": true,
+   "historical_units": 36,
+   "rerun_units": 36,
+   "skipped": []
+  },
+  {
+   "id": "fast_gate",
+   "declaration": {
+    "path": "experiments/fast_gate.toml",
+    "sha256": "59422bcfa063a72fd9d57ab42ccee261bb093ae98d138c722ffbaeea052a3308"
+   },
+   "historical_report": {
+    "path": "experiments/fast_gate.results.json",
+    "sha256": "5bf4b6a2d72474208a2766beede07c01ef016199cf4421b781790c8616459551"
+   },
+   "inputs": [
+    {
+     "symbol": "BTC/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BTCUSDT_5m_90d_20261001.parquet",
+      "sha256": "1fbca508a5766c7d4b9ca986863360d3792cf3a67bda2d20b9103e48a8b959fb"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_BTCUSDT.parquet",
+       "sha256": "e9f13a7ddb8610b65c4bc2d196023811686765f9adc96e72bcf6ac46db612518"
+      },
+      {
+       "path": "data/cache/takerflow_BTCUSDT_5m.parquet",
+       "sha256": "240f636d7ae74e66da8efe525a0db508a5bf9e9c9438e6f9a41567c3472fe09f"
+      }
+     ]
+    },
+    {
+     "symbol": "ETH/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_ETHUSDT_5m_90d_20261001.parquet",
+      "sha256": "45935b1b143a5d2898772eab20155b78741e7ddcfd0f26a2b45859e9fceacaaf"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_ETHUSDT.parquet",
+       "sha256": "96df5992c1cb9e9a00ad7dd09922e5d36ad94399e724d0857736449aecca3dde"
+      },
+      {
+       "path": "data/cache/takerflow_ETHUSDT_5m.parquet",
+       "sha256": "9de763120a8612f8176a834faf518bc43b05d13c408e3a3cbb53578d73b374be"
+      }
+     ]
+    },
+    {
+     "symbol": "SOL/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_SOLUSDT_5m_90d_20261001.parquet",
+      "sha256": "daf2ef1f3b2276b73661de314dfe256ac69dffe2fed57e488cd433b8c4fbc19c"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_SOLUSDT.parquet",
+       "sha256": "31fc0f9d285c8362247d37987cafc94269df30cc3d4f01d4065e1cb633c71db9"
+      },
+      {
+       "path": "data/cache/takerflow_SOLUSDT_5m.parquet",
+       "sha256": "51bfa6376cfe245d603adc733bb13ff13a010dae92b6e46c66b9367e7d7060a4"
+      }
+     ]
+    },
+    {
+     "symbol": "BNB/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BNBUSDT_5m_90d_20261001.parquet",
+      "sha256": "12d0afbd2e2318e660dbcf83951c5b404df20757b69c69759a57cf4d9042eacd"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_BNBUSDT.parquet",
+       "sha256": "e3ccd8e9ee9294cf4ef9c1d840d7c10a75cdff620c15c3b4f2f669f52dd8f7d2"
+      },
+      {
+       "path": "data/cache/takerflow_BNBUSDT_5m.parquet",
+       "sha256": "9c681f2851b11d5b24e8efe54b522ad2352afd49a76c4a9d367db28dc36ae556"
+      }
+     ]
+    },
+    {
+     "symbol": "XRP/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_XRPUSDT_5m_90d_20261001.parquet",
+      "sha256": "5fca9936a757d00980fef677b8d625b2ef8ee13c1364f239966689a94a77e695"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_XRPUSDT.parquet",
+       "sha256": "8b3b9844bdb561f8452cdc43c156ff52b8f9c8667b213e472b03dc45ba2c4542"
+      },
+      {
+       "path": "data/cache/takerflow_XRPUSDT_5m.parquet",
+       "sha256": "676826fb7f15958b8b7c4d2a9f6bddcf11f5548bfb01d8b117d9adc00e9c8ac0"
+      }
+     ]
+    },
+    {
+     "symbol": "DOGE/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_DOGEUSDT_5m_90d_20261001.parquet",
+      "sha256": "7ae18a7e34d252e63478cd59876c9f16e1a5828b01f9ae9c45e9fd87ae238097"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_DOGEUSDT.parquet",
+       "sha256": "2de661c3d7392ea286f7175ddd4361cea53c21e4fcbb27758c0493b98046ca19"
+      },
+      {
+       "path": "data/cache/takerflow_DOGEUSDT_5m.parquet",
+       "sha256": "34d310eaaec672c9877b2d1bb11fdedc5c25ba11a0f44429c5aa7bf7f89997c6"
+      }
+     ]
+    },
+    {
+     "symbol": "ADA/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_ADAUSDT_5m_90d_20261001.parquet",
+      "sha256": "3b4905d516e88701689ba5bc69fc255804bc9ce2085bb4179f70d09a27021349"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_ADAUSDT.parquet",
+       "sha256": "a792f2f259912699727a7058e97744cd7a81cf8cfc170e910c143bda13e46619"
+      },
+      {
+       "path": "data/cache/takerflow_ADAUSDT_5m.parquet",
+       "sha256": "6b098fd07436fcf2e7182e6bce64dc85b61029f2138875a54a6c7ca64625c5f0"
+      }
+     ]
+    },
+    {
+     "symbol": "AVAX/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_AVAXUSDT_5m_90d_20261001.parquet",
+      "sha256": "b2d9461f1674a640a3ee0119dce9fbee4c98bfd932b90d288ee83b2d51029e13"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_AVAXUSDT.parquet",
+       "sha256": "8fb33ace6df853cfbbcb22415aa677219eac3cb40cc5c97dea08f93474e80f85"
+      },
+      {
+       "path": "data/cache/takerflow_AVAXUSDT_5m.parquet",
+       "sha256": "5bc4f28d49009c039423989592b1815a353ceffb6ba6b6213c66cf6addc84419"
+      }
+     ]
+    },
+    {
+     "symbol": "LINK/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_LINKUSDT_5m_90d_20261001.parquet",
+      "sha256": "d0c87f2dbe302f3e350f555959969ac742f5539eb13f766a67bc14930f3ddbae"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_LINKUSDT.parquet",
+       "sha256": "61e825de580f1d68ef6e1d0606dbf9c129530d0734c75db94bcc1caa9623a831"
+      },
+      {
+       "path": "data/cache/takerflow_LINKUSDT_5m.parquet",
+       "sha256": "845b15f4d22a1165a16d0169d02412e160360ce211a8fe50dada409159d43861"
+      }
+     ]
+    },
+    {
+     "symbol": "LTC/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_LTCUSDT_5m_90d_20261001.parquet",
+      "sha256": "1b08f1741599a6d9c36903e0fd23a9c498c44723702a60219c2f925956dac4b7"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_LTCUSDT.parquet",
+       "sha256": "18880ba84f2c47c1a7e1bc5d657d0ebe40fc188b3d8f29e171cc8b29a58e509a"
+      },
+      {
+       "path": "data/cache/takerflow_LTCUSDT_5m.parquet",
+       "sha256": "b9a371eb1d5b94c58b278e2a0bf937b8283759b3beb9f2118272a1a12192074e"
+      }
+     ]
+    },
+    {
+     "symbol": "DOT/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_DOTUSDT_5m_90d_20261001.parquet",
+      "sha256": "5c5eec5d6f03469ca56e253f31225e3905d053f7a11984ac24f875ed76a3172a"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_DOTUSDT.parquet",
+       "sha256": "85ede0ba652c01c660c70ba1c946f5f8d67eb65ddf4fc51456e4c0e950753f85"
+      },
+      {
+       "path": "data/cache/takerflow_DOTUSDT_5m.parquet",
+       "sha256": "b20b52bdff4f8c07806780b10c7fd56090b25e66216805339bf597dd01b0cbf3"
+      }
+     ]
+    },
+    {
+     "symbol": "TRX/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_TRXUSDT_5m_90d_20261001.parquet",
+      "sha256": "f44f8efff7818f0b582dc88ccd246530864ee6312882ed9c0e2109d78e780433"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_TRXUSDT.parquet",
+       "sha256": "c8a599beb413748659a900fa761a6361f57b4efd3644b29666a7e6285d250b93"
+      },
+      {
+       "path": "data/cache/takerflow_TRXUSDT_5m.parquet",
+       "sha256": "26c2b2ae32bec4939ac206e296c729c0e65bceff9e1b1f92151963a5be6a3690"
+      }
+     ]
+    },
+    {
+     "symbol": "BCH/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BCHUSDT_5m_90d_20261001.parquet",
+      "sha256": "73213240d1f1e61cb32cae65ee18d438d8057668ccfadb8c9db1a2d65b691050"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_BCHUSDT.parquet",
+       "sha256": "55361dafa4747d6aa60f06f8595274629640432c33ee5a99be0ef645fc916953"
+      },
+      {
+       "path": "data/cache/takerflow_BCHUSDT_5m.parquet",
+       "sha256": "558848e20a2c5afe6c06b08dc1162e12bd91c3f07241f09b5fb3a97a3888e5e7"
+      }
+     ]
+    },
+    {
+     "symbol": "NEAR/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_NEARUSDT_5m_90d_20261001.parquet",
+      "sha256": "71afbeebc713640b104999652d927a79851b9866e981de05141bcce80a91ed92"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_NEARUSDT.parquet",
+       "sha256": "2a05c1112eff8f750fbcbd887596207c18e75f754ec2d0b742e78673c8fa6896"
+      },
+      {
+       "path": "data/cache/takerflow_NEARUSDT_5m.parquet",
+       "sha256": "48c69ed8b67943b694444e5067ba8ab5e1e268e062df1321a2309155aa92d527"
+      }
+     ]
+    },
+    {
+     "symbol": "SUI/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_SUIUSDT_5m_90d_20261001.parquet",
+      "sha256": "32572482d152bfd80d0e6d8b3faf18f6f69525c54fac00827b80f79be8fc6efc"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_SUIUSDT.parquet",
+       "sha256": "51e042712e3efb79f1ed6cfd3858debdf255f361cbc543526e8d713e5890012b"
+      },
+      {
+       "path": "data/cache/takerflow_SUIUSDT_5m.parquet",
+       "sha256": "fbd253f4dd554af32cdd5e65026adc25574afaa5e5553b02ceb1f2576e1c0dbc"
+      }
+     ]
+    },
+    {
+     "symbol": "ETH/BTC",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_ETHBTC_5m_90d_20261001.parquet",
+      "sha256": "1aae01223a15a1f79039fad98276bc1a362ff2f1cffa46b59c7e67184e2365dd"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_ETHBTC_5m.parquet",
+       "sha256": "811bdfe5d221459e31da154dad8d66443819496de8a2323f2f912175a23c0a37"
+      }
+     ]
+    },
+    {
+     "symbol": "SOL/BTC",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_SOLBTC_5m_90d_20261001.parquet",
+      "sha256": "e706cf836e347987d822bb83e0b991b982fb93be93390fb76fac7769bd4cac01"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_SOLBTC_5m.parquet",
+       "sha256": "34b0745e1282d5d8e30bae45b62c3c9e4bff5a18d05cc2860e3d01e8edcd5a87"
+      }
+     ]
+    },
+    {
+     "symbol": "BNB/BTC",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BNBBTC_5m_90d_20261001.parquet",
+      "sha256": "abcd5bcab3047d1fb39da4dcd4166a12700ff7d1002e86e26e7f6700837e58f7"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_BNBBTC_5m.parquet",
+       "sha256": "527014b609928f8aa56e6df42dce0048635b5976036084dbde8ce9ae99147a10"
+      }
+     ]
+    },
+    {
+     "symbol": "XRP/BTC",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_XRPBTC_5m_90d_20261001.parquet",
+      "sha256": "9cb496542ce70ef1b2f93de002668a664c1448c13a0a90a2ed6cf779c146f016"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_XRPBTC_5m.parquet",
+       "sha256": "50324e2e44799e714f1412ddf8048a098ac0bccd0b54bb0b5cf4599ff3b9cec1"
+      }
+     ]
+    },
+    {
+     "symbol": "SOL/ETH",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_SOLETH_5m_90d_20261001.parquet",
+      "sha256": "5cc92553916a99e422a1a684e03d5b04afd1959173886515f95ea715d5f4f88d"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_SOLETH_5m.parquet",
+       "sha256": "92ef91b3d62e798cdc382050be8d64123e3cd30f6cc0a42863e661120551960a"
+      }
+     ]
+    },
+    {
+     "symbol": "BNB/ETH",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BNBETH_5m_90d_20261001.parquet",
+      "sha256": "4a49f0ccce67f4d94dc9ae1d40276cce90df6a3c6129875a869f160021dfb99e"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_BNBETH_5m.parquet",
+       "sha256": "06a7aa8c8eb04fe49e8bb8e17234ccebaa449bbfe9d5286ea84b54d2eebefed8"
+      }
+     ]
+    }
+   ],
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_reused_units": 105,
+   "declaration_matches_historical": true,
+   "historical_units": 105,
+   "rerun_units": 105,
+   "skipped": []
+  },
+  {
+   "id": "market_maker_fill_model",
+   "declaration": {
+    "path": "experiments/market_maker_fill_model.toml",
+    "sha256": "da356d1f144da9b5f8354efdf01afd755b307c02f0a0d15e6937b16b5f8efa39"
+   },
+   "historical_report": {
+    "path": "experiments/market_maker_fill_model.results.json",
+    "sha256": "7ebe1e6d708656494d12e6694f3fa4a2905ec24bf791689b07d1ff8a2ee6c288"
+   },
+   "inputs": [
+    {
+     "symbol": "BTC/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BTCUSDT_5m_90d_20261001.parquet",
+      "sha256": "1fbca508a5766c7d4b9ca986863360d3792cf3a67bda2d20b9103e48a8b959fb"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_BTCUSDT.parquet",
+       "sha256": "e9f13a7ddb8610b65c4bc2d196023811686765f9adc96e72bcf6ac46db612518"
+      },
+      {
+       "path": "data/cache/takerflow_BTCUSDT_5m.parquet",
+       "sha256": "240f636d7ae74e66da8efe525a0db508a5bf9e9c9438e6f9a41567c3472fe09f"
+      }
+     ]
+    },
+    {
+     "symbol": "ETH/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_ETHUSDT_5m_90d_20261001.parquet",
+      "sha256": "45935b1b143a5d2898772eab20155b78741e7ddcfd0f26a2b45859e9fceacaaf"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_ETHUSDT.parquet",
+       "sha256": "96df5992c1cb9e9a00ad7dd09922e5d36ad94399e724d0857736449aecca3dde"
+      },
+      {
+       "path": "data/cache/takerflow_ETHUSDT_5m.parquet",
+       "sha256": "9de763120a8612f8176a834faf518bc43b05d13c408e3a3cbb53578d73b374be"
+      }
+     ]
+    },
+    {
+     "symbol": "SOL/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_SOLUSDT_5m_90d_20261001.parquet",
+      "sha256": "daf2ef1f3b2276b73661de314dfe256ac69dffe2fed57e488cd433b8c4fbc19c"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_SOLUSDT.parquet",
+       "sha256": "31fc0f9d285c8362247d37987cafc94269df30cc3d4f01d4065e1cb633c71db9"
+      },
+      {
+       "path": "data/cache/takerflow_SOLUSDT_5m.parquet",
+       "sha256": "51bfa6376cfe245d603adc733bb13ff13a010dae92b6e46c66b9367e7d7060a4"
+      }
+     ]
+    },
+    {
+     "symbol": "BNB/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BNBUSDT_5m_90d_20261001.parquet",
+      "sha256": "12d0afbd2e2318e660dbcf83951c5b404df20757b69c69759a57cf4d9042eacd"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_BNBUSDT.parquet",
+       "sha256": "e3ccd8e9ee9294cf4ef9c1d840d7c10a75cdff620c15c3b4f2f669f52dd8f7d2"
+      },
+      {
+       "path": "data/cache/takerflow_BNBUSDT_5m.parquet",
+       "sha256": "9c681f2851b11d5b24e8efe54b522ad2352afd49a76c4a9d367db28dc36ae556"
+      }
+     ]
+    },
+    {
+     "symbol": "XRP/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_XRPUSDT_5m_90d_20261001.parquet",
+      "sha256": "5fca9936a757d00980fef677b8d625b2ef8ee13c1364f239966689a94a77e695"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_XRPUSDT.parquet",
+       "sha256": "8b3b9844bdb561f8452cdc43c156ff52b8f9c8667b213e472b03dc45ba2c4542"
+      },
+      {
+       "path": "data/cache/takerflow_XRPUSDT_5m.parquet",
+       "sha256": "676826fb7f15958b8b7c4d2a9f6bddcf11f5548bfb01d8b117d9adc00e9c8ac0"
+      }
+     ]
+    },
+    {
+     "symbol": "DOGE/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_DOGEUSDT_5m_90d_20261001.parquet",
+      "sha256": "7ae18a7e34d252e63478cd59876c9f16e1a5828b01f9ae9c45e9fd87ae238097"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_DOGEUSDT.parquet",
+       "sha256": "2de661c3d7392ea286f7175ddd4361cea53c21e4fcbb27758c0493b98046ca19"
+      },
+      {
+       "path": "data/cache/takerflow_DOGEUSDT_5m.parquet",
+       "sha256": "34d310eaaec672c9877b2d1bb11fdedc5c25ba11a0f44429c5aa7bf7f89997c6"
+      }
+     ]
+    },
+    {
+     "symbol": "ADA/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_ADAUSDT_5m_90d_20261001.parquet",
+      "sha256": "3b4905d516e88701689ba5bc69fc255804bc9ce2085bb4179f70d09a27021349"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_ADAUSDT.parquet",
+       "sha256": "a792f2f259912699727a7058e97744cd7a81cf8cfc170e910c143bda13e46619"
+      },
+      {
+       "path": "data/cache/takerflow_ADAUSDT_5m.parquet",
+       "sha256": "6b098fd07436fcf2e7182e6bce64dc85b61029f2138875a54a6c7ca64625c5f0"
+      }
+     ]
+    },
+    {
+     "symbol": "AVAX/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_AVAXUSDT_5m_90d_20261001.parquet",
+      "sha256": "b2d9461f1674a640a3ee0119dce9fbee4c98bfd932b90d288ee83b2d51029e13"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_AVAXUSDT.parquet",
+       "sha256": "8fb33ace6df853cfbbcb22415aa677219eac3cb40cc5c97dea08f93474e80f85"
+      },
+      {
+       "path": "data/cache/takerflow_AVAXUSDT_5m.parquet",
+       "sha256": "5bc4f28d49009c039423989592b1815a353ceffb6ba6b6213c66cf6addc84419"
+      }
+     ]
+    },
+    {
+     "symbol": "LINK/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_LINKUSDT_5m_90d_20261001.parquet",
+      "sha256": "d0c87f2dbe302f3e350f555959969ac742f5539eb13f766a67bc14930f3ddbae"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_LINKUSDT.parquet",
+       "sha256": "61e825de580f1d68ef6e1d0606dbf9c129530d0734c75db94bcc1caa9623a831"
+      },
+      {
+       "path": "data/cache/takerflow_LINKUSDT_5m.parquet",
+       "sha256": "845b15f4d22a1165a16d0169d02412e160360ce211a8fe50dada409159d43861"
+      }
+     ]
+    },
+    {
+     "symbol": "LTC/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_LTCUSDT_5m_90d_20261001.parquet",
+      "sha256": "1b08f1741599a6d9c36903e0fd23a9c498c44723702a60219c2f925956dac4b7"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_LTCUSDT.parquet",
+       "sha256": "18880ba84f2c47c1a7e1bc5d657d0ebe40fc188b3d8f29e171cc8b29a58e509a"
+      },
+      {
+       "path": "data/cache/takerflow_LTCUSDT_5m.parquet",
+       "sha256": "b9a371eb1d5b94c58b278e2a0bf937b8283759b3beb9f2118272a1a12192074e"
+      }
+     ]
+    },
+    {
+     "symbol": "DOT/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_DOTUSDT_5m_90d_20261001.parquet",
+      "sha256": "5c5eec5d6f03469ca56e253f31225e3905d053f7a11984ac24f875ed76a3172a"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_DOTUSDT.parquet",
+       "sha256": "85ede0ba652c01c660c70ba1c946f5f8d67eb65ddf4fc51456e4c0e950753f85"
+      },
+      {
+       "path": "data/cache/takerflow_DOTUSDT_5m.parquet",
+       "sha256": "b20b52bdff4f8c07806780b10c7fd56090b25e66216805339bf597dd01b0cbf3"
+      }
+     ]
+    },
+    {
+     "symbol": "TRX/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_TRXUSDT_5m_90d_20261001.parquet",
+      "sha256": "f44f8efff7818f0b582dc88ccd246530864ee6312882ed9c0e2109d78e780433"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_TRXUSDT.parquet",
+       "sha256": "c8a599beb413748659a900fa761a6361f57b4efd3644b29666a7e6285d250b93"
+      },
+      {
+       "path": "data/cache/takerflow_TRXUSDT_5m.parquet",
+       "sha256": "26c2b2ae32bec4939ac206e296c729c0e65bceff9e1b1f92151963a5be6a3690"
+      }
+     ]
+    },
+    {
+     "symbol": "BCH/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BCHUSDT_5m_90d_20261001.parquet",
+      "sha256": "73213240d1f1e61cb32cae65ee18d438d8057668ccfadb8c9db1a2d65b691050"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_BCHUSDT.parquet",
+       "sha256": "55361dafa4747d6aa60f06f8595274629640432c33ee5a99be0ef645fc916953"
+      },
+      {
+       "path": "data/cache/takerflow_BCHUSDT_5m.parquet",
+       "sha256": "558848e20a2c5afe6c06b08dc1162e12bd91c3f07241f09b5fb3a97a3888e5e7"
+      }
+     ]
+    },
+    {
+     "symbol": "NEAR/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_NEARUSDT_5m_90d_20261001.parquet",
+      "sha256": "71afbeebc713640b104999652d927a79851b9866e981de05141bcce80a91ed92"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_NEARUSDT.parquet",
+       "sha256": "2a05c1112eff8f750fbcbd887596207c18e75f754ec2d0b742e78673c8fa6896"
+      },
+      {
+       "path": "data/cache/takerflow_NEARUSDT_5m.parquet",
+       "sha256": "48c69ed8b67943b694444e5067ba8ab5e1e268e062df1321a2309155aa92d527"
+      }
+     ]
+    },
+    {
+     "symbol": "SUI/USDT",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_SUIUSDT_5m_90d_20261001.parquet",
+      "sha256": "32572482d152bfd80d0e6d8b3faf18f6f69525c54fac00827b80f79be8fc6efc"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/funding_SUIUSDT.parquet",
+       "sha256": "51e042712e3efb79f1ed6cfd3858debdf255f361cbc543526e8d713e5890012b"
+      },
+      {
+       "path": "data/cache/takerflow_SUIUSDT_5m.parquet",
+       "sha256": "fbd253f4dd554af32cdd5e65026adc25574afaa5e5553b02ceb1f2576e1c0dbc"
+      }
+     ]
+    },
+    {
+     "symbol": "ETH/BTC",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_ETHBTC_5m_90d_20261001.parquet",
+      "sha256": "1aae01223a15a1f79039fad98276bc1a362ff2f1cffa46b59c7e67184e2365dd"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_ETHBTC_5m.parquet",
+       "sha256": "811bdfe5d221459e31da154dad8d66443819496de8a2323f2f912175a23c0a37"
+      }
+     ]
+    },
+    {
+     "symbol": "SOL/BTC",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_SOLBTC_5m_90d_20261001.parquet",
+      "sha256": "e706cf836e347987d822bb83e0b991b982fb93be93390fb76fac7769bd4cac01"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_SOLBTC_5m.parquet",
+       "sha256": "34b0745e1282d5d8e30bae45b62c3c9e4bff5a18d05cc2860e3d01e8edcd5a87"
+      }
+     ]
+    },
+    {
+     "symbol": "BNB/BTC",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BNBBTC_5m_90d_20261001.parquet",
+      "sha256": "abcd5bcab3047d1fb39da4dcd4166a12700ff7d1002e86e26e7f6700837e58f7"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_BNBBTC_5m.parquet",
+       "sha256": "527014b609928f8aa56e6df42dce0048635b5976036084dbde8ce9ae99147a10"
+      }
+     ]
+    },
+    {
+     "symbol": "XRP/BTC",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_XRPBTC_5m_90d_20261001.parquet",
+      "sha256": "9cb496542ce70ef1b2f93de002668a664c1448c13a0a90a2ed6cf779c146f016"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_XRPBTC_5m.parquet",
+       "sha256": "50324e2e44799e714f1412ddf8048a098ac0bccd0b54bb0b5cf4599ff3b9cec1"
+      }
+     ]
+    },
+    {
+     "symbol": "SOL/ETH",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_SOLETH_5m_90d_20261001.parquet",
+      "sha256": "5cc92553916a99e422a1a684e03d5b04afd1959173886515f95ea715d5f4f88d"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_SOLETH_5m.parquet",
+       "sha256": "92ef91b3d62e798cdc382050be8d64123e3cd30f6cc0a42863e661120551960a"
+      }
+     ]
+    },
+    {
+     "symbol": "BNB/ETH",
+     "timeframe": "5m",
+     "bars": 25919,
+     "ohlcv": {
+      "path": "data/cache/crypto_BNBETH_5m_90d_20261001.parquet",
+      "sha256": "4a49f0ccce67f4d94dc9ae1d40276cce90df6a3c6129875a869f160021dfb99e"
+     },
+     "auxiliary": [
+      {
+       "path": "data/cache/takerflow_BNBETH_5m.parquet",
+       "sha256": "06a7aa8c8eb04fe49e8bb8e17234ccebaa449bbfe9d5286ea84b54d2eebefed8"
+      }
+     ]
+    }
+   ],
+   "metrics_version": 3,
+   "baseline_metrics_version": 1,
+   "v1_reused_units": 84,
+   "declaration_matches_historical": true,
+   "historical_units": 84,
+   "rerun_units": 84,
+   "skipped": []
+  }
+ ]
+}

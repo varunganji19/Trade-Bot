@@ -1,0 +1,117 @@
+{
+  "metrics_version": 2,
+  "status": "passed",
+  "comparison_sha256": "7571387bc973e137fee57953dad83f7d8878eef3087a01a517207fe94d117042",
+  "checks": [
+    "Net trade P&L equals equity change within 1e-8 USDT",
+    "Balances, total P&L, fees and return agree at reported precision",
+    "Net-P&L win rate agrees at reported precision",
+    "Drawdown and Sharpe recomputed from every exported equity point",
+    "Equity timestamps strictly increase; all terminal trades are closed",
+    "All experiment cases present with finite metrics",
+    "Recorded source and input/declaration/report hashes match current files"
+  ],
+  "current_source_sha256": {
+    "bot/backtest.py": "246f82e310fa852ea6fbcce4518ad8e15dfcb0bfe135b574f264988682305deb",
+    "bot/broker.py": "ee05fe2577a157580de9c2ed2e90a22e5534c9172684dce72c3d9d6df1704ad2",
+    "bot/risk.py": "07defa971568ba425648e5d0168880a8821df2f7678bd8084846b298c01ac55f",
+    "config.py": "fefd2a9510e0302dcdde8a7cc2d35d0fa482a38a0177102ee0727024ca79e289"
+  },
+  "verified_referenced_artifacts": 108,
+  "historical_reports_unchanged": true,
+  "pinned": [
+    {
+      "file": "BTCUSDT_1h_turtle.json",
+      "sha256": "7490944333825d9d4927a74d9ccb8b7cb138a000f481a44db041d9405da8a892",
+      "equity_points": 8564,
+      "closed_trades": 115,
+      "net_pnl": -440.65621703676595,
+      "equity_change": -440.6562170367524,
+      "passed": true
+    },
+    {
+      "file": "ETHUSDT_1h_turtle.json",
+      "sha256": "030f3e98a7d9ed6adffe1c13ca67b79c665b4cfad6290dad8b39aaab12eb754a",
+      "equity_points": 5612,
+      "closed_trades": 69,
+      "net_pnl": 151.2709221859829,
+      "equity_change": 151.27092218598045,
+      "passed": true
+    },
+    {
+      "file": "SOLUSDT_1h_turtle.json",
+      "sha256": "5adfd2c666d162c1fb1000fb4de77dec249d54dc77aa0df524420e6742f2b2f1",
+      "equity_points": 5468,
+      "closed_trades": 56,
+      "net_pnl": 1048.8081676919114,
+      "equity_change": 1048.808167691921,
+      "passed": true
+    },
+    {
+      "file": "BTCUSDT_4h_connors.json",
+      "sha256": "7ebc08eb983c93f277455732104b3c494a1f94f7ac50ce94610bc88b1a07f43e",
+      "equity_points": 866,
+      "closed_trades": 6,
+      "net_pnl": 76.91068033951171,
+      "equity_change": 76.91068033951342,
+      "passed": true
+    },
+    {
+      "file": "ETHUSDT_4h_connors.json",
+      "sha256": "fd1332fe3b1306322711fb019b1b0430de0c1f8e7accf8ff0cd94f5f262fee92",
+      "equity_points": 866,
+      "closed_trades": 4,
+      "net_pnl": -23.16693063242845,
+      "equity_change": -23.166930632431104,
+      "passed": true
+    },
+    {
+      "file": "BTCUSDT_15m_scalper.json",
+      "sha256": "8882e789b2d68d119440b8c732a7493f56c7e3381f197e9b299d68568aa38939",
+      "equity_points": 17156,
+      "closed_trades": 113,
+      "net_pnl": -971.4923396010179,
+      "equity_change": -971.492339601029,
+      "passed": true
+    },
+    {
+      "file": "ETHUSDT_15m_scalper.json",
+      "sha256": "8311602b7dd5443c2e851355f7ec78e5a37719a4e993307d289aac9646e04a09",
+      "equity_points": 23108,
+      "closed_trades": 155,
+      "net_pnl": -782.9527009270942,
+      "equity_change": -782.9527009271042,
+      "passed": true
+    }
+  ],
+  "experiments": [
+    {
+      "file": "standard_gate.comparison.json",
+      "sha256": "4b2885f725a105f6927ed9d3118bd51f9e581af6ed46dbcf90f370417a70b6f4",
+      "completed_cases": 36,
+      "passed": true
+    },
+    {
+      "file": "fast_gate.comparison.json",
+      "sha256": "be4bc6f39a36b4d2abd963e46e2c0c28fbb3aced4d27875692d19b2063f32cb1",
+      "completed_cases": 105,
+      "passed": true
+    },
+    {
+      "file": "market_maker_fill_model.comparison.json",
+      "sha256": "85ec516f018ea3d8ff5e1be60e9a1318a411ccf0d44c017237f727fbfc5d8e1c",
+      "completed_cases": 84,
+      "passed": true
+    }
+  ],
+  "skipped_pinned": [
+    {
+      "run": "EURUSD_1h_fxmr",
+      "reason": "exact pinned cache unavailable",
+      "expected": [
+        "data/cache/forex_EURUSD_1h_2026-01-04_2026-09-04.parquet",
+        "data/cache/EURUSD_1h_2026-01-04_2026-09-04.parquet"
+      ]
+    }
+  ]
+}

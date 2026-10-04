@@ -1,0 +1,5013 @@
+{
+ "id": "standard_gate",
+ "declaration": {
+  "path": "experiments/standard_gate.toml",
+  "sha256": "9714b14bd0f60e95852cba97f4af2e77a34f7acae2b3c7eddeaa41384a701400"
+ },
+ "historical_report": {
+  "path": "experiments/standard_gate.results.json",
+  "sha256": "d3c4ffda9b1d26f3378bf3396bfd3902d81c936249d7c90d93cfee257a7875be"
+ },
+ "declaration_matches_historical": true,
+ "historical_units": 36,
+ "rerun_units": 36,
+ "inputs": [
+  {
+   "symbol": "BTC/USDT",
+   "timeframe": "15m",
+   "bars": 70079,
+   "ohlcv": {
+    "path": "data/cache/crypto_BTCUSDT_15m_730d_20261001.parquet",
+    "sha256": "3442b03360757ba70daa0d52f45d9b5cf0495a4dfae4a0140e46adc1ed140000"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "BTC/USDT",
+   "timeframe": "1h",
+   "bars": 17519,
+   "ohlcv": {
+    "path": "data/cache/crypto_BTCUSDT_1h_730d_20261001.parquet",
+    "sha256": "45485d05a70563c5fa1bf16dda81e2554abd751fca364fd6cf60cee8b2c6b45b"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "BTC/USDT",
+   "timeframe": "4h",
+   "bars": 4379,
+   "ohlcv": {
+    "path": "data/cache/crypto_BTCUSDT_4h_730d_20261001.parquet",
+    "sha256": "ee82eeb5b918630470b858ff16e87ac8f646408a744165a8105eafb9f011c043"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "ETH/USDT",
+   "timeframe": "15m",
+   "bars": 70079,
+   "ohlcv": {
+    "path": "data/cache/crypto_ETHUSDT_15m_730d_20261001.parquet",
+    "sha256": "078890625b3e53ea735496b91e6ccfb713e8604d39f5302ba6556ef1853e0bfb"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "ETH/USDT",
+   "timeframe": "1h",
+   "bars": 17519,
+   "ohlcv": {
+    "path": "data/cache/crypto_ETHUSDT_1h_730d_20261001.parquet",
+    "sha256": "b6c857cc25d8c12949f16ccc69e62aa2e88aa6dcc2f15bdfcf4fc377c7e577bd"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "ETH/USDT",
+   "timeframe": "4h",
+   "bars": 4379,
+   "ohlcv": {
+    "path": "data/cache/crypto_ETHUSDT_4h_730d_20261001.parquet",
+    "sha256": "1b51ec65b0b6e0c9a1e1f3270108285c8afadd4d93878de43f3ecbf098372a98"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "SOL/USDT",
+   "timeframe": "15m",
+   "bars": 70079,
+   "ohlcv": {
+    "path": "data/cache/crypto_SOLUSDT_15m_730d_20261001.parquet",
+    "sha256": "7aee3badff7b920f047bbfe205895b9fe597b91f1c7d2bd278c92b4e60557d0c"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "SOL/USDT",
+   "timeframe": "1h",
+   "bars": 17519,
+   "ohlcv": {
+    "path": "data/cache/crypto_SOLUSDT_1h_730d_20261001.parquet",
+    "sha256": "9702e6343b74f99c5a4db701acfbf11fb275c0f315a6d7d2fadeae6427121154"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "SOL/USDT",
+   "timeframe": "4h",
+   "bars": 4379,
+   "ohlcv": {
+    "path": "data/cache/crypto_SOLUSDT_4h_730d_20261001.parquet",
+    "sha256": "fc6dfe5aeffc4d627114f643c20ca61f1ff80c83ef921bf0ea35c913a8779538"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "BNB/USDT",
+   "timeframe": "15m",
+   "bars": 70079,
+   "ohlcv": {
+    "path": "data/cache/crypto_BNBUSDT_15m_730d_20261001.parquet",
+    "sha256": "8fd233d4572dc768fa1310a8af1cdf0a0a6a979dd757136c32a7a98c503dab3c"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "BNB/USDT",
+   "timeframe": "1h",
+   "bars": 17519,
+   "ohlcv": {
+    "path": "data/cache/crypto_BNBUSDT_1h_730d_20261001.parquet",
+    "sha256": "de27611c36b0f8c3d84662dd5872869591f5d01feb8955a1cd8dce821454c182"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "BNB/USDT",
+   "timeframe": "4h",
+   "bars": 4379,
+   "ohlcv": {
+    "path": "data/cache/crypto_BNBUSDT_4h_730d_20261001.parquet",
+    "sha256": "b17b7e5b551f411885a9b97baae2651b571a9e57c153fd9c7cdc1f5923330129"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "XRP/USDT",
+   "timeframe": "15m",
+   "bars": 70079,
+   "ohlcv": {
+    "path": "data/cache/crypto_XRPUSDT_15m_730d_20261001.parquet",
+    "sha256": "3ba158a86d7ee379faec150b02df3129472390e0a0d65b0fb831e21b96450d82"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "XRP/USDT",
+   "timeframe": "1h",
+   "bars": 17519,
+   "ohlcv": {
+    "path": "data/cache/crypto_XRPUSDT_1h_730d_20261001.parquet",
+    "sha256": "3b2614367645f7036501b46c8f6e6a258d049197556188cb51297bfce0474e70"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "XRP/USDT",
+   "timeframe": "4h",
+   "bars": 4379,
+   "ohlcv": {
+    "path": "data/cache/crypto_XRPUSDT_4h_730d_20261001.parquet",
+    "sha256": "772c2d26eb8b8239e4b54e56002a430cbae78e5ed80adeff2673bd589f3b06a4"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "EURUSD=X",
+   "timeframe": "1h",
+   "bars": 17230,
+   "ohlcv": {
+    "path": "data/cache/forex_EURUSD_1h_730d_20261001.parquet",
+    "sha256": "bbc79feb273ac121a6036b0a154e3c96a655c8c9d39b4a995042b05b12602191"
+   },
+   "auxiliary": []
+  },
+  {
+   "symbol": "GBPUSD=X",
+   "timeframe": "1h",
+   "bars": 17232,
+   "ohlcv": {
+    "path": "data/cache/forex_GBPUSD_1h_730d_20261001.parquet",
+    "sha256": "82b8e608828003fd6818284551c2da35ee313ade82983aa475d5c95a427fc41c"
+   },
+   "auxiliary": []
+  }
+ ],
+ "skipped": [],
+ "units": [
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "BNB/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 20,
+     "fold_pf": [
+      0.48,
+      0.0,
+      0.36,
+      0.17
+     ],
+     "sharpe": -2.35,
+     "total_pnl": -335.4,
+     "fees": 79.35
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 20,
+     "fold_pf": [
+      0.48,
+      0.0,
+      0.36,
+      0.17
+     ],
+     "sharpe": -1.43,
+     "total_pnl": -335.41,
+     "fees": 79.35
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 20,
+     "fold_pf": [
+      0.48,
+      0.0,
+      0.36,
+      0.17
+     ],
+     "sharpe": -2.35,
+     "total_pnl": -335.4,
+     "fees": 79.35
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 20,
+     "after": 20,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.48,
+      0.0,
+      0.36,
+      0.17
+     ],
+     "after": [
+      0.48,
+      0.0,
+      0.36,
+      0.17
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -2.35,
+     "after": -1.43,
+     "delta": 0.92
+    },
+    "total_pnl": {
+     "before": -335.4,
+     "after": -335.41,
+     "delta": -0.01
+    },
+    "fees": {
+     "before": 79.35,
+     "after": 79.35,
+     "delta": 0.0
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 20,
+     "after": 20,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.48,
+      0.0,
+      0.36,
+      0.17
+     ],
+     "after": [
+      0.48,
+      0.0,
+      0.36,
+      0.17
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -2.35,
+     "after": -1.43,
+     "delta": 0.92
+    },
+    "total_pnl": {
+     "before": -335.4,
+     "after": -335.41,
+     "delta": -0.01
+    },
+    "fees": {
+     "before": 79.35,
+     "after": 79.35,
+     "delta": 0.0
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "BTC/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 32,
+     "fold_pf": [
+      0.76,
+      0.26,
+      2.7,
+      13.49
+     ],
+     "sharpe": 0.84,
+     "total_pnl": 203.3,
+     "fees": 142.15
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 32,
+     "fold_pf": [
+      0.76,
+      0.26,
+      2.7,
+      13.49
+     ],
+     "sharpe": 0.75,
+     "total_pnl": 203.31,
+     "fees": 142.15
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 32,
+     "fold_pf": [
+      0.76,
+      0.26,
+      2.7,
+      13.49
+     ],
+     "sharpe": 0.84,
+     "total_pnl": 203.3,
+     "fees": 142.15
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 32,
+     "after": 32,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.76,
+      0.26,
+      2.7,
+      13.49
+     ],
+     "after": [
+      0.76,
+      0.26,
+      2.7,
+      13.49
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.84,
+     "after": 0.75,
+     "delta": -0.09
+    },
+    "total_pnl": {
+     "before": 203.3,
+     "after": 203.31,
+     "delta": 0.01
+    },
+    "fees": {
+     "before": 142.15,
+     "after": 142.15,
+     "delta": 0.0
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 32,
+     "after": 32,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.76,
+      0.26,
+      2.7,
+      13.49
+     ],
+     "after": [
+      0.76,
+      0.26,
+      2.7,
+      13.49
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.84,
+     "after": 0.75,
+     "delta": -0.09
+    },
+    "total_pnl": {
+     "before": 203.3,
+     "after": 203.31,
+     "delta": 0.01
+    },
+    "fees": {
+     "before": 142.15,
+     "after": 142.15,
+     "delta": 0.0
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "ETH/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 33,
+     "fold_pf": [
+      0.66,
+      0.47,
+      1.12,
+      0.57
+     ],
+     "sharpe": -0.81,
+     "total_pnl": -120.61,
+     "fees": 110.59
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 33,
+     "fold_pf": [
+      0.66,
+      0.47,
+      1.12,
+      0.57
+     ],
+     "sharpe": -0.35,
+     "total_pnl": -120.63,
+     "fees": 110.59
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 33,
+     "fold_pf": [
+      0.66,
+      0.47,
+      1.12,
+      0.57
+     ],
+     "sharpe": -0.81,
+     "total_pnl": -120.61,
+     "fees": 110.59
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 33,
+     "after": 33,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.66,
+      0.47,
+      1.12,
+      0.57
+     ],
+     "after": [
+      0.66,
+      0.47,
+      1.12,
+      0.57
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.81,
+     "after": -0.35,
+     "delta": 0.46
+    },
+    "total_pnl": {
+     "before": -120.61,
+     "after": -120.63,
+     "delta": -0.02
+    },
+    "fees": {
+     "before": 110.59,
+     "after": 110.59,
+     "delta": 0.0
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 33,
+     "after": 33,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.66,
+      0.47,
+      1.12,
+      0.57
+     ],
+     "after": [
+      0.66,
+      0.47,
+      1.12,
+      0.57
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.81,
+     "after": -0.35,
+     "delta": 0.46
+    },
+    "total_pnl": {
+     "before": -120.61,
+     "after": -120.63,
+     "delta": -0.02
+    },
+    "fees": {
+     "before": 110.59,
+     "after": 110.59,
+     "delta": 0.0
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "SOL/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 44,
+     "fold_pf": [
+      0.68,
+      1.72,
+      0.9,
+      0.74
+     ],
+     "sharpe": -0.2,
+     "total_pnl": -71.56,
+     "fees": 135.17
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 44,
+     "fold_pf": [
+      0.68,
+      1.72,
+      0.9,
+      0.74
+     ],
+     "sharpe": -0.2,
+     "total_pnl": -71.59,
+     "fees": 135.17
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 44,
+     "fold_pf": [
+      0.68,
+      1.72,
+      0.9,
+      0.74
+     ],
+     "sharpe": -0.2,
+     "total_pnl": -71.56,
+     "fees": 135.17
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 44,
+     "after": 44,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.68,
+      1.72,
+      0.9,
+      0.74
+     ],
+     "after": [
+      0.68,
+      1.72,
+      0.9,
+      0.74
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.2,
+     "after": -0.2,
+     "delta": 0.0
+    },
+    "total_pnl": {
+     "before": -71.56,
+     "after": -71.59,
+     "delta": -0.03
+    },
+    "fees": {
+     "before": 135.17,
+     "after": 135.17,
+     "delta": 0.0
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 44,
+     "after": 44,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.68,
+      1.72,
+      0.9,
+      0.74
+     ],
+     "after": [
+      0.68,
+      1.72,
+      0.9,
+      0.74
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.2,
+     "after": -0.2,
+     "delta": 0.0
+    },
+    "total_pnl": {
+     "before": -71.56,
+     "after": -71.59,
+     "delta": -0.03
+    },
+    "fees": {
+     "before": 135.17,
+     "after": 135.17,
+     "delta": 0.0
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "connors_meanrev",
+   "symbol": "XRP/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 36,
+     "fold_pf": [
+      0.24,
+      0.07,
+      1.45,
+      0.96
+     ],
+     "sharpe": -0.08,
+     "total_pnl": -394.22,
+     "fees": 127.3
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 36,
+     "fold_pf": [
+      0.24,
+      0.07,
+      1.45,
+      0.96
+     ],
+     "sharpe": -1.13,
+     "total_pnl": -394.24,
+     "fees": 127.3
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "connors_meanrev",
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 36,
+     "fold_pf": [
+      0.24,
+      0.07,
+      1.45,
+      0.96
+     ],
+     "sharpe": -0.08,
+     "total_pnl": -394.22,
+     "fees": 127.3
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 36,
+     "after": 36,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.24,
+      0.07,
+      1.45,
+      0.96
+     ],
+     "after": [
+      0.24,
+      0.07,
+      1.45,
+      0.96
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.08,
+     "after": -1.13,
+     "delta": -1.05
+    },
+    "total_pnl": {
+     "before": -394.22,
+     "after": -394.24,
+     "delta": -0.02
+    },
+    "fees": {
+     "before": 127.3,
+     "after": 127.3,
+     "delta": 0.0
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 36,
+     "after": 36,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.24,
+      0.07,
+      1.45,
+      0.96
+     ],
+     "after": [
+      0.24,
+      0.07,
+      1.45,
+      0.96
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.08,
+     "after": -1.13,
+     "delta": -1.05
+    },
+    "total_pnl": {
+     "before": -394.22,
+     "after": -394.24,
+     "delta": -0.02
+    },
+    "fees": {
+     "before": 127.3,
+     "after": 127.3,
+     "delta": 0.0
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "BNB/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 422,
+     "fold_pf": [
+      0.84,
+      0.65,
+      0.42,
+      0.56
+     ],
+     "sharpe": -0.74,
+     "total_pnl": -2689.6,
+     "fees": 2050.74
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 402,
+     "fold_pf": [
+      0.8,
+      0.67,
+      0.4,
+      0.58
+     ],
+     "sharpe": -3.0,
+     "total_pnl": -2567.9,
+     "fees": 1956.31
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 422,
+     "fold_pf": [
+      0.84,
+      0.65,
+      0.42,
+      0.56
+     ],
+     "sharpe": -0.74,
+     "total_pnl": -2689.6,
+     "fees": 2050.74
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 422,
+     "after": 402,
+     "delta": -20
+    },
+    "fold_pf": {
+     "before": [
+      0.84,
+      0.65,
+      0.42,
+      0.56
+     ],
+     "after": [
+      0.8,
+      0.67,
+      0.4,
+      0.58
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.74,
+     "after": -3.0,
+     "delta": -2.26
+    },
+    "total_pnl": {
+     "before": -2689.6,
+     "after": -2567.9,
+     "delta": 121.7
+    },
+    "fees": {
+     "before": 2050.74,
+     "after": 1956.31,
+     "delta": -94.43
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 422,
+     "after": 402,
+     "delta": -20
+    },
+    "fold_pf": {
+     "before": [
+      0.84,
+      0.65,
+      0.42,
+      0.56
+     ],
+     "after": [
+      0.8,
+      0.67,
+      0.4,
+      0.58
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.74,
+     "after": -3.0,
+     "delta": -2.26
+    },
+    "total_pnl": {
+     "before": -2689.6,
+     "after": -2567.9,
+     "delta": 121.7
+    },
+    "fees": {
+     "before": 2050.74,
+     "after": 1956.31,
+     "delta": -94.43
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "BTC/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 455,
+     "fold_pf": [
+      0.67,
+      0.51,
+      0.5,
+      0.47
+     ],
+     "sharpe": -0.77,
+     "total_pnl": -3015.68,
+     "fees": 2179.9
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 432,
+     "fold_pf": [
+      0.62,
+      0.48,
+      0.47,
+      0.44
+     ],
+     "sharpe": -3.96,
+     "total_pnl": -3161.87,
+     "fees": 2065.6
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 455,
+     "fold_pf": [
+      0.67,
+      0.51,
+      0.5,
+      0.47
+     ],
+     "sharpe": -0.77,
+     "total_pnl": -3015.68,
+     "fees": 2179.9
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 455,
+     "after": 432,
+     "delta": -23
+    },
+    "fold_pf": {
+     "before": [
+      0.67,
+      0.51,
+      0.5,
+      0.47
+     ],
+     "after": [
+      0.62,
+      0.48,
+      0.47,
+      0.44
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.77,
+     "after": -3.96,
+     "delta": -3.19
+    },
+    "total_pnl": {
+     "before": -3015.68,
+     "after": -3161.87,
+     "delta": -146.19
+    },
+    "fees": {
+     "before": 2179.9,
+     "after": 2065.6,
+     "delta": -114.3
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 455,
+     "after": 432,
+     "delta": -23
+    },
+    "fold_pf": {
+     "before": [
+      0.67,
+      0.51,
+      0.5,
+      0.47
+     ],
+     "after": [
+      0.62,
+      0.48,
+      0.47,
+      0.44
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.77,
+     "after": -3.96,
+     "delta": -3.19
+    },
+    "total_pnl": {
+     "before": -3015.68,
+     "after": -3161.87,
+     "delta": -146.19
+    },
+    "fees": {
+     "before": 2179.9,
+     "after": 2065.6,
+     "delta": -114.3
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "ETH/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 421,
+     "fold_pf": [
+      0.64,
+      0.32,
+      0.4,
+      0.63
+     ],
+     "sharpe": -0.2,
+     "total_pnl": -4884.16,
+     "fees": 1948.41
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 401,
+     "fold_pf": [
+      0.64,
+      0.3,
+      0.51,
+      0.53
+     ],
+     "sharpe": -4.26,
+     "total_pnl": -4643.31,
+     "fees": 1871.02
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 421,
+     "fold_pf": [
+      0.64,
+      0.32,
+      0.4,
+      0.63
+     ],
+     "sharpe": -0.2,
+     "total_pnl": -4884.16,
+     "fees": 1948.41
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 421,
+     "after": 401,
+     "delta": -20
+    },
+    "fold_pf": {
+     "before": [
+      0.64,
+      0.32,
+      0.4,
+      0.63
+     ],
+     "after": [
+      0.64,
+      0.3,
+      0.51,
+      0.53
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.2,
+     "after": -4.26,
+     "delta": -4.06
+    },
+    "total_pnl": {
+     "before": -4884.16,
+     "after": -4643.31,
+     "delta": 240.85
+    },
+    "fees": {
+     "before": 1948.41,
+     "after": 1871.02,
+     "delta": -77.39
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 421,
+     "after": 401,
+     "delta": -20
+    },
+    "fold_pf": {
+     "before": [
+      0.64,
+      0.32,
+      0.4,
+      0.63
+     ],
+     "after": [
+      0.64,
+      0.3,
+      0.51,
+      0.53
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.2,
+     "after": -4.26,
+     "delta": -4.06
+    },
+    "total_pnl": {
+     "before": -4884.16,
+     "after": -4643.31,
+     "delta": 240.85
+    },
+    "fees": {
+     "before": 1948.41,
+     "after": 1871.02,
+     "delta": -77.39
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "EURUSD=X",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "EURUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 414,
+     "fold_pf": [
+      0.45,
+      0.85,
+      0.69,
+      0.53
+     ],
+     "sharpe": -1.06,
+     "total_pnl": -392.8,
+     "fees": 393.25
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "EURUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 398,
+     "fold_pf": [
+      0.44,
+      0.81,
+      0.68,
+      0.5
+     ],
+     "sharpe": -2.47,
+     "total_pnl": -406.62,
+     "fees": 377.98
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "EURUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 414,
+     "fold_pf": [
+      0.45,
+      0.85,
+      0.69,
+      0.53
+     ],
+     "sharpe": -1.06,
+     "total_pnl": -392.8,
+     "fees": 393.25
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 414,
+     "after": 398,
+     "delta": -16
+    },
+    "fold_pf": {
+     "before": [
+      0.45,
+      0.85,
+      0.69,
+      0.53
+     ],
+     "after": [
+      0.44,
+      0.81,
+      0.68,
+      0.5
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.06,
+     "after": -2.47,
+     "delta": -1.41
+    },
+    "total_pnl": {
+     "before": -392.8,
+     "after": -406.62,
+     "delta": -13.82
+    },
+    "fees": {
+     "before": 393.25,
+     "after": 377.98,
+     "delta": -15.27
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 414,
+     "after": 398,
+     "delta": -16
+    },
+    "fold_pf": {
+     "before": [
+      0.45,
+      0.85,
+      0.69,
+      0.53
+     ],
+     "after": [
+      0.44,
+      0.81,
+      0.68,
+      0.5
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.06,
+     "after": -2.47,
+     "delta": -1.41
+    },
+    "total_pnl": {
+     "before": -392.8,
+     "after": -406.62,
+     "delta": -13.82
+    },
+    "fees": {
+     "before": 393.25,
+     "after": 377.98,
+     "delta": -15.27
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "GBPUSD=X",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "GBPUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 417,
+     "fold_pf": [
+      0.56,
+      0.82,
+      0.58,
+      0.52
+     ],
+     "sharpe": -1.09,
+     "total_pnl": -432.14,
+     "fees": 399.2
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "GBPUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 395,
+     "fold_pf": [
+      0.54,
+      0.82,
+      0.61,
+      0.48
+     ],
+     "sharpe": -2.54,
+     "total_pnl": -426.01,
+     "fees": 378.76
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "GBPUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 417,
+     "fold_pf": [
+      0.56,
+      0.82,
+      0.58,
+      0.52
+     ],
+     "sharpe": -1.09,
+     "total_pnl": -432.14,
+     "fees": 399.2
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 417,
+     "after": 395,
+     "delta": -22
+    },
+    "fold_pf": {
+     "before": [
+      0.56,
+      0.82,
+      0.58,
+      0.52
+     ],
+     "after": [
+      0.54,
+      0.82,
+      0.61,
+      0.48
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.09,
+     "after": -2.54,
+     "delta": -1.45
+    },
+    "total_pnl": {
+     "before": -432.14,
+     "after": -426.01,
+     "delta": 6.13
+    },
+    "fees": {
+     "before": 399.2,
+     "after": 378.76,
+     "delta": -20.44
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 417,
+     "after": 395,
+     "delta": -22
+    },
+    "fold_pf": {
+     "before": [
+      0.56,
+      0.82,
+      0.58,
+      0.52
+     ],
+     "after": [
+      0.54,
+      0.82,
+      0.61,
+      0.48
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.09,
+     "after": -2.54,
+     "delta": -1.45
+    },
+    "total_pnl": {
+     "before": -432.14,
+     "after": -426.01,
+     "delta": 6.13
+    },
+    "fees": {
+     "before": 399.2,
+     "after": 378.76,
+     "delta": -20.44
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "SOL/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 412,
+     "fold_pf": [
+      0.72,
+      0.68,
+      0.88,
+      0.84
+     ],
+     "sharpe": -0.18,
+     "total_pnl": -2267.26,
+     "fees": 2006.0
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 393,
+     "fold_pf": [
+      0.68,
+      0.71,
+      0.8,
+      0.83
+     ],
+     "sharpe": -1.8,
+     "total_pnl": -2418.13,
+     "fees": 1912.67
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 412,
+     "fold_pf": [
+      0.72,
+      0.68,
+      0.88,
+      0.84
+     ],
+     "sharpe": -0.18,
+     "total_pnl": -2267.26,
+     "fees": 2006.0
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 412,
+     "after": 393,
+     "delta": -19
+    },
+    "fold_pf": {
+     "before": [
+      0.72,
+      0.68,
+      0.88,
+      0.84
+     ],
+     "after": [
+      0.68,
+      0.71,
+      0.8,
+      0.83
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.18,
+     "after": -1.8,
+     "delta": -1.62
+    },
+    "total_pnl": {
+     "before": -2267.26,
+     "after": -2418.13,
+     "delta": -150.87
+    },
+    "fees": {
+     "before": 2006.0,
+     "after": 1912.67,
+     "delta": -93.33
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 412,
+     "after": 393,
+     "delta": -19
+    },
+    "fold_pf": {
+     "before": [
+      0.72,
+      0.68,
+      0.88,
+      0.84
+     ],
+     "after": [
+      0.68,
+      0.71,
+      0.8,
+      0.83
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.18,
+     "after": -1.8,
+     "delta": -1.62
+    },
+    "total_pnl": {
+     "before": -2267.26,
+     "after": -2418.13,
+     "delta": -150.87
+    },
+    "fees": {
+     "before": 2006.0,
+     "after": 1912.67,
+     "delta": -93.33
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "fx_regime_meanrev",
+   "symbol": "XRP/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 460,
+     "fold_pf": [
+      0.83,
+      0.62,
+      0.67,
+      0.79
+     ],
+     "sharpe": -0.23,
+     "total_pnl": -2927.87,
+     "fees": 2187.69
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 432,
+     "fold_pf": [
+      0.7,
+      0.62,
+      0.68,
+      0.71
+     ],
+     "sharpe": -2.47,
+     "total_pnl": -3351.07,
+     "fees": 2013.55
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "fx_regime_meanrev",
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 460,
+     "fold_pf": [
+      0.83,
+      0.62,
+      0.67,
+      0.79
+     ],
+     "sharpe": -0.23,
+     "total_pnl": -2927.87,
+     "fees": 2187.69
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 460,
+     "after": 432,
+     "delta": -28
+    },
+    "fold_pf": {
+     "before": [
+      0.83,
+      0.62,
+      0.67,
+      0.79
+     ],
+     "after": [
+      0.7,
+      0.62,
+      0.68,
+      0.71
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.23,
+     "after": -2.47,
+     "delta": -2.24
+    },
+    "total_pnl": {
+     "before": -2927.87,
+     "after": -3351.07,
+     "delta": -423.2
+    },
+    "fees": {
+     "before": 2187.69,
+     "after": 2013.55,
+     "delta": -174.14
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 460,
+     "after": 432,
+     "delta": -28
+    },
+    "fold_pf": {
+     "before": [
+      0.83,
+      0.62,
+      0.67,
+      0.79
+     ],
+     "after": [
+      0.7,
+      0.62,
+      0.68,
+      0.71
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.23,
+     "after": -2.47,
+     "delta": -2.24
+    },
+    "total_pnl": {
+     "before": -2927.87,
+     "after": -3351.07,
+     "delta": -423.2
+    },
+    "fees": {
+     "before": 2187.69,
+     "after": 2013.55,
+     "delta": -174.14
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "BNB/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 110,
+     "fold_pf": [
+      0.15,
+      0.67,
+      1.11,
+      0.18
+     ],
+     "sharpe": -1.07,
+     "total_pnl": -1994.35,
+     "fees": 522.66
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 102,
+     "fold_pf": [
+      0.13,
+      0.67,
+      0.96,
+      0.2
+     ],
+     "sharpe": -1.98,
+     "total_pnl": -1925.01,
+     "fees": 485.5
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 110,
+     "fold_pf": [
+      0.15,
+      0.67,
+      1.11,
+      0.18
+     ],
+     "sharpe": -1.07,
+     "total_pnl": -1994.35,
+     "fees": 522.66
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 110,
+     "after": 102,
+     "delta": -8
+    },
+    "fold_pf": {
+     "before": [
+      0.15,
+      0.67,
+      1.11,
+      0.18
+     ],
+     "after": [
+      0.13,
+      0.67,
+      0.96,
+      0.2
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.07,
+     "after": -1.98,
+     "delta": -0.91
+    },
+    "total_pnl": {
+     "before": -1994.35,
+     "after": -1925.01,
+     "delta": 69.34
+    },
+    "fees": {
+     "before": 522.66,
+     "after": 485.5,
+     "delta": -37.16
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 110,
+     "after": 102,
+     "delta": -8
+    },
+    "fold_pf": {
+     "before": [
+      0.15,
+      0.67,
+      1.11,
+      0.18
+     ],
+     "after": [
+      0.13,
+      0.67,
+      0.96,
+      0.2
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.07,
+     "after": -1.98,
+     "delta": -0.91
+    },
+    "total_pnl": {
+     "before": -1994.35,
+     "after": -1925.01,
+     "delta": 69.34
+    },
+    "fees": {
+     "before": 522.66,
+     "after": 485.5,
+     "delta": -37.16
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "BNB/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 54,
+     "fold_pf": [
+      0.39,
+      1.5,
+      null,
+      0.72
+     ],
+     "sharpe": -0.12,
+     "total_pnl": -169.03,
+     "fees": 247.47
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 51,
+     "fold_pf": [
+      0.42,
+      1.39,
+      null,
+      0.77
+     ],
+     "sharpe": -0.13,
+     "total_pnl": -171.52,
+     "fees": 231.95
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BNB/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 54,
+     "fold_pf": [
+      0.39,
+      1.5,
+      null,
+      0.72
+     ],
+     "sharpe": -0.12,
+     "total_pnl": -169.03,
+     "fees": 247.47
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 54,
+     "after": 51,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.39,
+      1.5,
+      null,
+      0.72
+     ],
+     "after": [
+      0.42,
+      1.39,
+      null,
+      0.77
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.12,
+     "after": -0.13,
+     "delta": -0.01
+    },
+    "total_pnl": {
+     "before": -169.03,
+     "after": -171.52,
+     "delta": -2.49
+    },
+    "fees": {
+     "before": 247.47,
+     "after": 231.95,
+     "delta": -15.52
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 54,
+     "after": 51,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.39,
+      1.5,
+      null,
+      0.72
+     ],
+     "after": [
+      0.42,
+      1.39,
+      null,
+      0.77
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.12,
+     "after": -0.13,
+     "delta": -0.01
+    },
+    "total_pnl": {
+     "before": -169.03,
+     "after": -171.52,
+     "delta": -2.49
+    },
+    "fees": {
+     "before": 247.47,
+     "after": 231.95,
+     "delta": -15.52
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "BTC/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 86,
+     "fold_pf": [
+      0.89,
+      1.01,
+      null,
+      1.08
+     ],
+     "sharpe": 0.31,
+     "total_pnl": -66.83,
+     "fees": 433.66
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 83,
+     "fold_pf": [
+      0.72,
+      1.08,
+      null,
+      1.01
+     ],
+     "sharpe": -0.27,
+     "total_pnl": -225.5,
+     "fees": 415.56
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 86,
+     "fold_pf": [
+      0.89,
+      1.01,
+      null,
+      1.08
+     ],
+     "sharpe": 0.31,
+     "total_pnl": -66.83,
+     "fees": 433.66
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 86,
+     "after": 83,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.89,
+      1.01,
+      null,
+      1.08
+     ],
+     "after": [
+      0.72,
+      1.08,
+      null,
+      1.01
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.31,
+     "after": -0.27,
+     "delta": -0.58
+    },
+    "total_pnl": {
+     "before": -66.83,
+     "after": -225.5,
+     "delta": -158.67
+    },
+    "fees": {
+     "before": 433.66,
+     "after": 415.56,
+     "delta": -18.1
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 86,
+     "after": 83,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.89,
+      1.01,
+      null,
+      1.08
+     ],
+     "after": [
+      0.72,
+      1.08,
+      null,
+      1.01
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.31,
+     "after": -0.27,
+     "delta": -0.58
+    },
+    "total_pnl": {
+     "before": -66.83,
+     "after": -225.5,
+     "delta": -158.67
+    },
+    "fees": {
+     "before": 433.66,
+     "after": 415.56,
+     "delta": -18.1
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "BTC/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 52,
+     "fold_pf": [
+      0.68,
+      0.53,
+      null,
+      0.72
+     ],
+     "sharpe": -0.18,
+     "total_pnl": -673.89,
+     "fees": 250.04
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 49,
+     "fold_pf": [
+      0.77,
+      0.49,
+      null,
+      0.74
+     ],
+     "sharpe": -0.68,
+     "total_pnl": -616.18,
+     "fees": 235.45
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "BTC/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 52,
+     "fold_pf": [
+      0.68,
+      0.53,
+      null,
+      0.72
+     ],
+     "sharpe": -0.18,
+     "total_pnl": -673.89,
+     "fees": 250.04
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 52,
+     "after": 49,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.68,
+      0.53,
+      null,
+      0.72
+     ],
+     "after": [
+      0.77,
+      0.49,
+      null,
+      0.74
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.18,
+     "after": -0.68,
+     "delta": -0.5
+    },
+    "total_pnl": {
+     "before": -673.89,
+     "after": -616.18,
+     "delta": 57.71
+    },
+    "fees": {
+     "before": 250.04,
+     "after": 235.45,
+     "delta": -14.59
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 52,
+     "after": 49,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.68,
+      0.53,
+      null,
+      0.72
+     ],
+     "after": [
+      0.77,
+      0.49,
+      null,
+      0.74
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.18,
+     "after": -0.68,
+     "delta": -0.5
+    },
+    "total_pnl": {
+     "before": -673.89,
+     "after": -616.18,
+     "delta": 57.71
+    },
+    "fees": {
+     "before": 250.04,
+     "after": 235.45,
+     "delta": -14.59
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "ETH/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 115,
+     "fold_pf": [
+      0.77,
+      1.29,
+      null,
+      1.16
+     ],
+     "sharpe": 0.11,
+     "total_pnl": 351.26,
+     "fees": 580.79
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 107,
+     "fold_pf": [
+      0.72,
+      1.37,
+      null,
+      1.32
+     ],
+     "sharpe": 0.38,
+     "total_pnl": 448.26,
+     "fees": 541.4
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 115,
+     "fold_pf": [
+      0.77,
+      1.29,
+      null,
+      1.16
+     ],
+     "sharpe": 0.11,
+     "total_pnl": 351.26,
+     "fees": 580.79
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 115,
+     "after": 107,
+     "delta": -8
+    },
+    "fold_pf": {
+     "before": [
+      0.77,
+      1.29,
+      null,
+      1.16
+     ],
+     "after": [
+      0.72,
+      1.37,
+      null,
+      1.32
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.11,
+     "after": 0.38,
+     "delta": 0.27
+    },
+    "total_pnl": {
+     "before": 351.26,
+     "after": 448.26,
+     "delta": 97.0
+    },
+    "fees": {
+     "before": 580.79,
+     "after": 541.4,
+     "delta": -39.39
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 115,
+     "after": 107,
+     "delta": -8
+    },
+    "fold_pf": {
+     "before": [
+      0.77,
+      1.29,
+      null,
+      1.16
+     ],
+     "after": [
+      0.72,
+      1.37,
+      null,
+      1.32
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.11,
+     "after": 0.38,
+     "delta": 0.27
+    },
+    "total_pnl": {
+     "before": 351.26,
+     "after": 448.26,
+     "delta": 97.0
+    },
+    "fees": {
+     "before": 580.79,
+     "after": 541.4,
+     "delta": -39.39
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "ETH/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 41,
+     "fold_pf": [
+      1.1,
+      1.79,
+      null,
+      1.45
+     ],
+     "sharpe": 0.3,
+     "total_pnl": 885.77,
+     "fees": 171.23
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 41,
+     "fold_pf": [
+      0.96,
+      1.49,
+      null,
+      1.37
+     ],
+     "sharpe": 0.63,
+     "total_pnl": 638.75,
+     "fees": 169.93
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "ETH/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 41,
+     "fold_pf": [
+      1.1,
+      1.79,
+      null,
+      1.45
+     ],
+     "sharpe": 0.3,
+     "total_pnl": 885.77,
+     "fees": 171.23
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 41,
+     "after": 41,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      1.1,
+      1.79,
+      null,
+      1.45
+     ],
+     "after": [
+      0.96,
+      1.49,
+      null,
+      1.37
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.3,
+     "after": 0.63,
+     "delta": 0.33
+    },
+    "total_pnl": {
+     "before": 885.77,
+     "after": 638.75,
+     "delta": -247.02
+    },
+    "fees": {
+     "before": 171.23,
+     "after": 169.93,
+     "delta": -1.3
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 41,
+     "after": 41,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      1.1,
+      1.79,
+      null,
+      1.45
+     ],
+     "after": [
+      0.96,
+      1.49,
+      null,
+      1.37
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.3,
+     "after": 0.63,
+     "delta": 0.33
+    },
+    "total_pnl": {
+     "before": 885.77,
+     "after": 638.75,
+     "delta": -247.02
+    },
+    "fees": {
+     "before": 171.23,
+     "after": 169.93,
+     "delta": -1.3
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "EURUSD=X",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "EURUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 0,
+     "fold_pf": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "sharpe": null,
+     "total_pnl": 0,
+     "fees": 0
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "EURUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 0,
+     "fold_pf": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "sharpe": null,
+     "total_pnl": 0,
+     "fees": 0
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "EURUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 0,
+     "fold_pf": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "sharpe": null,
+     "total_pnl": 0,
+     "fees": 0
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "after": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": null,
+     "after": null,
+     "delta": null
+    },
+    "total_pnl": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    },
+    "fees": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "after": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": null,
+     "after": null,
+     "delta": null
+    },
+    "total_pnl": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    },
+    "fees": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "GBPUSD=X",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "GBPUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 0,
+     "fold_pf": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "sharpe": null,
+     "total_pnl": 0,
+     "fees": 0
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "GBPUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 0,
+     "fold_pf": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "sharpe": null,
+     "total_pnl": 0,
+     "fees": 0
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "GBPUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 0,
+     "fold_pf": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "sharpe": null,
+     "total_pnl": 0,
+     "fees": 0
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "after": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": null,
+     "after": null,
+     "delta": null
+    },
+    "total_pnl": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    },
+    "fees": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "after": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": null,
+     "after": null,
+     "delta": null
+    },
+    "total_pnl": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    },
+    "fees": {
+     "before": 0,
+     "after": 0,
+     "delta": 0
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "SOL/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 153,
+     "fold_pf": [
+      1.32,
+      0.66,
+      null,
+      0.78
+     ],
+     "sharpe": -0.14,
+     "total_pnl": -699.46,
+     "fees": 721.45
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 140,
+     "fold_pf": [
+      1.29,
+      0.66,
+      null,
+      0.89
+     ],
+     "sharpe": -0.36,
+     "total_pnl": -589.23,
+     "fees": 671.07
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 153,
+     "fold_pf": [
+      1.32,
+      0.66,
+      null,
+      0.78
+     ],
+     "sharpe": -0.14,
+     "total_pnl": -699.46,
+     "fees": 721.45
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 153,
+     "after": 140,
+     "delta": -13
+    },
+    "fold_pf": {
+     "before": [
+      1.32,
+      0.66,
+      null,
+      0.78
+     ],
+     "after": [
+      1.29,
+      0.66,
+      null,
+      0.89
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.14,
+     "after": -0.36,
+     "delta": -0.22
+    },
+    "total_pnl": {
+     "before": -699.46,
+     "after": -589.23,
+     "delta": 110.23
+    },
+    "fees": {
+     "before": 721.45,
+     "after": 671.07,
+     "delta": -50.38
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 153,
+     "after": 140,
+     "delta": -13
+    },
+    "fold_pf": {
+     "before": [
+      1.32,
+      0.66,
+      null,
+      0.78
+     ],
+     "after": [
+      1.29,
+      0.66,
+      null,
+      0.89
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.14,
+     "after": -0.36,
+     "delta": -0.22
+    },
+    "total_pnl": {
+     "before": -699.46,
+     "after": -589.23,
+     "delta": 110.23
+    },
+    "fees": {
+     "before": 721.45,
+     "after": 671.07,
+     "delta": -50.38
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "SOL/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 39,
+     "fold_pf": [
+      0.57,
+      1.11,
+      null,
+      1.29
+     ],
+     "sharpe": 0.31,
+     "total_pnl": 45.37,
+     "fees": 139.59
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 37,
+     "fold_pf": [
+      0.5,
+      0.97,
+      null,
+      1.52
+     ],
+     "sharpe": 0.03,
+     "total_pnl": -3.22,
+     "fees": 131.5
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "SOL/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 39,
+     "fold_pf": [
+      0.57,
+      1.11,
+      null,
+      1.29
+     ],
+     "sharpe": 0.31,
+     "total_pnl": 45.37,
+     "fees": 139.59
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 39,
+     "after": 37,
+     "delta": -2
+    },
+    "fold_pf": {
+     "before": [
+      0.57,
+      1.11,
+      null,
+      1.29
+     ],
+     "after": [
+      0.5,
+      0.97,
+      null,
+      1.52
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.31,
+     "after": 0.03,
+     "delta": -0.28
+    },
+    "total_pnl": {
+     "before": 45.37,
+     "after": -3.22,
+     "delta": -48.59
+    },
+    "fees": {
+     "before": 139.59,
+     "after": 131.5,
+     "delta": -8.09
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 39,
+     "after": 37,
+     "delta": -2
+    },
+    "fold_pf": {
+     "before": [
+      0.57,
+      1.11,
+      null,
+      1.29
+     ],
+     "after": [
+      0.5,
+      0.97,
+      null,
+      1.52
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.31,
+     "after": 0.03,
+     "delta": -0.28
+    },
+    "total_pnl": {
+     "before": 45.37,
+     "after": -3.22,
+     "delta": -48.59
+    },
+    "fees": {
+     "before": 139.59,
+     "after": 131.5,
+     "delta": -8.09
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "XRP/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 74,
+     "fold_pf": [
+      3.28,
+      0.72,
+      null,
+      0.3
+     ],
+     "sharpe": -0.09,
+     "total_pnl": 1870.42,
+     "fees": 351.26
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 69,
+     "fold_pf": [
+      3.3,
+      0.81,
+      null,
+      0.3
+     ],
+     "sharpe": 1.15,
+     "total_pnl": 1989.69,
+     "fees": 327.41
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 74,
+     "fold_pf": [
+      3.28,
+      0.72,
+      null,
+      0.3
+     ],
+     "sharpe": -0.09,
+     "total_pnl": 1870.42,
+     "fees": 351.26
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 74,
+     "after": 69,
+     "delta": -5
+    },
+    "fold_pf": {
+     "before": [
+      3.28,
+      0.72,
+      null,
+      0.3
+     ],
+     "after": [
+      3.3,
+      0.81,
+      null,
+      0.3
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.09,
+     "after": 1.15,
+     "delta": 1.24
+    },
+    "total_pnl": {
+     "before": 1870.42,
+     "after": 1989.69,
+     "delta": 119.27
+    },
+    "fees": {
+     "before": 351.26,
+     "after": 327.41,
+     "delta": -23.85
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 74,
+     "after": 69,
+     "delta": -5
+    },
+    "fold_pf": {
+     "before": [
+      3.28,
+      0.72,
+      null,
+      0.3
+     ],
+     "after": [
+      3.3,
+      0.81,
+      null,
+      0.3
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.09,
+     "after": 1.15,
+     "delta": 1.24
+    },
+    "total_pnl": {
+     "before": 1870.42,
+     "after": 1989.69,
+     "delta": 119.27
+    },
+    "fees": {
+     "before": 351.26,
+     "after": 327.41,
+     "delta": -23.85
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "ts_momentum",
+   "symbol": "XRP/USDT",
+   "timeframe": "4h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 20,
+     "fold_pf": [
+      5.03,
+      3.0,
+      null,
+      0.09
+     ],
+     "sharpe": -0.08,
+     "total_pnl": 2021.28,
+     "fees": 69.17
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 20,
+     "fold_pf": [
+      5.3,
+      3.07,
+      null,
+      0.09
+     ],
+     "sharpe": 1.51,
+     "total_pnl": 2056.4,
+     "fees": 69.35
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "ts_momentum",
+    "symbol": "XRP/USDT",
+    "timeframe": "4h",
+    "oos": {
+     "trades": 20,
+     "fold_pf": [
+      5.03,
+      3.0,
+      null,
+      0.09
+     ],
+     "sharpe": -0.08,
+     "total_pnl": 2021.28,
+     "fees": 69.17
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 20,
+     "after": 20,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      5.03,
+      3.0,
+      null,
+      0.09
+     ],
+     "after": [
+      5.3,
+      3.07,
+      null,
+      0.09
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.08,
+     "after": 1.51,
+     "delta": 1.59
+    },
+    "total_pnl": {
+     "before": 2021.28,
+     "after": 2056.4,
+     "delta": 35.12
+    },
+    "fees": {
+     "before": 69.17,
+     "after": 69.35,
+     "delta": 0.18
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 20,
+     "after": 20,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      5.03,
+      3.0,
+      null,
+      0.09
+     ],
+     "after": [
+      5.3,
+      3.07,
+      null,
+      0.09
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.08,
+     "after": 1.51,
+     "delta": 1.59
+    },
+    "total_pnl": {
+     "before": 2021.28,
+     "after": 2056.4,
+     "delta": 35.12
+    },
+    "fees": {
+     "before": 69.17,
+     "after": 69.35,
+     "delta": 0.18
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "BNB/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 219,
+     "fold_pf": [
+      0.5,
+      0.7,
+      0.45,
+      0.74
+     ],
+     "sharpe": -0.11,
+     "total_pnl": -2372.85,
+     "fees": 1048.45
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 219,
+     "fold_pf": [
+      0.5,
+      0.7,
+      0.45,
+      0.74
+     ],
+     "sharpe": -1.72,
+     "total_pnl": -2372.87,
+     "fees": 1048.45
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "BNB/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 219,
+     "fold_pf": [
+      0.5,
+      0.7,
+      0.45,
+      0.74
+     ],
+     "sharpe": -0.11,
+     "total_pnl": -2372.85,
+     "fees": 1048.45
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 219,
+     "after": 219,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.5,
+      0.7,
+      0.45,
+      0.74
+     ],
+     "after": [
+      0.5,
+      0.7,
+      0.45,
+      0.74
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.11,
+     "after": -1.72,
+     "delta": -1.61
+    },
+    "total_pnl": {
+     "before": -2372.85,
+     "after": -2372.87,
+     "delta": -0.02
+    },
+    "fees": {
+     "before": 1048.45,
+     "after": 1048.45,
+     "delta": 0.0
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 219,
+     "after": 219,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      0.5,
+      0.7,
+      0.45,
+      0.74
+     ],
+     "after": [
+      0.5,
+      0.7,
+      0.45,
+      0.74
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.11,
+     "after": -1.72,
+     "delta": -1.61
+    },
+    "total_pnl": {
+     "before": -2372.85,
+     "after": -2372.87,
+     "delta": -0.02
+    },
+    "fees": {
+     "before": 1048.45,
+     "after": 1048.45,
+     "delta": 0.0
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "BTC/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 221,
+     "fold_pf": [
+      0.61,
+      0.6,
+      0.92,
+      0.87
+     ],
+     "sharpe": -0.09,
+     "total_pnl": -1275.17,
+     "fees": 1085.8
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 219,
+     "fold_pf": [
+      0.63,
+      0.6,
+      0.92,
+      0.89
+     ],
+     "sharpe": -0.97,
+     "total_pnl": -1224.04,
+     "fees": 1077.06
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "BTC/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 221,
+     "fold_pf": [
+      0.61,
+      0.6,
+      0.92,
+      0.87
+     ],
+     "sharpe": -0.09,
+     "total_pnl": -1275.17,
+     "fees": 1085.8
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 221,
+     "after": 219,
+     "delta": -2
+    },
+    "fold_pf": {
+     "before": [
+      0.61,
+      0.6,
+      0.92,
+      0.87
+     ],
+     "after": [
+      0.63,
+      0.6,
+      0.92,
+      0.89
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.09,
+     "after": -0.97,
+     "delta": -0.88
+    },
+    "total_pnl": {
+     "before": -1275.17,
+     "after": -1224.04,
+     "delta": 51.13
+    },
+    "fees": {
+     "before": 1085.8,
+     "after": 1077.06,
+     "delta": -8.74
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 221,
+     "after": 219,
+     "delta": -2
+    },
+    "fold_pf": {
+     "before": [
+      0.61,
+      0.6,
+      0.92,
+      0.87
+     ],
+     "after": [
+      0.63,
+      0.6,
+      0.92,
+      0.89
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.09,
+     "after": -0.97,
+     "delta": -0.88
+    },
+    "total_pnl": {
+     "before": -1275.17,
+     "after": -1224.04,
+     "delta": 51.13
+    },
+    "fees": {
+     "before": 1085.8,
+     "after": 1077.06,
+     "delta": -8.74
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "ETH/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 207,
+     "fold_pf": [
+      0.68,
+      1.69,
+      0.63,
+      0.83
+     ],
+     "sharpe": -0.05,
+     "total_pnl": -596.65,
+     "fees": 1014.77
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 204,
+     "fold_pf": [
+      0.68,
+      1.79,
+      0.65,
+      0.85
+     ],
+     "sharpe": -0.17,
+     "total_pnl": -399.4,
+     "fees": 1003.52
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "ETH/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 207,
+     "fold_pf": [
+      0.68,
+      1.69,
+      0.63,
+      0.83
+     ],
+     "sharpe": -0.05,
+     "total_pnl": -596.65,
+     "fees": 1014.77
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 207,
+     "after": 204,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.68,
+      1.69,
+      0.63,
+      0.83
+     ],
+     "after": [
+      0.68,
+      1.79,
+      0.65,
+      0.85
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.05,
+     "after": -0.17,
+     "delta": -0.12
+    },
+    "total_pnl": {
+     "before": -596.65,
+     "after": -399.4,
+     "delta": 197.25
+    },
+    "fees": {
+     "before": 1014.77,
+     "after": 1003.52,
+     "delta": -11.25
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 207,
+     "after": 204,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.68,
+      1.69,
+      0.63,
+      0.83
+     ],
+     "after": [
+      0.68,
+      1.79,
+      0.65,
+      0.85
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.05,
+     "after": -0.17,
+     "delta": -0.12
+    },
+    "total_pnl": {
+     "before": -596.65,
+     "after": -399.4,
+     "delta": 197.25
+    },
+    "fees": {
+     "before": 1014.77,
+     "after": 1003.52,
+     "delta": -11.25
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "EURUSD=X",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "EURUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 229,
+     "fold_pf": [
+      0.41,
+      0.9,
+      0.38,
+      0.46
+     ],
+     "sharpe": -0.6,
+     "total_pnl": -422.43,
+     "fees": 227.58
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "EURUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 228,
+     "fold_pf": [
+      0.41,
+      0.86,
+      0.38,
+      0.46
+     ],
+     "sharpe": -1.87,
+     "total_pnl": -429.65,
+     "fees": 226.56
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "EURUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 229,
+     "fold_pf": [
+      0.41,
+      0.9,
+      0.38,
+      0.46
+     ],
+     "sharpe": -0.6,
+     "total_pnl": -422.43,
+     "fees": 227.58
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 229,
+     "after": 228,
+     "delta": -1
+    },
+    "fold_pf": {
+     "before": [
+      0.41,
+      0.9,
+      0.38,
+      0.46
+     ],
+     "after": [
+      0.41,
+      0.86,
+      0.38,
+      0.46
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.6,
+     "after": -1.87,
+     "delta": -1.27
+    },
+    "total_pnl": {
+     "before": -422.43,
+     "after": -429.65,
+     "delta": -7.22
+    },
+    "fees": {
+     "before": 227.58,
+     "after": 226.56,
+     "delta": -1.02
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 229,
+     "after": 228,
+     "delta": -1
+    },
+    "fold_pf": {
+     "before": [
+      0.41,
+      0.9,
+      0.38,
+      0.46
+     ],
+     "after": [
+      0.41,
+      0.86,
+      0.38,
+      0.46
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.6,
+     "after": -1.87,
+     "delta": -1.27
+    },
+    "total_pnl": {
+     "before": -422.43,
+     "after": -429.65,
+     "delta": -7.22
+    },
+    "fees": {
+     "before": 227.58,
+     "after": 226.56,
+     "delta": -1.02
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "GBPUSD=X",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "GBPUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 234,
+     "fold_pf": [
+      0.61,
+      0.96,
+      0.49,
+      0.49
+     ],
+     "sharpe": -0.8,
+     "total_pnl": -348.53,
+     "fees": 232.55
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "GBPUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 233,
+     "fold_pf": [
+      0.6,
+      0.93,
+      0.49,
+      0.51
+     ],
+     "sharpe": -1.56,
+     "total_pnl": -350.19,
+     "fees": 231.58
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "GBPUSD=X",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 234,
+     "fold_pf": [
+      0.61,
+      0.96,
+      0.49,
+      0.49
+     ],
+     "sharpe": -0.8,
+     "total_pnl": -348.53,
+     "fees": 232.55
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 234,
+     "after": 233,
+     "delta": -1
+    },
+    "fold_pf": {
+     "before": [
+      0.61,
+      0.96,
+      0.49,
+      0.49
+     ],
+     "after": [
+      0.6,
+      0.93,
+      0.49,
+      0.51
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.8,
+     "after": -1.56,
+     "delta": -0.76
+    },
+    "total_pnl": {
+     "before": -348.53,
+     "after": -350.19,
+     "delta": -1.66
+    },
+    "fees": {
+     "before": 232.55,
+     "after": 231.58,
+     "delta": -0.97
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 234,
+     "after": 233,
+     "delta": -1
+    },
+    "fold_pf": {
+     "before": [
+      0.61,
+      0.96,
+      0.49,
+      0.49
+     ],
+     "after": [
+      0.6,
+      0.93,
+      0.49,
+      0.51
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.8,
+     "after": -1.56,
+     "delta": -0.76
+    },
+    "total_pnl": {
+     "before": -348.53,
+     "after": -350.19,
+     "delta": -1.66
+    },
+    "fees": {
+     "before": 232.55,
+     "after": 231.58,
+     "delta": -0.97
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "SOL/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 206,
+     "fold_pf": [
+      0.85,
+      1.11,
+      0.9,
+      1.65
+     ],
+     "sharpe": 0.69,
+     "total_pnl": 394.25,
+     "fees": 1013.02
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 205,
+     "fold_pf": [
+      0.84,
+      1.11,
+      0.94,
+      1.56
+     ],
+     "sharpe": 0.22,
+     "total_pnl": 370.47,
+     "fees": 1006.34
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "SOL/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 206,
+     "fold_pf": [
+      0.85,
+      1.11,
+      0.9,
+      1.65
+     ],
+     "sharpe": 0.69,
+     "total_pnl": 394.25,
+     "fees": 1013.02
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 206,
+     "after": 205,
+     "delta": -1
+    },
+    "fold_pf": {
+     "before": [
+      0.85,
+      1.11,
+      0.9,
+      1.65
+     ],
+     "after": [
+      0.84,
+      1.11,
+      0.94,
+      1.56
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.69,
+     "after": 0.22,
+     "delta": -0.47
+    },
+    "total_pnl": {
+     "before": 394.25,
+     "after": 370.47,
+     "delta": -23.78
+    },
+    "fees": {
+     "before": 1013.02,
+     "after": 1006.34,
+     "delta": -6.68
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 206,
+     "after": 205,
+     "delta": -1
+    },
+    "fold_pf": {
+     "before": [
+      0.85,
+      1.11,
+      0.9,
+      1.65
+     ],
+     "after": [
+      0.84,
+      1.11,
+      0.94,
+      1.56
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.69,
+     "after": 0.22,
+     "delta": -0.47
+    },
+    "total_pnl": {
+     "before": 394.25,
+     "after": 370.47,
+     "delta": -23.78
+    },
+    "fees": {
+     "before": 1013.02,
+     "after": 1006.34,
+     "delta": -6.68
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "turtle_trend",
+   "symbol": "XRP/USDT",
+   "timeframe": "1h",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 199,
+     "fold_pf": [
+      1.81,
+      0.43,
+      0.81,
+      1.53
+     ],
+     "sharpe": 0.51,
+     "total_pnl": 875.96,
+     "fees": 975.7
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 199,
+     "fold_pf": [
+      1.81,
+      0.43,
+      0.81,
+      1.53
+     ],
+     "sharpe": 0.41,
+     "total_pnl": 876.03,
+     "fees": 975.7
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "turtle_trend",
+    "symbol": "XRP/USDT",
+    "timeframe": "1h",
+    "oos": {
+     "trades": 199,
+     "fold_pf": [
+      1.81,
+      0.43,
+      0.81,
+      1.53
+     ],
+     "sharpe": 0.51,
+     "total_pnl": 875.96,
+     "fees": 975.7
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 199,
+     "after": 199,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      1.81,
+      0.43,
+      0.81,
+      1.53
+     ],
+     "after": [
+      1.81,
+      0.43,
+      0.81,
+      1.53
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.51,
+     "after": 0.41,
+     "delta": -0.1
+    },
+    "total_pnl": {
+     "before": 875.96,
+     "after": 876.03,
+     "delta": 0.07
+    },
+    "fees": {
+     "before": 975.7,
+     "after": 975.7,
+     "delta": 0.0
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 199,
+     "after": 199,
+     "delta": 0
+    },
+    "fold_pf": {
+     "before": [
+      1.81,
+      0.43,
+      0.81,
+      1.53
+     ],
+     "after": [
+      1.81,
+      0.43,
+      0.81,
+      1.53
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": 0.51,
+     "after": 0.41,
+     "delta": -0.1
+    },
+    "total_pnl": {
+     "before": 875.96,
+     "after": 876.03,
+     "delta": 0.07
+    },
+    "fees": {
+     "before": 975.7,
+     "after": 975.7,
+     "delta": 0.0
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "BNB/USDT",
+   "timeframe": "15m",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "BNB/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 437,
+     "fold_pf": [
+      0.53,
+      0.3,
+      0.47,
+      0.37
+     ],
+     "sharpe": -1.36,
+     "total_pnl": -3045.39,
+     "fees": 2101.03
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "BNB/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 432,
+     "fold_pf": [
+      0.54,
+      0.31,
+      0.48,
+      0.36
+     ],
+     "sharpe": -4.4,
+     "total_pnl": -3001.13,
+     "fees": 2076.92
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "BNB/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 437,
+     "fold_pf": [
+      0.53,
+      0.3,
+      0.47,
+      0.37
+     ],
+     "sharpe": -1.36,
+     "total_pnl": -3045.39,
+     "fees": 2101.03
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 437,
+     "after": 432,
+     "delta": -5
+    },
+    "fold_pf": {
+     "before": [
+      0.53,
+      0.3,
+      0.47,
+      0.37
+     ],
+     "after": [
+      0.54,
+      0.31,
+      0.48,
+      0.36
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.36,
+     "after": -4.4,
+     "delta": -3.04
+    },
+    "total_pnl": {
+     "before": -3045.39,
+     "after": -3001.13,
+     "delta": 44.26
+    },
+    "fees": {
+     "before": 2101.03,
+     "after": 2076.92,
+     "delta": -24.11
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 437,
+     "after": 432,
+     "delta": -5
+    },
+    "fold_pf": {
+     "before": [
+      0.53,
+      0.3,
+      0.47,
+      0.37
+     ],
+     "after": [
+      0.54,
+      0.31,
+      0.48,
+      0.36
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.36,
+     "after": -4.4,
+     "delta": -3.04
+    },
+    "total_pnl": {
+     "before": -3045.39,
+     "after": -3001.13,
+     "delta": 44.26
+    },
+    "fees": {
+     "before": 2101.03,
+     "after": 2076.92,
+     "delta": -24.11
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "BTC/USDT",
+   "timeframe": "15m",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "BTC/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 446,
+     "fold_pf": [
+      0.51,
+      0.39,
+      0.36,
+      0.36
+     ],
+     "sharpe": -1.77,
+     "total_pnl": -3082.52,
+     "fees": 2142.01
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "BTC/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 441,
+     "fold_pf": [
+      0.52,
+      0.4,
+      0.36,
+      0.35
+     ],
+     "sharpe": -4.85,
+     "total_pnl": -3054.96,
+     "fees": 2120.25
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "BTC/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 446,
+     "fold_pf": [
+      0.51,
+      0.39,
+      0.36,
+      0.36
+     ],
+     "sharpe": -1.77,
+     "total_pnl": -3082.52,
+     "fees": 2142.01
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 446,
+     "after": 441,
+     "delta": -5
+    },
+    "fold_pf": {
+     "before": [
+      0.51,
+      0.39,
+      0.36,
+      0.36
+     ],
+     "after": [
+      0.52,
+      0.4,
+      0.36,
+      0.35
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.77,
+     "after": -4.85,
+     "delta": -3.08
+    },
+    "total_pnl": {
+     "before": -3082.52,
+     "after": -3054.96,
+     "delta": 27.56
+    },
+    "fees": {
+     "before": 2142.01,
+     "after": 2120.25,
+     "delta": -21.76
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 446,
+     "after": 441,
+     "delta": -5
+    },
+    "fold_pf": {
+     "before": [
+      0.51,
+      0.39,
+      0.36,
+      0.36
+     ],
+     "after": [
+      0.52,
+      0.4,
+      0.36,
+      0.35
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.77,
+     "after": -4.85,
+     "delta": -3.08
+    },
+    "total_pnl": {
+     "before": -3082.52,
+     "after": -3054.96,
+     "delta": 27.56
+    },
+    "fees": {
+     "before": 2142.01,
+     "after": 2120.25,
+     "delta": -21.76
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "ETH/USDT",
+   "timeframe": "15m",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "ETH/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 481,
+     "fold_pf": [
+      0.53,
+      0.75,
+      0.56,
+      0.77
+     ],
+     "sharpe": -0.47,
+     "total_pnl": -2370.01,
+     "fees": 2365.61
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "ETH/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 475,
+     "fold_pf": [
+      0.51,
+      0.74,
+      0.55,
+      0.77
+     ],
+     "sharpe": -2.54,
+     "total_pnl": -2380.83,
+     "fees": 2336.39
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "ETH/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 481,
+     "fold_pf": [
+      0.53,
+      0.75,
+      0.56,
+      0.77
+     ],
+     "sharpe": -0.47,
+     "total_pnl": -2370.01,
+     "fees": 2365.61
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 481,
+     "after": 475,
+     "delta": -6
+    },
+    "fold_pf": {
+     "before": [
+      0.53,
+      0.75,
+      0.56,
+      0.77
+     ],
+     "after": [
+      0.51,
+      0.74,
+      0.55,
+      0.77
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.47,
+     "after": -2.54,
+     "delta": -2.07
+    },
+    "total_pnl": {
+     "before": -2370.01,
+     "after": -2380.83,
+     "delta": -10.82
+    },
+    "fees": {
+     "before": 2365.61,
+     "after": 2336.39,
+     "delta": -29.22
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 481,
+     "after": 475,
+     "delta": -6
+    },
+    "fold_pf": {
+     "before": [
+      0.53,
+      0.75,
+      0.56,
+      0.77
+     ],
+     "after": [
+      0.51,
+      0.74,
+      0.55,
+      0.77
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.47,
+     "after": -2.54,
+     "delta": -2.07
+    },
+    "total_pnl": {
+     "before": -2370.01,
+     "after": -2380.83,
+     "delta": -10.82
+    },
+    "fees": {
+     "before": 2365.61,
+     "after": 2336.39,
+     "delta": -29.22
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "SOL/USDT",
+   "timeframe": "15m",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "SOL/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 461,
+     "fold_pf": [
+      0.36,
+      0.69,
+      0.52,
+      0.69
+     ],
+     "sharpe": -0.19,
+     "total_pnl": -3380.58,
+     "fees": 2198.18
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "SOL/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 457,
+     "fold_pf": [
+      0.36,
+      0.66,
+      0.51,
+      0.68
+     ],
+     "sharpe": -3.33,
+     "total_pnl": -3424.5,
+     "fees": 2173.69
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "SOL/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 461,
+     "fold_pf": [
+      0.36,
+      0.69,
+      0.52,
+      0.69
+     ],
+     "sharpe": -0.19,
+     "total_pnl": -3380.58,
+     "fees": 2198.18
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 461,
+     "after": 457,
+     "delta": -4
+    },
+    "fold_pf": {
+     "before": [
+      0.36,
+      0.69,
+      0.52,
+      0.69
+     ],
+     "after": [
+      0.36,
+      0.66,
+      0.51,
+      0.68
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.19,
+     "after": -3.33,
+     "delta": -3.14
+    },
+    "total_pnl": {
+     "before": -3380.58,
+     "after": -3424.5,
+     "delta": -43.92
+    },
+    "fees": {
+     "before": 2198.18,
+     "after": 2173.69,
+     "delta": -24.49
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 461,
+     "after": 457,
+     "delta": -4
+    },
+    "fold_pf": {
+     "before": [
+      0.36,
+      0.69,
+      0.52,
+      0.69
+     ],
+     "after": [
+      0.36,
+      0.66,
+      0.51,
+      0.68
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -0.19,
+     "after": -3.33,
+     "delta": -3.14
+    },
+    "total_pnl": {
+     "before": -3380.58,
+     "after": -3424.5,
+     "delta": -43.92
+    },
+    "fees": {
+     "before": 2198.18,
+     "after": 2173.69,
+     "delta": -24.49
+    }
+   }
+  },
+  {
+   "variant": "default",
+   "strategy": "vwap_scalper",
+   "symbol": "XRP/USDT",
+   "timeframe": "15m",
+   "v1_same_config": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "XRP/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 420,
+     "fold_pf": [
+      0.75,
+      0.74,
+      0.79,
+      0.69
+     ],
+     "sharpe": -1.02,
+     "total_pnl": -1859.34,
+     "fees": 2058.15
+    }
+   },
+   "v2": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "XRP/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 417,
+     "fold_pf": [
+      0.75,
+      0.75,
+      0.81,
+      0.71
+     ],
+     "sharpe": -1.2,
+     "total_pnl": -1751.58,
+     "fees": 2047.25
+    }
+   },
+   "historical": {
+    "variant": "default",
+    "strategy": "vwap_scalper",
+    "symbol": "XRP/USDT",
+    "timeframe": "15m",
+    "oos": {
+     "trades": 420,
+     "fold_pf": [
+      0.75,
+      0.74,
+      0.79,
+      0.69
+     ],
+     "sharpe": -1.02,
+     "total_pnl": -1859.34,
+     "fees": 2058.15
+    }
+   },
+   "same_config_oos_differences": {
+    "trades": {
+     "before": 420,
+     "after": 417,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.75,
+      0.74,
+      0.79,
+      0.69
+     ],
+     "after": [
+      0.75,
+      0.75,
+      0.81,
+      0.71
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.02,
+     "after": -1.2,
+     "delta": -0.18
+    },
+    "total_pnl": {
+     "before": -1859.34,
+     "after": -1751.58,
+     "delta": 107.76
+    },
+    "fees": {
+     "before": 2058.15,
+     "after": 2047.25,
+     "delta": -10.9
+    }
+   },
+   "historical_oos_differences": {
+    "trades": {
+     "before": 420,
+     "after": 417,
+     "delta": -3
+    },
+    "fold_pf": {
+     "before": [
+      0.75,
+      0.74,
+      0.79,
+      0.69
+     ],
+     "after": [
+      0.75,
+      0.75,
+      0.81,
+      0.71
+     ],
+     "delta": null
+    },
+    "sharpe": {
+     "before": -1.02,
+     "after": -1.2,
+     "delta": -0.18
+    },
+    "total_pnl": {
+     "before": -1859.34,
+     "after": -1751.58,
+     "delta": 107.76
+    },
+    "fees": {
+     "before": 2058.15,
+     "after": 2047.25,
+     "delta": -10.9
+    }
+   }
+  }
+ ]
+}

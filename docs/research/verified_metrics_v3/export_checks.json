@@ -1,0 +1,351 @@
+{
+  "metrics_version": 3,
+  "status": "passed",
+  "comparison_sha256": "04310a1089445875b10e40b0e63c7516a1d7babc285fb791105a5c676291f971",
+  "checks": [
+    "Price-move trade P&L less both-leg fees equals full-precision net P&L",
+    "Net trade P&L equals final minus initial equity within 1e-8 USDT",
+    "Every scored cached candle appears exactly once in chronological equity exports",
+    "Every equity point independently reconstructed from trades, fees and cached close prices",
+    "Reported balances, net return, total P&L, fees, net wins and profit factors agree",
+    "Drawdown and sample one-bar Sharpe independently recomputed with 365-day crypto annualization",
+    "Terminal settlement leaves no active trades",
+    "All 225 experiment cases present; numeric metrics finite and undefined flat-run Sharpe explicit",
+    "Identical job/input geometry and exact v1/prior-v2 cache comparisons",
+    "Current source/configuration, pinned baseline, prior export and input/declaration/report hashes verified"
+  ],
+  "current_source_sha256": {
+    "bot/backtest.py": "1ae996e698cc19a13128b2d1e4c2bd0b6de180700684b081aee9a845f16809bf",
+    "bot/broker.py": "ee05fe2577a157580de9c2ed2e90a22e5534c9172684dce72c3d9d6df1704ad2",
+    "bot/risk.py": "07defa971568ba425648e5d0168880a8821df2f7678bd8084846b298c01ac55f",
+    "config.py": "fefd2a9510e0302dcdde8a7cc2d35d0fa482a38a0177102ee0727024ca79e289",
+    "bot/experiments.py": "2c473a10497cc84e3889d2dde7b80a6228a1733dca29e92d2bec94d964f72a62",
+    "bot/validation.py": "b471a79e3404dccee0fc3abfcb241e831a884e5c350b75d0be2617d8eab8283c",
+    "scripts/pinned_runs.py": "0748aa68d59ced5dc3b351416d4f93050b7e1afd7145b521961ee07b32c06ae2",
+    "scripts/rerun_corrected_research.py": "fc0edf391780ec326a46aad6acc10a6561a473822f619689ae576c389f60edce"
+  },
+  "verified_referenced_artifacts": 110,
+  "reference_hash_checks": 469,
+  "historical_reports_unchanged": true,
+  "baseline_commit": "0c74d1b372ffbe29894e13d9ea5800a924d6e7a9",
+  "baseline_backtest_sha256": "71774bcbcd25da46915229e1d787d193b2ca15ef72af00ff191cb58bd3b81216",
+  "pinned": [
+    {
+      "file": "BTCUSDT_1h_turtle.json",
+      "sha256": "13efd49aba21ac49d37661c226bbc4453dcd77afff36b7324119384c1e5f6878",
+      "equity_points": 8564,
+      "closed_trades": 115,
+      "wins": 27,
+      "net_pnl": -440.65621703676595,
+      "fees": 556.5088822199976,
+      "equity_change": -440.6562170367524,
+      "return_pct": -4.406562170367523,
+      "max_drawdown_pct": -9.731939715264804,
+      "sharpe": -0.6656863590726555,
+      "annualization_bars": 8760.0,
+      "n_return_observations": 8563,
+      "max_trade_net_error": 5.684341886080802e-14,
+      "max_reconstructed_equity_error": 0.0,
+      "passed": true
+    },
+    {
+      "file": "ETHUSDT_1h_turtle.json",
+      "sha256": "8265a40ed999b2d20dfe6de065a7c9a45fce362c0f95c8da209f8ac3692e30be",
+      "equity_points": 5612,
+      "closed_trades": 70,
+      "wins": 16,
+      "net_pnl": 78.43822058803616,
+      "fees": 348.4964291441527,
+      "equity_change": 78.43822058804108,
+      "return_pct": 0.7843822058804184,
+      "max_drawdown_pct": -9.440442758892754,
+      "sharpe": 0.18199578419218074,
+      "annualization_bars": 8760.0,
+      "n_return_observations": 5611,
+      "max_trade_net_error": 1.1368683772161603e-13,
+      "max_reconstructed_equity_error": 0.0,
+      "passed": true
+    },
+    {
+      "file": "SOLUSDT_1h_turtle.json",
+      "sha256": "30da1b2f9ccceee6e2792ae53116e690219e205ade4b5a91bfe51b683661ba9f",
+      "equity_points": 5468,
+      "closed_trades": 56,
+      "wins": 23,
+      "net_pnl": 1048.8081676919114,
+      "fees": 293.5018235925243,
+      "equity_change": 1048.808167691921,
+      "return_pct": 10.488081676919215,
+      "max_drawdown_pct": -7.487982102066725,
+      "sharpe": 1.705895165477615,
+      "annualization_bars": 8760.0,
+      "n_return_observations": 5467,
+      "max_trade_net_error": 5.684341886080802e-14,
+      "max_reconstructed_equity_error": 0.0,
+      "passed": true
+    },
+    {
+      "file": "BTCUSDT_4h_connors.json",
+      "sha256": "23ffd2d32f3fb408b87cc6a6237d3f400bd2953359031e0cf966161ba40a1533",
+      "equity_points": 866,
+      "closed_trades": 6,
+      "wins": 5,
+      "net_pnl": 76.91068033951171,
+      "fees": 28.09903321045004,
+      "equity_change": 76.91068033951342,
+      "return_pct": 0.7691068033951254,
+      "max_drawdown_pct": -0.19083126358149238,
+      "sharpe": 1.813193429580484,
+      "annualization_bars": 2190.0,
+      "n_return_observations": 865,
+      "max_trade_net_error": 3.552713678800501e-15,
+      "max_reconstructed_equity_error": 0.0,
+      "passed": true
+    },
+    {
+      "file": "ETHUSDT_4h_connors.json",
+      "sha256": "d29252c3de14420ad09161e535b7dbeed9ff388fe21c9e22084014d246825e0d",
+      "equity_points": 866,
+      "closed_trades": 4,
+      "wins": 2,
+      "net_pnl": -23.16693063242845,
+      "fees": 14.92820809738934,
+      "equity_change": -23.166930632431104,
+      "return_pct": -0.23166930632431137,
+      "max_drawdown_pct": -0.893803615026878,
+      "sharpe": -0.5203596415596663,
+      "annualization_bars": 2190.0,
+      "n_return_observations": 865,
+      "max_trade_net_error": 0.0,
+      "max_reconstructed_equity_error": 0.0,
+      "passed": true
+    },
+    {
+      "file": "BTCUSDT_15m_scalper.json",
+      "sha256": "0ced648209152e65e78d51685eccb4c477ea73ed347c9cea4757263448d54031",
+      "equity_points": 17156,
+      "closed_trades": 114,
+      "wins": 23,
+      "net_pnl": -968.904129286343,
+      "fees": 534.1198063529428,
+      "equity_change": -968.9041292863585,
+      "return_pct": -9.689041292863587,
+      "max_drawdown_pct": -11.96617137238205,
+      "sharpe": -6.345759276955454,
+      "annualization_bars": 35040.0,
+      "n_return_observations": 17155,
+      "max_trade_net_error": 3.552713678800501e-15,
+      "max_reconstructed_equity_error": 0.0,
+      "passed": true
+    },
+    {
+      "file": "ETHUSDT_15m_scalper.json",
+      "sha256": "5f279a35b9ddd58e22a7de8c7cff7f06e24540481c9c836436c068dd3702f05b",
+      "equity_points": 23108,
+      "closed_trades": 157,
+      "wins": 45,
+      "net_pnl": -840.7832492178187,
+      "fees": 736.8890770811051,
+      "equity_change": -840.7832492178222,
+      "return_pct": -8.407832492178224,
+      "max_drawdown_pct": -9.920354279325894,
+      "sharpe": -3.100063305522698,
+      "annualization_bars": 35040.0,
+      "n_return_observations": 23107,
+      "max_trade_net_error": 1.4210854715202004e-14,
+      "max_reconstructed_equity_error": 0.0,
+      "passed": true
+    }
+  ],
+  "experiments": [
+    {
+      "file": "standard_gate.comparison.json",
+      "sha256": "a91da03a24c6eb67e8524ccc1802c9d21f0a6c490c5febf2cf8c941ca73c1c30",
+      "completed_cases": 36,
+      "changed_oos_cases": 26,
+      "changed_trade_count_cases": 19,
+      "changed_net_pnl_cases": 26,
+      "changed_sharpe_cases": 26,
+      "changed_holdout_cases": 0,
+      "undefined_flat_sharpe_cases": 2,
+      "sum_case_trade_count_delta": 66,
+      "sum_case_net_pnl_delta": 31.77,
+      "passed": true
+    },
+    {
+      "file": "fast_gate.comparison.json",
+      "sha256": "6786e1725c5a5eb38d55a57b0538abf0887ec812a7c11764fd82fac0d9eef931",
+      "completed_cases": 105,
+      "changed_oos_cases": 57,
+      "changed_trade_count_cases": 50,
+      "changed_net_pnl_cases": 57,
+      "changed_sharpe_cases": 56,
+      "changed_holdout_cases": 0,
+      "undefined_flat_sharpe_cases": 2,
+      "sum_case_trade_count_delta": 294,
+      "sum_case_net_pnl_delta": -1020.41,
+      "passed": true
+    },
+    {
+      "file": "market_maker_fill_model.comparison.json",
+      "sha256": "460f935ba6c6f8b5f5ae0658b9fcaba1f23ffebb4b87ad1749308fde125f626a",
+      "completed_cases": 84,
+      "changed_oos_cases": 84,
+      "changed_trade_count_cases": 83,
+      "changed_net_pnl_cases": 84,
+      "changed_sharpe_cases": 84,
+      "changed_holdout_cases": 0,
+      "undefined_flat_sharpe_cases": 0,
+      "sum_case_trade_count_delta": 499,
+      "sum_case_net_pnl_delta": -701.26,
+      "passed": true
+    }
+  ],
+  "pinned_comparison": [
+    {
+      "run": "BTCUSDT_1h_turtle",
+      "v2_trades": 115,
+      "v3_trades": 115,
+      "v2_pnl": -440.66,
+      "v3_pnl": -440.66,
+      "v2_sharpe": -0.67,
+      "v3_sharpe": -0.67,
+      "pnl_delta": 0.0
+    },
+    {
+      "run": "ETHUSDT_1h_turtle",
+      "v2_trades": 69,
+      "v3_trades": 70,
+      "v2_pnl": 151.27,
+      "v3_pnl": 78.44,
+      "v2_sharpe": 0.31,
+      "v3_sharpe": 0.18,
+      "pnl_delta": -72.83
+    },
+    {
+      "run": "SOLUSDT_1h_turtle",
+      "v2_trades": 56,
+      "v3_trades": 56,
+      "v2_pnl": 1048.81,
+      "v3_pnl": 1048.81,
+      "v2_sharpe": 1.71,
+      "v3_sharpe": 1.71,
+      "pnl_delta": 0.0
+    },
+    {
+      "run": "BTCUSDT_4h_connors",
+      "v2_trades": 6,
+      "v3_trades": 6,
+      "v2_pnl": 76.91,
+      "v3_pnl": 76.91,
+      "v2_sharpe": 1.81,
+      "v3_sharpe": 1.81,
+      "pnl_delta": 0.0
+    },
+    {
+      "run": "ETHUSDT_4h_connors",
+      "v2_trades": 4,
+      "v3_trades": 4,
+      "v2_pnl": -23.17,
+      "v3_pnl": -23.17,
+      "v2_sharpe": -0.52,
+      "v3_sharpe": -0.52,
+      "pnl_delta": 0.0
+    },
+    {
+      "run": "BTCUSDT_15m_scalper",
+      "v2_trades": 113,
+      "v3_trades": 114,
+      "v2_pnl": -971.49,
+      "v3_pnl": -968.9,
+      "v2_sharpe": -6.39,
+      "v3_sharpe": -6.35,
+      "pnl_delta": 2.59
+    },
+    {
+      "run": "ETHUSDT_15m_scalper",
+      "v2_trades": 155,
+      "v3_trades": 157,
+      "v2_pnl": -782.95,
+      "v3_pnl": -840.78,
+      "v2_sharpe": -2.89,
+      "v3_sharpe": -3.1,
+      "pnl_delta": -57.83
+    }
+  ],
+  "prior_reuse": {
+    "directory": "/Users/varun/Downloads/Varun/Algo/docs/research/verified_metrics_v2",
+    "metrics_version": 2,
+    "comparison": {
+      "path": "docs/research/verified_metrics_v2/comparison.json",
+      "sha256": "7571387bc973e137fee57953dad83f7d8878eef3087a01a517207fe94d117042"
+    },
+    "export_checks": {
+      "path": "docs/research/verified_metrics_v2/export_checks.json",
+      "sha256": "725cff5c34bb0e3d5538885033f52c1188e3f43777691f770bd4759cde9cfaed"
+    },
+    "verified_files": 120,
+    "reuse": "v1_same_config_only; current results computed afresh",
+    "pinned_v1_reused": 7,
+    "experiment_v1_reused": 225
+  },
+  "undefined_sharpe_cases": [
+    {
+      "experiment": "standard_gate",
+      "unit": [
+        "default",
+        "ts_momentum",
+        "EURUSD=X",
+        "1h"
+      ],
+      "reason": "zero trades, P&L and fees"
+    },
+    {
+      "experiment": "standard_gate",
+      "unit": [
+        "default",
+        "ts_momentum",
+        "GBPUSD=X",
+        "1h"
+      ],
+      "reason": "zero trades, P&L and fees"
+    },
+    {
+      "experiment": "fast_gate",
+      "unit": [
+        "default",
+        "hft_micro_breakout",
+        "TRX/USDT",
+        "5m"
+      ],
+      "reason": "zero trades, P&L and fees"
+    },
+    {
+      "experiment": "fast_gate",
+      "unit": [
+        "default",
+        "hft_ofi_momentum",
+        "TRX/USDT",
+        "5m"
+      ],
+      "reason": "zero trades, P&L and fees"
+    }
+  ],
+  "skipped_pinned": [
+    {
+      "run": "EURUSD_1h_fxmr",
+      "reason": "exact pinned cache unavailable",
+      "expected": [
+        "data/cache/forex_EURUSD_1h_2026-01-04_2026-09-04.parquet",
+        "data/cache/EURUSD_1h_2026-01-04_2026-09-04.parquet"
+      ]
+    }
+  ],
+  "limitations": [
+    "Exports are JSON, not CSV.",
+    "Experiment exports omit raw trades and stitched equity curves; per-case provenance, finite metrics, jobs and differences verified, but drawdown/Sharpe cannot be independently recomputed from summary artifacts.",
+    "Summed case deltas describe independent fixed-capital runs and are not portfolio returns.",
+    "Exact EURUSD pinned cache is unavailable.",
+    "Network-disabled flag and source guard implementation verified; export audit does not establish real-exchange execution behavior."
+  ]
+}

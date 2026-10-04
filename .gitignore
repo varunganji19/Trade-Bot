@@ -9,6 +9,8 @@ __pycache__/
 #  committed, checkable artifact — see the Evidence tab)
 data/trading.db*
 data/trading.backup.*.db
+data/trading.backup.*.db-shm
+data/trading.backup.*.db-wal
 data/bot.db
 data/cache/
 data/results/

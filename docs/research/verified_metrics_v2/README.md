@@ -1,5 +1,10 @@
 # Corrected research evidence — metrics version 2
 
+> **Artifacts removed.** The v2 JSON evidence was superseded by
+> [metrics v3](../verified_metrics_v3/README.md) and removed from the tree.
+> It remains in git history at commit `9224627`
+> (`git show 9224627:docs/research/verified_metrics_v2/comparison.json`).
+
 These artifacts replay the available pinned research and experiment windows
 using cached inputs. Network connections are disabled, and journals are
 temporary. Historical reports are preserved.

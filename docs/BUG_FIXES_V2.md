@@ -36,6 +36,8 @@ ALGO_SKIP_DOTENV=1 python3 scripts/rerun_corrected_research.py --workers 4 --out
 The final comparison artifacts include identical-configuration v1/v2 runs,
 archived report comparisons, exact cached input endpoints and hashes, and
 source hashes. They are written separately under `docs/research/verified_metrics_v2`.
+Those JSON files were later superseded by metrics v3 and removed from the
+tree; they remain in git history at commit `9224627`.
 The exact pinned EURUSD cache is unavailable and is explicitly excluded;
 an unrelated rolling cache is not substituted.
 

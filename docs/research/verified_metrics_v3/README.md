@@ -77,11 +77,13 @@ Reproduce into a **new, empty directory** from the repository root:
 ```sh
 ALGO_SKIP_DOTENV=1 PYTHONDONTWRITEBYTECODE=1 python3 scripts/rerun_corrected_research.py \
   --workers 4 --baseline-ref 0c74d1b \
-  --prior-results docs/research/verified_metrics_v2 \
   --output /tmp/algo-metrics-v3-replay
 ```
 
-Omit `--prior-results` to recompute original v1 comparisons as well. Keep
+This recomputes the original v1 comparisons as well. The v2 evidence this
+run reused (see `prior_reuse` in `comparison.json`) was removed from the
+tree; restore it from commit `9224627` into a directory and pass that as
+`--prior-results` to reuse verified v1 results instead. Keep
 the original `--baseline-ref` explicit so later commits cannot change the
 comparison baseline. Existing output directories are refused to preserve
 earlier evidence. Historical v2 reproduction text describes its earlier

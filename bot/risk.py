@@ -314,7 +314,8 @@ class RiskManager:
                 has_position_on_symbol: bool,
                 bar_epoch: float | None = None,
                 open_gross_notional: float = 0.0,
-                cluster_gross_notional: float = 0.0) -> RiskDecision:
+                cluster_gross_notional: float = 0.0,
+                qty_ceiling: float | None = None) -> RiskDecision:
         """Final entry veto. `open_gross_notional` is the book's CURRENT open
         notional (every open position, marked at its own timeframe's last
         good close) — pre-computed by the caller so the gate sees the WHOLE
@@ -353,6 +354,10 @@ class RiskManager:
             return RiskDecision(False, category="invalid_equity", reason="invalid account equity")
         if not math.isfinite(open_gross_notional) or open_gross_notional < 0:
             return RiskDecision(False, category="invalid_gross", reason="invalid open gross notional")
+        if not math.isfinite(cluster_gross_notional) or cluster_gross_notional < 0:
+            return RiskDecision(False, category="invalid_gross", reason="invalid cluster gross notional")
+        if qty_ceiling is not None and (not math.isfinite(qty_ceiling) or qty_ceiling <= 0):
+            return RiskDecision(False, category="min_notional", reason="invalid authorized quantity ceiling")
         if not math.isfinite(decision.confidence) or not 0 <= decision.confidence <= 1:
             return RiskDecision(False, category="invalid_confidence", reason="invalid confidence")
         if decision.target_rr is not None and not math.isfinite(decision.target_rr):
@@ -393,7 +398,14 @@ class RiskManager:
 
         qty = self.size_position(equity, decision.price, decision.stop_distance, spec.kind,
                                  risk_fraction=self.risk_fraction(spec.symbol))
-        if qty <= 0:
+        if qty_ceiling is not None:
+            # Reapproval may reduce a resting order, never enlarge it. Apply
+            # the cap before exposure checks, then repeat venue granularity
+            # and minimum-notional checks on the reduced quantity.
+            qty = min(qty, qty_ceiling)
+            scale = 1 if spec.kind in ("forex", "india") else 1_000_000
+            qty = math.floor(qty * scale) / scale
+        if qty <= 0 or qty * decision.price < 10.0:
             return RiskDecision(False, category="min_notional", reason="position size rounds to zero (min notional)")
         # gross leverage gate: total open notional + this entry must stay
         # under max_gross_leverage x equity. The 25%-per-position x 4-position

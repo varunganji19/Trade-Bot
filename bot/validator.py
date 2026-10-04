@@ -34,6 +34,7 @@ import csv
 import io
 import json
 import math
+from numbers import Real
 import zipfile
 from pathlib import Path
 
@@ -77,10 +78,51 @@ def _pick(row: dict, names: tuple):
 
 
 def _ts(v) -> pd.Timestamp:
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        return pd.Timestamp(int(v), unit="ms" if v > 1e11 else "s", tz="UTC")
-    t = pd.Timestamp(v)
-    return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+    """Eight-digit strings are YYYYMMDD; other numeric values are epochs."""
+    try:
+        if v is None or isinstance(v, bool):
+            raise ValueError("missing or boolean timestamp")
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                raise ValueError("empty timestamp")
+            if len(v) == 8 and v.isascii() and v.isdecimal():
+                return pd.Timestamp(year=int(v[:4]), month=int(v[4:6]),
+                                    day=int(v[6:]), tz="UTC")
+            try:
+                numeric = float(v)
+            except ValueError:
+                numeric = None
+        else:
+            numeric = float(v) if isinstance(v, Real) else None
+        if numeric is not None:
+            if not math.isfinite(numeric):
+                raise ValueError("non-finite timestamp")
+            t = pd.Timestamp(numeric, unit="ms" if abs(numeric) > 1e11 else "s", tz="UTC")
+        else:
+            t = pd.Timestamp(v)
+        if pd.isna(t):
+            raise ValueError("missing timestamp")
+        return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValidatorError(f"invalid timestamp: {v!r}") from exc
+
+
+def _is_open(value) -> bool:
+    """Explicit export booleans; absent/empty fields describe closed trades."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("", "false", "0", "no"):
+            return False
+        if text in ("true", "1", "yes"):
+            return True
+    elif isinstance(value, Real) and value in (0, 1):
+        return bool(value)
+    raise ValidatorError(f"invalid is_open value: {value!r}; use true/false, 1/0 or yes/no")
 
 
 def _float(v) -> float | None:
@@ -104,9 +146,13 @@ def _normalise(row: dict) -> dict:
     if fee is None and _float(lower.get("fee_open")) is not None:
         # freqtrade: fee rates per leg on the traded value of each leg
         amount = _float(lower.get("amount")) or 0.0
+        close_fee_value = _pick(lower, ("fee_close",))
+        close_fee = _float(lower["fee_open"]) if close_fee_value is None else _float(close_fee_value)
+        if close_fee is None:
+            raise ValidatorError("fee_close must be a finite fee rate")
         fee = (amount * (_float(lower.get("open_rate")) or 0.0) * _float(lower["fee_open"])
                + amount * (_float(lower.get("close_rate")) or 0.0)
-               * (_float(lower.get("fee_close")) or _float(lower["fee_open"])))
+               * close_fee)
     notional = _float(_pick(lower, _NOTIONAL))
     if notional is None and _float(lower.get("qty")) and _float(lower.get("entry_price")):
         notional = abs(_float(lower["qty"]) * _float(lower["entry_price"]))
@@ -116,7 +162,11 @@ def _normalise(row: dict) -> dict:
 
 
 def _from_rows(rows: list[dict]) -> list[dict]:
-    trades = [_normalise(r) for r in rows if not r.get("is_open")]
+    trades = []
+    for row in rows:
+        lower = {str(k).strip().lower(): value for k, value in row.items()}
+        if not _is_open(lower.get("is_open")):
+            trades.append(_normalise(lower))
     trades.sort(key=lambda t: (t["close"], t["open"]))
     return trades
 

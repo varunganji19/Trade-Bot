@@ -186,3 +186,96 @@ def test_the_cli_writes_a_markdown_report(tmp_path, capsys):
     assert "## A: **FRAGILE**" in text and "## B: **LIKELY OVERFIT**" in text
     assert json.loads(js.read_text())["strategies"]["B"]["verdict"] == v.OVERFIT
     assert "Cost sensitivity" in text and "×2" in text
+
+
+@pytest.mark.parametrize("value", [False, 0, "false", "FALSE", "0", "no", " No ", "", None])
+def test_explicit_false_open_flags_are_closed_trades(value):
+    row = {**_ft_trade(0, 3.0), "is_open": value}
+    row = {f" {key.upper()} ": val for key, val in row.items()}
+    assert len(v._from_rows([row])) == 1
+
+
+@pytest.mark.parametrize("value", [True, 1, "true", "TRUE", "1", "yes", " YES "])
+def test_explicit_true_flags_skip_open_trades_even_with_uppercase_columns(value):
+    assert v._from_rows([{" IS_OPEN ": value}]) == []
+
+
+@pytest.mark.parametrize("value", ["maybe", "0.0", "2", 2, float("nan"), [], {}])
+def test_invalid_open_flags_are_rejected(value):
+    with pytest.raises(v.ValidatorError, match="is_open"):
+        v._from_rows([{**_ft_trade(0, 3.0), "is_open": value}])
+
+
+def test_csv_epoch_strings_and_false_flags_are_normalized_before_filtering(tmp_path):
+    path = tmp_path / "epochs.csv"
+    path.write_text(" OPEN_TIME , CLOSE_TIME , PNL , IS_OPEN \n"
+                    "1704067200,1704081600000,3,false\n"
+                    "1704153600000,1704168000,-2,0\n"
+                    ",,50,yes\n")
+    rows = v.load_trades(path)[1]["epochs"]
+    assert [row["pnl"] for row in rows] == [3.0, -2.0]
+    assert rows[0]["open"] == pd.Timestamp("2024-01-01", tz="UTC")
+    assert rows[0]["close"] == pd.Timestamp("2024-01-01T04:00:00Z")
+
+
+@pytest.mark.parametrize("value", [1704067200, 1704067200000, "1704067200",
+                                    "1704067200000", "1.7040672e9",
+                                    "2024-01-01T05:30:00+05:30", "2024-01-01"])
+def test_numeric_and_iso_timestamps_use_the_same_utc_clock(value):
+    assert v._ts(value) == pd.Timestamp("2024-01-01", tz="UTC")
+
+
+@pytest.mark.parametrize("value, expected", [("20240101", "2024-01-01"),
+                                             ("20240229", "2024-02-29"),
+                                             (" 19991231 ", "1999-12-31")])
+def test_compact_date_strings_are_calendar_dates(value, expected):
+    assert v._ts(value) == pd.Timestamp(expected, tz="UTC")
+
+
+@pytest.mark.parametrize("value", ["20240230", "20231301", "20240001",
+                                    "20240100", "00000101", "20230229"])
+def test_invalid_compact_dates_are_not_silently_epoch_seconds(value):
+    with pytest.raises(v.ValidatorError, match="invalid timestamp"):
+        v._ts(value)
+
+
+@pytest.mark.parametrize("value", [20240101, "20240101.0", "2.0240101e7", "+20240101"])
+def test_numeric_values_and_explicit_epoch_strings_retain_second_semantics(value):
+    assert v._ts(value) == pd.Timestamp(20240101, unit="s", tz="UTC")
+
+
+def test_csv_accepts_compact_dates_alongside_epoch_timestamps(tmp_path):
+    path = tmp_path / "compact.csv"
+    path.write_text("open_date,close_date,pnl\n"
+                    "20240101,20240102,3\n"
+                    "1704153600,1704240000000,-2\n")
+    rows = v.load_trades(path)[1]["compact"]
+    assert [row["open"] for row in rows] == [pd.Timestamp("2024-01-01", tz="UTC"),
+                                             pd.Timestamp("2024-01-02", tz="UTC")]
+    assert [row["close"] for row in rows] == [pd.Timestamp("2024-01-02", tz="UTC"),
+                                              pd.Timestamp("2024-01-03", tz="UTC")]
+
+
+@pytest.mark.parametrize("value", [None, True, "", "NaT", "NaN", "inf", "-inf",
+                                    float("nan"), float("inf"), "not a date", "1e300"])
+def test_invalid_timestamps_raise_a_validator_error(value):
+    with pytest.raises(v.ValidatorError, match="invalid timestamp"):
+        v._ts(value)
+
+
+def test_an_explicit_zero_close_fee_is_preserved_in_cost_sensitivity():
+    rows = v._from_rows([{**_ft_trade(0, 3.0), "fee_close": 0.0}])
+    assert rows[0]["fee"] == pytest.approx(0.1)
+    costs = {row["fee_mult"]: row["net"] for row in v.cost_sensitivity(rows)["rows"]}
+    assert costs[2.0] == pytest.approx(2.9)
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_only_missing_close_fee_uses_the_open_fee(value):
+    rows = v._from_rows([{**_ft_trade(0, 3.0), "fee_close": value}])
+    assert rows[0]["fee"] == pytest.approx(0.203)
+
+
+def test_an_invalid_present_close_fee_is_not_replaced_with_the_open_fee():
+    with pytest.raises(v.ValidatorError, match="fee_close"):
+        v._from_rows([{**_ft_trade(0, 3.0), "fee_close": "nan"}])

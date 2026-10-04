@@ -16,14 +16,20 @@ every registered strategy and for the ensemble of each book, it asserts:
   2. the ORCHESTRATOR's decision at bar i is identical in the engine's
      configuration and the backtester's  (no live-only decision path),
   3. the books stay separated: a fast-book strategy never votes on a
-     standard spec and vice versa.
+     standard spec and vice versa,
+  4. strategy exits and subsequent entry decisions follow the same cooldown
+     clock in real engine cycles and the backtest's next-open fill model.
 
-No network, no journal, no model: it runs in seconds and is meant to sit in
-`make verify` beside the tests.
+No network or model: lifecycle checks use a temporary journal. It runs in
+seconds and is meant to sit in `make verify` beside the tests.
 """
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
+from pathlib import Path
+import tempfile
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -31,10 +37,14 @@ import pandas as pd
 sys.path.insert(0, ".")
 
 from bot.backtest import Backtester                      # noqa: E402
+from bot.engine import TradingEngine                     # noqa: E402
+from bot.hft import build_hft_config                     # noqa: E402
 from bot.indicators import add_all_indicators            # noqa: E402
-from bot.orchestrator import Orchestrator                # noqa: E402
+from bot.journal import Journal                          # noqa: E402
+from bot.orchestrator import Decision, Orchestrator      # noqa: E402
 from bot.strategies import (CANDIDATE_STRATEGIES,        # noqa: E402
                             STRATEGY_CLASSES, get_strategy)
+from bot.strategies.base import Signal                   # noqa: E402
 from config import CONFIG, MarketSpec                    # noqa: E402
 
 BARS = 900
@@ -130,11 +140,72 @@ def check_book_separation():
     print("  2 books checked")
 
 
+def check_exit_reentry_parity():
+    """Compare actual cycle decisions with the backtest's later fill times."""
+    print("[parity] lifecycle: strategy exits and re-entry cooldowns")
+
+    class TwoBarExit:
+        name = "vwap_scalper"
+
+        def evaluate(self, df, i):
+            return Signal(self.name, "LONG", 0.9, 1.0, 2.0)
+
+        def check_exit(self, df, i, pos):
+            return ("time exit" if pos.bars_held >= 2 else None, None)
+
+    strategy = TwoBarExit()
+    spec = MarketSpec("crypto", "TEST/USDT", "5m")
+    df = pd.DataFrame(dict(open=100., high=100.4, low=99.6, close=100., volume=100.),
+                      index=pd.date_range("2024-01-01", periods=300, freq="5min", tz="UTC"))
+    offset = pd.Timedelta(minutes=5)
+    for cooldown in (1, 3):
+        with tempfile.TemporaryDirectory(prefix="algo-parity-") as td:
+            cfg = build_hft_config(fee_tier="perp")
+            cfg.db_path = str(Path(td) / "journal.db")
+            cfg.watchlist = [spec]
+            cfg.portfolio.enabled = False
+            cfg.params.scalper_cooldown_bars = cooldown
+            cfg.costs = replace(cfg.costs, fee_crypto=0., maker_fee_crypto=0., slippage_crypto=0.)
+            with patch("bot.backtest.get_strategy", lambda *args: strategy), \
+                    patch("bot.positions.get_strategy", lambda *args: strategy), \
+                    patch("bot.engine.is_paused", lambda: (False, "")), \
+                    patch("bot.pause.is_paused", lambda: (False, "")):
+                result = Backtester(cfg, book="fast").run(spec, df, strategy=strategy.name)
+                if len(result.trades) != (27 if cooldown == 1 else 16):
+                    _fail(f"{cooldown}-bar cooldown: lifecycle fixture trade frequency changed")
+                    return
+                engine = TradingEngine(cfg, mode="hft", quiet=True, journal=Journal(cfg.db_path))
+                engine.orchestrator.decide = lambda *args: Decision(
+                    action="LONG", confidence=.9, stop_distance=1., target_rr=2.,
+                    price=100., strategy_name=strategy.name)
+                entries, exits = [], []
+                with engine.own_book():
+                    for i in range(220, len(df)):
+                        current = df.iloc[:i + 1]
+                        engine.market_data.latest = lambda *args, **kwargs: current
+                        summary = engine.run_cycle()
+                        if summary["errors"]:
+                            _fail(f"lifecycle cycle {i}: {summary['errors']}")
+                            return
+                        if summary["opened"]:
+                            entries.append(df.index[i])
+                        if summary["closed"]:
+                            exits.append(df.index[i])
+                engine.shutdown()
+            expected_entries = [pd.Timestamp(t["entry_ts"]) - offset for t in result.trades]
+            expected_exits = [pd.Timestamp(t["exit_ts"]) - offset for t in result.trades
+                              if t["exit_reason"] == "time exit"]
+            if entries != expected_entries or exits != expected_exits:
+                _fail(f"{cooldown}-bar cooldown: live entry/exit decisions differ from backtest")
+    print("  1-bar and 3-bar cooldowns checked through 80 engine cycles each")
+
+
 def main() -> int:
     print("=== live-vs-backtest parity smoke ===")
     check_causality()
     check_decision_parity()
     check_book_separation()
+    check_exit_reentry_parity()
     if FAILURES:
         print(f"\n[parity] {len(FAILURES)} FAILURE(S) — live and backtest have drifted apart")
         return 1

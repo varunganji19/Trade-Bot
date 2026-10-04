@@ -2,9 +2,9 @@
 Event-driven backtester.
 
 Fidelity rules (see docs/archive/RESEARCH.md §4):
-  - Decisions are made on CLOSED bars only (no look-ahead): the indicator frame
-    is truncated to `i` before strategies evaluate, then fills happen at bar
-    i+1's open with slippage, or stop/target fills inside bar i+1's range.
+  - Decisions read indicator values only through CLOSED bar i (no look-ahead).
+    Market fills happen at bar i+1's open with slippage; a resting maker
+    order waits for a later bar to reach its limit.
   - The FILL bar (bar i+1, where the entry filled at the open) is scanned for
     stop/target too — its whole range is post-fill there, and skipping it
     diverged from the live engine, which does manage that bar (parity bug
@@ -19,6 +19,8 @@ Fidelity rules (see docs/archive/RESEARCH.md §4):
     i+1 scan run (with the bar-i-trailed stop as the active level, matching
     the live engine's trail-then-manage cycle; audit Fix 1.2).
   - Stops are checked before targets within a bar (conservative).
+  - Each held bar is scanned exactly once. Every scored bar has one closing
+    equity observation, including flat bars and final liquidation fees.
   - Same Orchestrator/RiskManager/PaperBroker code as the live engine.
 
 Modes:
@@ -34,7 +36,9 @@ run_walk_forward() splits history into sequential folds, each traded from a
 fresh engine state (positions, cooldowns, equity reset) — approximating
 periodic live restarts, NOT classic parameter walk-forward: parameters are
 fixed in config and never fitted on data, so there is no train/test parameter
-split that could leak. Per-fold + aggregate stats are reported honestly.
+split that could leak. Aggregate equity adds each fold's fixed-capital PnL
+onto one starting balance. Warmup gaps between folds are excluded from the
+per-bar Sharpe observations rather than treated as one synthetic return.
 
 Determinism: no wall-clock or RNG touches the simulated path — the kill
 switch day is derived from bar timestamps (RiskManager.note_equity ts), so
@@ -57,6 +61,9 @@ from bot.strategies import get_strategy
 from bot.strategies.base import strategy_applies
 
 
+METRICS_VERSION = 3
+
+
 @dataclass
 class BTResult:
     spec: MarketSpec
@@ -65,6 +72,9 @@ class BTResult:
     equity_curve: list = field(default_factory=list)
     start_equity: float = 0.0
     end_equity: float = 0.0
+    # Each restarted fold begins a new observed return segment. Warmup gaps
+    # between folds are context, not one synthetic trading-bar return.
+    segment_starts: list[int] = field(default_factory=list)
 
     # ---------------------------------------------------------------- stats
     def stats(self) -> dict:
@@ -84,8 +94,8 @@ class BTResult:
 
         # annualized Sharpe on per-bar equity returns
         sharpe = None
-        if len(eq) > 20:
-            rets = eq.pct_change().dropna()
+        rets = eq.pct_change().dropna().drop(index=self.segment_starts, errors="ignore")
+        if len(rets) >= 20:
             if rets.std() > 0:
                 sharpe = float(rets.mean() / rets.std() * math.sqrt(
                     bars_per_year(self.spec.timeframe, self.spec.kind)))
@@ -104,6 +114,10 @@ class BTResult:
             "sharpe": round(sharpe, 2) if sharpe is not None else None,
             "return_pct": round((end / start - 1) * 100, 2) if start else 0.0,
             "start_equity": round(start, 2), "end_equity": round(float(end), 2),
+            "starting_capital": round(start, 2), "metrics_version": METRICS_VERSION,
+            "capital_model": "fixed_starting_capital",
+            "return_basis": "net_pnl_over_starting_capital",
+            "n_return_observations": len(rets),
         }
 
 
@@ -115,7 +129,9 @@ class Backtester:
         # BaseStrategy.book) — both books trade 5m now, so the backtester
         # must be told which one it is replaying, exactly like the engine
         self.book = book
-        self.starting_capital = starting_capital or self.cfg.paper_capital
+        self.starting_capital = self.cfg.paper_capital if starting_capital is None else starting_capital
+        if not math.isfinite(self.starting_capital) or self.starting_capital <= 0:
+            raise ValueError("starting_capital must be finite and positive")
         self._alloc_warned = False   # allocation failures are warned ONCE per run
 
     # ------------------------------------------------------------------ core
@@ -148,236 +164,154 @@ class Backtester:
         # by never reading past i in the loop.
         ind = add_all_indicators(df, self.cfg.params)
 
-        risk.note_equity(self.starting_capital)
-        # set at entry: the NEXT iteration's `cur` bar is the fill bar (the
-        # entry filled at its open), which must be scanned for stop/target —
-        # skipping it was the live/backtest parity bug
-        fill_scan_pending = False
-        # resting maker limit (HFT book): an unfilled entry order awaiting a
-        # touch — {decision, qty, limit, side, strategy_name, waited,
-        # decision_bar_ts}. None when no order is resting.
+        # Orders decided at a close execute on a later bar. Replay each bar
+        # once: queued market fills at open, resting maker fills, brackets,
+        # strategy decisions at close, then the equity observation.
+        pending_entry: dict | None = None
         pending_limit: dict | None = None
+        pending_exit: str | None = None
+        key = broker.position_key(spec.symbol, spec.timeframe)
+        risk.note_equity(self.starting_capital, ts=str(ind.index[warmup_bars]))
+        self._alloc_warned = False
 
-        for i in range(warmup_bars, n - 1):
-            cur_bar = ind.iloc[i]
-            next_open = float(ind["open"].iloc[i + 1])
-            next_bar = ind.iloc[i + 1]
-            next_ts = str(ind.index[i + 1])
-            cur_ts = str(ind.index[i])
-            bar_epoch = float(ind.index[i].timestamp())
+        def approve(decision, mark: float, epoch: float, qty_ceiling=None):
+            positions = broker.positions_snapshot()
+            gross = sum(p.qty * (mark if p.symbol == spec.symbol else p.entry_price)
+                        for p in positions)
+            cluster = sum(p.qty * (mark if p.symbol == spec.symbol else p.entry_price)
+                          for p in positions
+                          if correlation_cluster(p.symbol, infer_kind(p.symbol))
+                          == correlation_cluster(spec.symbol, spec.kind))
+            return risk.approve(
+                decision, spec, broker.equity({spec.symbol: mark}), len(positions),
+                has_position_on_symbol=broker.has_position(spec.symbol),
+                open_gross_notional=gross, cluster_gross_notional=cluster,
+                bar_epoch=epoch, qty_ceiling=qty_ceiling)
 
-            # kill switch follows simulated bar time, not the wall clock
-            risk.note_equity(broker.equity({spec.symbol: float(cur_bar["close"])}), ts=next_ts)
+        def close(price: float, reason: str, i: int, cooldown_epoch: float | None = None):
+            closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(spec, price, reason)
+            risk.apply_exit_cooldown(
+                spec, closed_pos, reason,
+                float(ind.index[i].timestamp()) if cooldown_epoch is None else cooldown_epoch)
+            result.trades.append(_trade_dict(closed_pos, exit_fill, reason,
+                                             pnl, pnl_pct, fee, ind, i))
 
-            # ---- manage open position on this symbol -------------------------
-            pos = broker.positions.get(broker.position_key(spec.symbol, spec.timeframe))
+        for i in range(warmup_bars, n):
+            bar = ind.iloc[i]
+            ts = str(ind.index[i])
+            epoch = float(ind.index[i].timestamp())
+            mark = float(bar["close"])
+            exited = False
+            maker_filled = False
+            risk.note_equity(broker.equity({spec.symbol: float(bar["open"])}), ts=ts)
+
+            # An exit decided on the preceding closed bar fills before this
+            # bar can touch a resting bracket.
+            if pending_exit is not None and key in broker.positions:
+                # Live starts the cooldown when the preceding close decides
+                # the exit. Preserve that clock while recording the actual
+                # next-open fill; this candle's close may decide a new entry.
+                close(float(bar["open"]), pending_exit, i,
+                      cooldown_epoch=float(ind.index[i - 1].timestamp()))
+            pending_exit = None
+
+            if pending_entry is not None:
+                decision = pending_entry["decision"]
+                decision.price = float(bar["open"])
+                broker.open_position(spec, decision, pending_entry["qty"], decision.price,
+                                     trade_id=-1, ts=ts,
+                                     decision_bar_ts=pending_entry["decision_bar_ts"])
+                pending_entry = None
+
+            if pending_limit is not None and key not in broker.positions:
+                # Re-check the account at the executable price. A stale maker
+                # authorization cannot survive a halt, cooldown, or risk veto,
+                # and fresh sizing can only shrink its authorized quantity.
+                fill = limit_fill_price(pending_limit["side"], pending_limit["limit"], bar,
+                                        self.cfg.hft.maker_penetration_bps)
+                if fill is not None:
+                    decision = pending_limit["decision"]
+                    decision.price = fill
+                    approval = approve(decision, fill, epoch, qty_ceiling=pending_limit["qty"])
+                    if approval.approved:
+                        broker.open_position(spec, decision, approval.qty, fill, trade_id=-1,
+                                             ts=ts, maker_entry=True,
+                                             decision_bar_ts=pending_limit["decision_bar_ts"])
+                        maker_filled = True
+                    pending_limit = None
+                else:
+                    pending_limit["waited"] += 1
+                    if risk.halted or pending_limit["waited"] > self.cfg.hft.limit_wait_bars:
+                        pending_limit = None
+
+            pos = broker.positions.get(key)
             if pos is not None:
-                pos.bars_held += 1
-                # Event ordering (audit Fix 1.2, docs/archive/HISTORY.md correction #1):
-                # the strategy exit decided at bar i's CLOSE fills at bar i+1's
-                # OPEN — that market fill is already on the tape BEFORE bar i+1
-                # trades, so it must execute before any bar-i+1 stop/target scan.
-                # The old scan-both-bars-first loop let a same-bar stop/target
-                # "win" over an order that had already filled at the open
-                # (mixed-direction bias: winners stolen by targets, losers saved
-                # by stops, ~2-3% of trades). Time order is now:
-                #   (a) fill bar FIRST — its whole range is post-fill and
-                #       PRE-decision, so it is unaffected by this fix;
-                #   (b) the strategy exit at the next open;
-                #   (c) bar i+1's stop/target scan, ONLY if (b) did not fire —
-                #       with the newly-trailed stop active (live parity: the
-                #       engine trails at bar i's close and the next bar's scan
-                #       uses the new level).
-                reason, exit_price, exit_idx = None, None, None
-                if fill_scan_pending:
-                    reason, exit_price = broker.scan_bar_exits(spec, cur_bar)
-                    if reason:
-                        exit_idx = i
-                    fill_scan_pending = False
-                if not reason:
+                if not maker_filled:
+                    pos.bars_held += 1
+                reason, exit_price = broker.scan_bar_exits(spec, bar)
+                if reason:
+                    close(exit_price, reason, i)
+                    exited = True
+                elif i == n - 1:
+                    close(mark, "end of backtest", i)
+                    exited = True
+                elif not maker_filled:
                     exit_reason, new_stop = single.check_exit(ind, i, pos) if single else (
                         orchestrator_strat_exit(orchestrator, ind, i, pos))
                     if new_stop is not None and new_stop != pos.stop:
                         pos.stop = new_stop
-                    if exit_reason:
-                        # the exit signal was computed on bar i's close, which
-                        # was not tradable at decision time -> fill at bar i+1's
-                        # open, and bar i+1's intra-bar stop/target scan never
-                        # happens — the position is gone at the open
-                        reason, exit_price, exit_idx = exit_reason, next_open, i + 1
-                    else:
-                        # no signal exit: bar i+1's range is the next stop/target
-                        # opportunity, now with the trailed stop as the level
-                        reason, exit_price = broker.scan_bar_exits(spec, next_bar)
-                        if reason:
-                            exit_idx = i + 1
-                if reason:
-                    closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
-                        spec, exit_price, reason)
-                    # cooldown after ANY exit (stops longest): one closed trade
-                    # must not immediately re-trigger and churn fees — the
-                    # shared policy also blocks re-entry inside risk.approve
-                    risk.apply_exit_cooldown(spec, closed_pos, reason, bar_epoch)
-                    result.trades.append(_trade_dict(closed_pos, exit_fill, reason, pnl, pnl_pct, fee, ind, exit_idx))
-                    result.equity_curve.append({"ts": str(ind.index[exit_idx]),
-                                                "equity": round(broker.equity({spec.symbol: exit_fill}), 2)})
-                    continue
+                    pending_exit = exit_reason
 
-                # mark to market
-                result.equity_curve.append({"ts": next_ts,
-                                            "equity": round(broker.equity({spec.symbol: float(next_bar['close'])}), 2)})
+            # ts is the input bar label; equity is the account after that
+            # closed bar, including all fills, fees and terminal settlement.
+            equity = broker.equity({spec.symbol: mark})
+            risk.note_equity(equity, ts=ts)
+            result.equity_curve.append({"ts": ts, "equity": equity})
+
+            if (i == n - 1 or exited or maker_filled or key in broker.positions
+                    or pending_limit is not None):
                 continue
 
-            # ---- no position: resting maker limit first, then new entries --
-            if pending_limit is not None:
-                fill_price = limit_fill_price(pending_limit["side"],
-                                              pending_limit["limit"], cur_bar,
-                                              self.cfg.hft.maker_penetration_bps)
-                if fill_price is not None:
-                    if risk.halted:
-                        pending_limit = None   # kill switch: order dies unfilled
-                    else:
-                        fill_decision = pending_limit["decision"]
-                        fill_decision.price = fill_price
-                        broker.open_position(spec, fill_decision, pending_limit["qty"],
-                                             fill_price, trade_id=-1, ts=cur_ts,
-                                             decision_bar_ts=pending_limit["decision_bar_ts"],
-                                             maker_entry=True)
-                        # the fill bar's whole range is post-fill: scan it NOW
-                        # (its stop/target may already have been touched);
-                        # later bars flow through the normal manage path
-                        reason, exit_price = broker.scan_bar_exits(spec, cur_bar)
-                        if reason:
-                            closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
-                                spec, exit_price, reason)
-                            risk.apply_exit_cooldown(spec, closed_pos, reason, bar_epoch)
-                            result.trades.append(_trade_dict(closed_pos, exit_fill, reason,
-                                                             pnl, pnl_pct, fee, ind, i))
-                            result.equity_curve.append(
-                                {"ts": cur_ts, "equity": round(broker.equity({spec.symbol: exit_fill}), 2)})
-                        else:
-                            result.equity_curve.append(
-                                {"ts": next_ts,
-                                 "equity": round(broker.equity({spec.symbol: float(next_bar["close"])}), 2)})
-                    pending_limit = None
-                    continue
-                pending_limit["waited"] += 1
-                if pending_limit["waited"] > self.cfg.hft.limit_wait_bars:
-                    pending_limit = None       # expired unfilled: no trade happened
-                else:
-                    continue                   # still resting — no new decisions
-
-            # ---- look for an entry on the CURRENT closed bar ----------------
             if single is not None:
                 if not strategy_applies(single, spec.symbol):
-                    continue           # e.g. a cross-pair strategy on BTC/USDT
+                    continue
                 sig = single.evaluate(ind, i)
-                decision = _decision_from_signal(sig, float(cur_bar["close"]))
+                decision = _decision_from_signal(sig, mark)
                 strategy_name = single.name
             else:
                 decision = orchestrator.decide(ind, i, spec)
                 strategy_name = decision.strategy_name or "orchestrator"
-
-            if decision.action == "HOLD":
+            if decision.action not in ("LONG", "SHORT"):
                 continue
-
-            # synthetic Decision wrapper for risk approval
             decision.strategy_name = strategy_name
-            # portfolio allocation: divide the risk budget across the symbols
-            # that could hold a position on this timeframe — same allocator as
-            # the live engine (inverse-vol/HRP over the trailing window,
-            # truncated at bar i so no peer's future bars leak in)
             if self.cfg.portfolio.enabled and peer_histories:
                 try:
                     from bot.allocator import allocation_weights
-                    ts = ind.index[i]
-                    hist = {spec.symbol: ind.iloc[: i + 1]}
+                    hist = {spec.symbol: ind.iloc[:i + 1]}
                     for peer_spec in self.cfg.watchlist:
                         if peer_spec.timeframe == spec.timeframe and peer_spec.symbol in peer_histories:
                             d = peer_histories[peer_spec.symbol]
-                            hist[peer_spec.symbol] = d.loc[d.index <= ts]
+                            hist[peer_spec.symbol] = d.loc[d.index <= ind.index[i]]
                     peer_specs = [s for s in self.cfg.watchlist if s.symbol in hist]
                     risk.set_allocation(allocation_weights(peer_specs, hist))
                 except Exception as exc:
-                    # never silent: a swallowed allocator bug means quietly
-                    # unscaled 1%-per-symbol risk. Warn once, keep trading.
                     if not self._alloc_warned:
                         print(f"[backtest] allocation hook failed ({type(exc).__name__}: "
                               f"{exc}) — risk budget runs unscaled for this run")
                         self._alloc_warned = True
-            approval = risk.approve(
-                decision, spec, broker.cash, len(broker.positions),
-                # cross-TF one-symbol rule (engine parity: broker.has_position
-                # spans timeframes — a 4h book never opens under a live 1h
-                # book on the same symbol, and vice versa)
-                has_position_on_symbol=broker.has_position(spec.symbol),
-                # real marked gross notional (engine parity): the open book
-                # marked at the decision bar's close for this spec's symbol,
-                # at entry for anything else (the only mark a single-frame
-                # backtest can price) — the 0.0 default understated exposure
-                open_gross_notional=sum(
-                    p.qty * (float(cur_bar["close"]) if p.symbol == spec.symbol
-                             else p.entry_price)
-                    for p in broker.positions_snapshot()),
-                # the correlated-family cap must see the SAME number the
-                # engine computes, or the two approve different trades on the
-                # same bar (see scripts/parity_smoke.py)
-                cluster_gross_notional=sum(
-                    p.qty * (float(cur_bar["close"]) if p.symbol == spec.symbol
-                             else p.entry_price)
-                    for p in broker.positions_snapshot()
-                    if correlation_cluster(p.symbol, infer_kind(p.symbol))
-                    == correlation_cluster(spec.symbol, spec.kind)),
-                bar_epoch=bar_epoch)
+            approval = approve(decision, mark, epoch)
             if not approval.approved:
                 continue
-
-            # maker entry (HFT book): the order RESTS at the quoted level and
-            # fills when a later bar's range reaches it (maker fee, no
-            # slippage), expiring after cfg.hft.limit_wait_bars — checked at
-            # the top of this loop, never filled at the next open
+            order = {"decision": decision, "qty": approval.qty,
+                     "decision_bar_ts": epoch}
             if getattr(decision, "limit_price", None):
-                pending_limit = {"decision": decision, "qty": approval.qty,
-                                 "limit": float(decision.limit_price),
-                                 "side": decision.action,
-                                 "strategy_name": strategy_name,
-                                 "waited": 0, "decision_bar_ts": bar_epoch}
-                continue
-
-            # fill at NEXT bar's open with slippage+fee
-            fill_decision = decision
-            fill_decision.price = next_open
-            pos = broker.open_position(spec, fill_decision, approval.qty, next_open,
-                                       trade_id=-1, ts=next_ts,
-                                       decision_bar_ts=bar_epoch)
-            pos.strategy = strategy_name
-            fill_scan_pending = True
-
-        # close any remaining position at the last close — but scan the fill
-        # bar first when the position opened on the final iteration (its fill
-        # bar is the last bar and the loop never managed it)
-        pos = broker.positions.get(broker.position_key(spec.symbol, spec.timeframe))
-        if pos is not None:
-            if fill_scan_pending:
-                reason, exit_price = broker.scan_bar_exits(spec, ind.iloc[n - 1])
-                if reason:
-                    closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
-                        spec, exit_price, reason)
-                    result.trades.append(_trade_dict(closed_pos, exit_fill, reason,
-                                                    pnl, pnl_pct, fee, ind, n - 1))
-                    pos = None
-            if pos is not None:
-                last_close = float(ind["close"].iloc[-1])
-                closed_pos, pnl, pnl_pct, fee, exit_fill = broker.close_position(
-                    spec, last_close, "end of backtest")
-                result.trades.append(_trade_dict(closed_pos, exit_fill, "end of backtest",
-                                                pnl, pnl_pct, fee, ind, n - 1))
+                order.update(limit=float(decision.limit_price), side=decision.action, waited=0)
+                pending_limit = order
+            else:
+                pending_entry = order
 
         result.start_equity = self.starting_capital
-        result.end_equity = round(broker.equity({spec.symbol: float(ind['close'].iloc[-1])}), 2)
-        if not result.equity_curve:
-            result.equity_curve = [{"ts": str(ind.index[0]), "equity": self.starting_capital},
-                                   {"ts": str(ind.index[-1]), "equity": result.end_equity}]
+        result.end_equity = result.equity_curve[-1]["equity"]
         return result
 
     # -------------------------------------------------------- walk-forward
@@ -401,10 +335,14 @@ class Backtester:
                       f"ret {s['return_pct']}% dd {s['max_drawdown_pct']}%")
         if not results:
             raise ValueError("not enough data for walk-forward folds")
-        agg = _aggregate(results, spec)
+        merged = _merge_folds(results, spec)
+        agg = merged.stats()
+        agg["aggregation_method"] = "fixed_capital_additive_pnl"
         return {"folds": [r.stats() for r in results], "aggregate": agg,
-                "equity_curve": [p for r in results for p in r.equity_curve],
-                "trades": [t for r in results for t in r.trades]}
+                "equity_curve": merged.equity_curve,
+                "trades": merged.trades, "segment_starts": merged.segment_starts,
+                "metrics_version": METRICS_VERSION,
+                "aggregation_method": "fixed_capital_additive_pnl"}
 
 
 # ---------------------------------------------------------------------- helpers
@@ -438,28 +376,46 @@ def _trade_dict(pos, exit_price, reason, pnl, pnl_pct, fee, ind, i) -> dict:
         "entry_price": pos.entry_price, "exit_price": exit_price,
         "stop": pos.stop, "target": pos.target, "strategy": pos.strategy,
         "status": "CLOSED", "entry_ts": pos.opened_ts, "exit_ts": str(ind.index[i]),
-        "pnl": round(pnl, 2), "pnl_pct": round(pnl_pct, 3), "fees": round(fee, 4),
+        # Keep account amounts at broker precision. Per-trade rounding loses
+        # small fees and can turn net losses into breakeven CV observations.
+        "pnl": pnl, "pnl_pct": round(pnl_pct, 3), "fees": fee,
         "exit_reason": reason, "rationale": pos.rationale,
         # initial-stop ground truth for R math in shadow.behavior_profile
         "initial_stop": pos.initial_stop if pos.initial_stop is not None else pos.stop,
     }
 
 
-def _aggregate(results: list, spec) -> dict:
+def _merge_folds(results: list, spec) -> BTResult:
     merged = BTResult(spec=spec, strategy=results[0].strategy if results else "ensemble")
     merged.trades = [t for r in results for t in r.trades]
-    merged.equity_curve = [p for r in results for p in r.equity_curve]
-    if merged.equity_curve:
-        merged.start_equity = merged.equity_curve[0]["equity"]
-        merged.end_equity = merged.equity_curve[-1]["equity"]
-    return merged.stats()
+    if not results:
+        return merged
+    merged.start_equity = results[0].start_equity
+    balance = merged.start_equity
+    for result in results:
+        merged.segment_starts.append(len(merged.equity_curve))
+        merged.equity_curve.extend(
+            {"ts": p["ts"], "equity": balance + p["equity"] - result.start_equity}
+            for p in result.equity_curve)
+        balance += result.end_equity - result.start_equity
+    merged.end_equity = balance
+    return merged
+
+
+def _aggregate(results: list, spec) -> dict:
+    stats = _merge_folds(results, spec).stats()
+    stats["aggregation_method"] = "fixed_capital_additive_pnl"
+    return stats
 
 
 def results_to_json(res, path: str):
     if isinstance(res, dict):  # walk-forward payload
         payload = {"stats": res["aggregate"], "folds": res["folds"],
-                   "trades": res.get("trades", []), "equity_curve": res.get("equity_curve", [])}
+                   "trades": res.get("trades", []), "equity_curve": res.get("equity_curve", []),
+                   "segment_starts": res.get("segment_starts", []),
+                   "aggregation_method": "fixed_capital_additive_pnl"}
     else:
         payload = {"stats": res.stats(), "trades": res.trades, "equity_curve": res.equity_curve}
+    payload["metrics_version"] = METRICS_VERSION
     with open(path, "w") as f:
         json.dump(payload, f, indent=1, default=str)

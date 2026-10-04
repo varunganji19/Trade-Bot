@@ -1466,7 +1466,8 @@ def test_oos_trade_distribution_shapes():
     res = bt.run(CRYPTO_1H, df, strategy="turtle_trend")
     if len(res.trades) < 3:
         return  # not enough trades in this seed to partition meaningfully
-    out = oos_trade_distribution(res.trades, df, n_folds=6, n_test_folds=2, purge_bars=24)
+    out = oos_trade_distribution(res.trades, df, n_folds=6, n_test_folds=2,
+                                 purge_bars=24, starting_capital=res.start_equity)
     assert out["n_paths"] == len(out["paths"]) >= 5
     # per-path counts can overlap (a trade inside a block shared by several
     # OOS paths is legitimately kept by each); the UNIQUE kept count is the
@@ -2415,7 +2416,7 @@ def test_purged_cv_drops_trades_spanning_path_boundaries():
     long_hold = [{"entry_ts": str(idx[100]), "exit_ts": str(idx[320]),
                   "pnl": 5.0, "pnl_pct": 5.0}]
     out = oos_trade_distribution(long_hold, df, n_folds=4, n_test_folds=2,
-                                 purge_bars=4)
+                                 purge_bars=4, starting_capital=10_000.0)
     assert out["total_trades"] == 1
     assert out["purged_trades"] == 1
     assert all(p["trades"] == 0 for p in out["paths"])
@@ -2424,7 +2425,7 @@ def test_purged_cv_drops_trades_spanning_path_boundaries():
     short_trade = [{"entry_ts": str(idx[110]), "exit_ts": str(idx[115]),
                     "pnl": 1.0, "pnl_pct": 1.0}]
     out2 = oos_trade_distribution(short_trade, df, n_folds=4, n_test_folds=2,
-                                  purge_bars=4)
+                                  purge_bars=4, starting_capital=10_000.0)
     assert out2["purged_trades"] == 0
     assert sum(p["trades"] for p in out2["paths"]) == 3
 

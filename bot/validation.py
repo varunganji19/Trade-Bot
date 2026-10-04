@@ -101,7 +101,7 @@ def trade_bar_index(trade: dict, df: pd.DataFrame) -> int | None:
 # ------------------------------------------------------------- trade paths
 def oos_trade_distribution(trades: list[dict], df: pd.DataFrame,
                            n_folds: int = 8, n_test_folds: int = 2,
-                           purge_bars: int = 24) -> dict:
+                           purge_bars: int = 24, *, starting_capital: float) -> dict:
     """Partition a backtest's trades across purged-CV paths and report the
     distribution of per-path results.
 
@@ -111,12 +111,22 @@ def oos_trade_distribution(trades: list[dict], df: pd.DataFrame,
     enough — a turtle trade can hold hundreds of bars, and its outcome spanned
     path boundaries (overlapping-label leakage) no matter where the entry sat.
     Trades whose exit timestamp can't be resolved fall back to the entry
-    proximity rule."""
+    proximity rule. Returns are additive net account PnL divided by the
+    supplied fixed starting capital; instrument-price pnl_pct is not an
+    account return and does not include both legs' fees."""
+    if not math.isfinite(starting_capital) or starting_capital <= 0:
+        raise ValueError("starting_capital must be finite and positive")
     scored = []
     for t in trades:
         i = trade_bar_index(t, df)
         if i is None:
             continue
+        try:
+            pnl = float(t["pnl"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("every scored trade needs finite net pnl") from exc
+        if not math.isfinite(pnl):
+            raise ValueError("every scored trade needs finite net pnl")
         exit_ts = t.get("exit_ts") or t.get("closed_ts")
         j = _ts_to_index(exit_ts, df) if exit_ts else None
         scored.append((i, j, t))
@@ -126,6 +136,8 @@ def oos_trade_distribution(trades: list[dict], df: pd.DataFrame,
     paths = purged_cv_paths(len(df), n_folds=n_folds, n_test_folds=n_test_folds)
 
     per_path = []
+    path_returns = []
+    path_pnls = []
     assigned: set[int] = set()
     for path in paths:
         bounds = _path_bounds(path)
@@ -144,32 +156,39 @@ def oos_trade_distribution(trades: list[dict], df: pd.DataFrame,
                     break
         if kept:
             assigned.update(id(t) for t in kept)
-        pnl_pct = [(t.get("pnl_pct") or 0.0) for t in kept]
-        comp = 1.0
-        for p in sorted(pnl_pct):  # sorted only for float determinism; product is order-free
-            comp *= (1.0 + p / 100.0)
-        wins = sum(1 for p in pnl_pct if p > 0)
+        pnls = [float(t["pnl"]) for t in kept]
+        total_pnl = math.fsum(pnls)
+        net_return = total_pnl / starting_capital * 100.0
+        path_returns.append(net_return)
+        path_pnls.append(total_pnl)
+        wins = sum(1 for pnl in pnls if pnl > 0)
         per_path.append({
             "trades": len(kept),
-            "return_pct": round((comp - 1.0) * 100.0, 2),
+            "return_pct": round(net_return, 2),
             "win_rate_pct": round(wins / len(kept) * 100.0, 1) if kept else 0.0,
-            "total_pnl": round(sum(t.get("pnl", 0.0) for t in kept), 2),
+            "total_pnl": round(total_pnl, 2),
         })
 
     # Only paths that actually traded carry evidence: empty paths are reported
     # but excluded from the distribution stats (a path with no trades says
     # nothing about the edge either way).
-    active = [p for p in per_path if p["trades"]]
-    rets = [p["return_pct"] for p in active]
-    profitable = [r for r in rets if r > 0]
+    active_indices = [i for i, p in enumerate(per_path) if p["trades"]]
+    active = [per_path[i] for i in active_indices]
+    rets = [path_returns[i] for i in active_indices]
+    profitable = [i for i in active_indices if path_pnls[i] > 0]
     if rets:
         mean = float(np.mean(rets))
         std = float(np.std(rets, ddof=1)) if len(rets) > 1 else 0.0
-        # t-stat: mean/std*sqrt(n) (paths share some bars so treat as a lower bound)
-        tstat = (mean / std * math.sqrt(len(rets))) if std > 0 else None
+        # Descriptive t-stat only: overlapping paths are not independent
+        # observations and this is not an inferential confidence estimate.
+        tstat = (mean / std * math.sqrt(len(rets))) if std > 1e-12 else None
     else:
         mean = std = tstat = None
     return {
+        "metrics_version": 2,
+        "starting_capital": starting_capital,
+        "capital_model": "fixed_starting_capital",
+        "return_basis": "net_pnl_over_starting_capital",
         "n_paths": len(per_path),
         "n_active_paths": len(active),
         "paths": per_path,

@@ -67,7 +67,8 @@ def cmd_backtest(args):
             from bot.validation import oos_trade_distribution, signal_ic_report, print_purged_cv
             try:
                 dist = oos_trade_distribution(res.trades, df, n_folds=args.cv_folds,
-                                              n_test_folds=2, purge_bars=args.purge_bars)
+                                              n_test_folds=2, purge_bars=args.purge_bars,
+                                              starting_capital=res.start_equity)
                 print_purged_cv(dist, f"[backtest] purged-CV OOS distribution "
                                      f"({args.cv_folds} folds, 2 test folds, "
                                      f"{args.purge_bars}-bar purge):")
@@ -198,12 +199,17 @@ def cmd_validate(args):
     report: dict = {"symbol": spec.symbol, "timeframe": spec.timeframe,
                     "strategy": args.strategy, "days": args.days,
                     "start": args.start, "end": args.end,
-                    "bars": len(df), "backtest": stats}
+                    "bars": len(df), "backtest": stats,
+                    "metrics_version": stats["metrics_version"],
+                    "starting_capital": res.start_equity,
+                    "capital_model": stats["capital_model"],
+                    "return_basis": stats["return_basis"]}
 
     # 1) purged-CV out-of-sample path distribution
     try:
         dist = oos_trade_distribution(res.trades, df, n_folds=args.cv_folds,
-                                      n_test_folds=2, purge_bars=args.purge_bars)
+                                      n_test_folds=2, purge_bars=args.purge_bars,
+                                      starting_capital=res.start_equity)
         print_purged_cv(dist, "[validate] purged-CV OOS path distribution:")
         report["purged_cv"] = dist
     except ValueError as e:
@@ -227,7 +233,8 @@ def cmd_validate(args):
                 fam_dist = oos_trade_distribution(fam_res.trades, df,
                                                  n_folds=args.cv_folds,
                                                  n_test_folds=2,
-                                                 purge_bars=args.purge_bars)
+                                                 purge_bars=args.purge_bars,
+                                                 starting_capital=fam_res.start_equity)
                 if len(fam_dist["paths"]) == len(base_paths):
                     family[strat] = [p["return_pct"] for p in fam_dist["paths"]]
             except ValueError:
@@ -259,7 +266,7 @@ def cmd_validate(args):
         import pandas as pd
         eq = pd.Series([p["equity"] for p in res.equity_curve]) if res.equity_curve else None
         eq_rets = eq.pct_change().dropna().tolist() if eq is not None and len(eq) > 2 else None
-        dsr = deflated_sharpe(sharpes, n_obs=len(df),
+        dsr = deflated_sharpe(sharpes, n_obs=stats.get("n_return_observations", len(df)),
                               bars_per_year=bars_per_year(spec.timeframe, spec.kind),
                               returns=eq_rets)
         print(f"[validate] Deflated Sharpe over {len(sharpes)} documented trial Sharpes "

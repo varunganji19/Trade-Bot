@@ -190,7 +190,13 @@ def _fake_world(tmp_path, monkeypatch, trades_per_fold=40, edge=6.0):
             pass
 
         def run_walk_forward(self, spec, df, folds, strategy, progress, warmup_bars):
-            rng = np.random.default_rng(abs(hash((spec.symbol, spec.timeframe, strategy))) % 2**32)
+            # Python's hash is randomized in every interpreter. Use stable
+            # bytes so confidence-interval assertions see the same sample
+            # in the full suite, subprocesses and independent reruns.
+            import hashlib
+            seed = int.from_bytes(hashlib.sha256(
+                f"{spec.symbol}|{spec.timeframe}|{strategy}".encode()).digest()[:4], "big")
+            rng = np.random.default_rng(seed)
             trades = []
             start = pd.Timestamp("2024-03-01", tz="UTC")
             for k in range(folds * trades_per_fold):

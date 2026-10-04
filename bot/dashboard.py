@@ -261,6 +261,7 @@ def _live_state(eng) -> tuple[list, dict, dict]:
 
 def _position_dict(p, marks: dict[str, float] | None = None) -> dict:
     d = {"symbol": p.symbol, "timeframe": p.timeframe, "side": p.side, "qty": p.qty,
+         "remaining_qty": p.qty, "entry_qty": p.entry_qty if p.entry_qty is not None else p.qty,
          "entry": p.entry_price, "stop": p.stop, "target": p.target,
          "strategy": p.strategy, "bars_held": p.bars_held, "trade_id": p.trade_id,
          "kind": infer_kind(p.symbol), "live": True}
@@ -283,6 +284,8 @@ def eng_unrealized(p, price: float) -> float:
 def _journal_position_dict(t: dict) -> dict:
     return {"symbol": t["symbol"], "timeframe": t.get("timeframe") or _LEGACY_TF,
             "side": t["side"], "qty": t["qty"], "entry": t["entry_price"],
+            "remaining_qty": t["remaining_qty"] if t.get("remaining_qty") is not None else t["qty"],
+            "entry_qty": t.get("entry_qty", t["qty"]),
             "stop": t["stop_price"], "target": t["target_price"],
             "strategy": t["strategy"], "bars_held": 0, "trade_id": t["id"],
             "opened_ts": t["opened_ts"],

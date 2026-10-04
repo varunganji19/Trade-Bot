@@ -5896,12 +5896,16 @@ def test_journal_open_trades_mode_filter():
             CONFIG.db_path = old_db
 
 
-def test_hft_dashboard_endpoints_and_tab():
+def test_hft_dashboard_endpoints_and_tab(monkeypatch):
     """The HFT page: endpoints answer, the tab renders, engine start/stop
     round-trips, and body-less POSTs are rejected (CSRF rule)."""
     from fastapi.testclient import TestClient
     import config as config_mod
     import bot.dashboard as dash_mod
+    from bot.data import MarketData
+    # This tests engine lifecycle, with an empty fake feed. An actual fetch
+    # could outlive stop and touch the next test's restored journal paths.
+    monkeypatch.setattr(MarketData, "latest", lambda *args, **kwargs: pd.DataFrame())
     with tempfile.TemporaryDirectory() as td:
         saved = (CONFIG.db_path, config_mod.WATCHLIST_PATH, CONFIG.watchlist[:],
                  dash_mod.journal, dash_mod.chatbot)
@@ -5934,6 +5938,11 @@ def test_hft_dashboard_endpoints_and_tab():
             state = json.load(open(dash_mod._hft_state_path()))
             assert state["desired"] == "stopped"
         finally:
+            if dash_mod._hft_engine is not None:
+                client.post("/api/hft/engine/stop", json={})
+            if dash_mod._hft_thread is not None:
+                dash_mod._hft_thread.join(timeout=2)
+                assert not dash_mod._hft_thread.is_alive()
             (CONFIG.db_path, config_mod.WATCHLIST_PATH, CONFIG.watchlist[:],
              dash_mod.journal, dash_mod.chatbot) = saved
 

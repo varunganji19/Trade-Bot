@@ -35,7 +35,7 @@ def test_maker_fill_checks_stop_on_fill_candle(tmp_path, side, breach, retry_clo
     if breach:
         frame.loc[frame.index[-1], 'low' if (side == 'LONG') == (breach == 'stop loss') else 'high'] = (
             89. if (side == 'LONG') == (breach == 'stop loss') else 111.)
-    decision = SimpleNamespace(action=side, price=100., stop_distance=5.,
+    decision = SimpleNamespace(action=side, price=100., stop_distance=5., confidence=1.,
                                target_rr=2., strategy_name='hft_micro_breakout',
                                rationale='fill regression')
     key = (spec.symbol, spec.timeframe)

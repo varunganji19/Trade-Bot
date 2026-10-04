@@ -21,7 +21,11 @@ class ReadsMixin:
             params.append(mode)
         q += " ORDER BY id"
         with self._conn() as conn:
-            return [dict(r) for r in conn.execute(q, params)]
+            rows = [dict(r) for r in conn.execute(q, params)]
+        for row in rows:
+            if row["mode"] == "testnet" and row.get("remaining_qty") is not None:
+                row["entry_qty"] = row["qty"]
+        return rows
 
     @base._retry_busy
     def recent_trades(self, limit: int = 100, mode: str | tuple | None = None,
@@ -152,6 +156,13 @@ class ReadsMixin:
                 "SELECT mode, id, amount FROM cash_events"
                 f" WHERE kind IN ('deposit','withdrawal'){mode_sql} ORDER BY id",
                 mode_args).fetchall()
+            partial = conn.execute("SELECT COALESCE(SUM(exit_gross-exit_fee),0) FROM trades"
+                                   f" WHERE status='OPEN' AND mode='testnet'{mode_sql}",
+                                   mode_args).fetchone()[0]
+            dust = {r["symbol"]: r["qty"] for r in conn.execute(
+                "SELECT symbol,SUM(qty) AS qty FROM testnet_dust GROUP BY symbol")} if mode in (None, "testnet") else {}
+            pending_executions = conn.execute("SELECT COUNT(*) FROM testnet_execution_orders"
+                                              " WHERE state NOT IN ('SETTLED','REJECTED')").fetchone()[0] if mode in (None, "testnet") else 0
 
         n, wins = row["n"], row["wins"]
         losses = n - wins
@@ -187,6 +198,10 @@ class ReadsMixin:
             net_flow -= flows_before(eq[0][0], eq[0][2])
         out = {
             "total_pnl": round(total, 2),
+            "partial_realized_pnl": round(partial, 2),
+            "realized_pnl": round(total+partial, 2),
+            "dust_quantities": dust,
+            "pending_executions": pending_executions,
             "closed_trades": n,
             "open_trades": n_open,
             "win_rate": round(wins / n * 100, 1) if n else 0.0,

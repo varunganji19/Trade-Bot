@@ -153,9 +153,10 @@ from bot.journal.ledger import LedgerMixin  # noqa: E402  (helpers above first)
 from bot.journal.reads import ReadsMixin  # noqa: E402
 from bot.journal.schema import _SCHEMA, SchemaMixin  # noqa: E402
 from bot.journal.trades import TradesMixin  # noqa: E402
+from bot.journal.executions import ExecutionsMixin  # noqa: E402
 
 
-class Journal(LedgerMixin, TradesMixin, ReadsMixin, SchemaMixin):
+class Journal(LedgerMixin, TradesMixin, ExecutionsMixin, ReadsMixin, SchemaMixin):
     """The trading journal. Its methods are grouped by concern: schema.py
     (tables, migrations), ledger.py (ownership, cash, equity, reconciliation),
     trades.py (decisions and the trade lifecycle) and reads.py (queries and
@@ -224,5 +225,4 @@ class Journal(LedgerMixin, TradesMixin, ReadsMixin, SchemaMixin):
                 yield conn
         finally:
             conn.close()
-
 

@@ -353,8 +353,28 @@ def cmd_testnet(args):
     except tn.NotTestnetError as exc:
         print(f"[testnet] {exc}")
         sys.exit(1)
-    from bot.journal import Journal
+    from bot.journal import BookOwnedError, Journal
     journal = Journal()
+    if args.action == "resolve":
+        import ccxt
+        if args.intent_id is None:
+            print("[testnet] resolve requires --intent-id")
+            sys.exit(1)
+        token = None
+        try:
+            token = journal.claim_book(tn.MODE)
+            result = tn.TestnetBroker(exchange).bind(journal).resolve(
+                args.intent_id, order_id=args.order_id,
+                confirm_never_accepted=args.confirm_never_accepted,
+                reason=args.reason, evidence=args.evidence, owner_token=token)
+            print(f"[testnet] intent {args.intent_id}: {result.state}; kill switch remains {tn.kill_state()['level'] or 'off'}")
+        except (BookOwnedError, tn.TestnetError, ValueError, ccxt.BaseError, OSError) as exc:
+            print(f"[testnet] resolution refused: {exc}")
+            sys.exit(1)
+        finally:
+            if token:
+                journal.release_book(tn.MODE, token)
+        return
     problems = tn.reconcile(exchange, journal, trip=args.action == "reconcile")
     if args.action == "status":
         ks = tn.kill_state()
@@ -363,6 +383,9 @@ def cmd_testnet(args):
         s = journal.stats(mode=tn.MODE)
         print(f"  closed trades {s['closed_trades']} · pnl {s['total_pnl']:+,.2f} · "
               f"open {s['open_trades']} · orders recorded {len(tn.recorded_orders())}")
+        for intent in journal.testnet_orders(pending=True):
+            print(f"  unresolved intent {intent['id']}: {intent['symbol']} {intent['leg']} "
+                  f"{intent['state']} client={intent['client_order_id']}")
         bal = exchange.fetch_balance()
         print("  balances: " + ", ".join(f"{a} {float((bal.get(a) or {}).get('total') or 0):g}"
                                          for a in ["USDT"] + sorted({s.symbol.split('/')[0]

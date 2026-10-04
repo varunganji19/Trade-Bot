@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS trades (
     fees REAL,
     entry_fee REAL,
     decision_bar_ts REAL,
+    fill_bar_ts REAL,
+    bracket_checked_through_ts REAL,
+    remaining_qty REAL,
+    dust_qty REAL NOT NULL DEFAULT 0,
+    exit_qty REAL NOT NULL DEFAULT 0,
+    exit_value REAL NOT NULL DEFAULT 0,
+    exit_fee REAL NOT NULL DEFAULT 0,
+    exit_gross REAL NOT NULL DEFAULT 0,
     realized_cash_delta REAL,
     exit_reason TEXT,
     rationale_open TEXT,
@@ -69,6 +77,44 @@ CREATE TABLE IF NOT EXISTS cash_events (
     UNIQUE(trade_id, kind)
 );
 CREATE INDEX IF NOT EXISTS idx_cash_events_mode_id ON cash_events(mode, id);
+CREATE TABLE IF NOT EXISTS testnet_execution_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    leg TEXT NOT NULL,
+    client_order_id TEXT NOT NULL UNIQUE,
+    exchange_order_id TEXT,
+    state TEXT NOT NULL DEFAULT 'PREPARED',
+    requested REAL NOT NULL,
+    created_ts TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    snapshot TEXT,
+    error TEXT,
+    legacy INTEGER NOT NULL DEFAULT 0,
+    observed_filled REAL NOT NULL DEFAULT 0,
+    observed_status TEXT,
+    observed_ts TEXT,
+    UNIQUE(symbol, exchange_order_id)
+);
+CREATE TABLE IF NOT EXISTS testnet_dust (
+    trade_id INTEGER PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    qty REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    entry_fee REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS testnet_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS testnet_execution_audit (
+    execution_id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    action TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    checks TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chat_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL,
@@ -111,6 +157,11 @@ class SchemaMixin:
         """
         conn.execute("BEGIN IMMEDIATE")
         try:
+            execution_cols = {r[1] for r in conn.execute("PRAGMA table_info(testnet_execution_orders)")}
+            for name, definition in (("observed_filled", "REAL NOT NULL DEFAULT 0"),
+                                     ("observed_status", "TEXT"), ("observed_ts", "TEXT")):
+                if name not in execution_cols:
+                    conn.execute(f"ALTER TABLE testnet_execution_orders ADD COLUMN {name} {definition}")
             cols = {r[1] for r in conn.execute("PRAGMA table_info(trades)")}
             if "timeframe" not in cols:
                 # NOT NULL DEFAULT keeps migrated DBs under the same constraint
@@ -140,6 +191,16 @@ class SchemaMixin:
                 conn.execute("ALTER TABLE trades ADD COLUMN decision_bar_ts REAL")
             if "stop_effective_bar_ts" not in cols:
                 conn.execute("ALTER TABLE trades ADD COLUMN stop_effective_bar_ts REAL")
+            for name, definition in (("fill_bar_ts", "REAL"),
+                                     ("bracket_checked_through_ts", "REAL"),
+                                     ("remaining_qty", "REAL"),
+                                     ("dust_qty", "REAL NOT NULL DEFAULT 0"),
+                                     ("exit_qty", "REAL NOT NULL DEFAULT 0"),
+                                     ("exit_value", "REAL NOT NULL DEFAULT 0"),
+                                     ("exit_fee", "REAL NOT NULL DEFAULT 0"),
+                                     ("exit_gross", "REAL NOT NULL DEFAULT 0")):
+                if name not in cols:
+                    conn.execute(f"ALTER TABLE trades ADD COLUMN {name} {definition}")
             eq_cols = {r[1] for r in conn.execute("PRAGMA table_info(equity)")}
             if "cash_event_id" not in eq_cols:
                 # NULL explicitly means a legacy timestamp anchor. New writes

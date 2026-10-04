@@ -257,12 +257,17 @@ def build_parser() -> argparse.ArgumentParser:
     dr.set_defaults(fn=cmd_drift)
 
     tn = sub.add_parser("testnet", help="Binance SPOT TESTNET book (fake money, real "
-                                        "orders): run, status, reconcile, kill, unkill")
-    tn.add_argument("action", choices=["run", "status", "reconcile", "kill", "unkill"])
+                                        "orders): run, status, reconcile, resolve, kill, unkill")
+    tn.add_argument("action", choices=["run", "status", "reconcile", "resolve", "kill", "unkill"])
     tn.add_argument("--once", action="store_true", help="run one cycle (with run)")
     tn.add_argument("--interval", type=int, default=None, help="seconds between cycles")
     tn.add_argument("--all", action="store_true", help="kill: block exits too, not only entries")
-    tn.add_argument("--reason", default="", help="kill: a note stored with the switch")
+    tn.add_argument("--reason", default="", help="kill/resolve: an operator note")
+    tn.add_argument("--intent-id", type=int, help="resolve: execution intent ID shown by status")
+    tn.add_argument("--order-id", help="resolve: exchange order ID for a verified fallback lookup")
+    tn.add_argument("--confirm-never-accepted", action="store_true",
+                    help="resolve: explicitly attest an absent UNKNOWN request was never accepted")
+    tn.add_argument("--evidence", default="", help="resolve: supporting evidence for that attestation")
     tn.set_defaults(fn=cmd_testnet)
 
     rb = sub.add_parser("record-book", help="record Binance public order-book snapshots and "

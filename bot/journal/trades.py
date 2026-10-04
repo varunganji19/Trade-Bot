@@ -51,7 +51,8 @@ class TradesMixin:
     def record_fill(self, trade_id: int, entry_price: float, stop: float | None = None,
                     target: float | None = None, entry_fee: float | None = None,
                     initial_stop: float | None = None,
-                    decision_bar_ts: float | None = None, qty: float | None = None):
+                    decision_bar_ts: float | None = None, qty: float | None = None,
+                    fill_bar_ts: float | None = None):
         """Post-fill correction of the row the engine opens BEFORE the broker
         fill (journal-first, self-healing). Sets the fill-derived entry/stop/
         target AND their initial-risk snapshots: `initial_stop_price` latches
@@ -70,8 +71,8 @@ class TradesMixin:
                 self._cash_event(conn, row["mode"], "entry", -fee, trade_id)
             conn.execute("UPDATE trades SET entry_price=?, entry_fee=COALESCE(?,entry_fee),"
                          " status='OPEN', decision_bar_ts=COALESCE(?,decision_bar_ts),"
-                         " qty=COALESCE(?,qty) WHERE id=?",
-                         (entry_price, entry_fee, decision_bar_ts, qty, trade_id))
+                         " qty=COALESCE(?,qty), fill_bar_ts=COALESCE(?,fill_bar_ts) WHERE id=?",
+                         (entry_price, entry_fee, decision_bar_ts, qty, fill_bar_ts, trade_id))
             if stop is not None:
                 conn.execute(
                     "UPDATE trades SET stop_price=?,"
@@ -174,11 +175,13 @@ class TradesMixin:
     @base._retry_busy
     def update_trade_stops(self, trade_id: int, stop: float | None = None, target: float | None = None,
                            entry_price: float | None = None,
-                           stop_effective_bar_ts: float | None = None):
+                           stop_effective_bar_ts: float | None = None,
+                           bracket_checked_through_ts: float | None = None):
         """Trail stop/target (and legacy entry-price correction). Only the
         LIVE levels move: initial_stop_price is never touched here — the
         initial risk must survive every trail for R-multiple math."""
-        if stop is None and target is None and entry_price is None:
+        if (stop is None and target is None and entry_price is None
+                and bracket_checked_through_ts is None):
             return
         with self._lock, self._conn() as conn:
             if entry_price is not None:
@@ -189,6 +192,13 @@ class TradesMixin:
                              (stop, stop_effective_bar_ts, trade_id))
             if target is not None:
                 conn.execute("UPDATE trades SET target_price=? WHERE id=?", (target, trade_id))
+            if bracket_checked_through_ts is not None:
+                conn.execute("UPDATE trades SET bracket_checked_through_ts=MAX("
+                             " COALESCE(bracket_checked_through_ts,?),?) WHERE id=?",
+                             (bracket_checked_through_ts, bracket_checked_through_ts, trade_id))
+
+    def record_bracket_cursor(self, trade_id: int, bracket_checked_through_ts: float):
+        self.update_trade_stops(trade_id, bracket_checked_through_ts=bracket_checked_through_ts)
 
     @base._retry_busy
     def abort_trade(self, trade_id: int):

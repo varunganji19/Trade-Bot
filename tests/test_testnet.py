@@ -31,10 +31,11 @@ class FakeBinance:
     def amount_to_precision(self, symbol, qty):
         return str(math.floor(qty * 1e5) / 1e5)
 
-    def create_order(self, symbol, kind, side, amount):
+    def create_order(self, symbol, kind, side, amount, params=None):
         if self.fail:
+            import ccxt
             self.fail -= 1
-            raise RuntimeError("exchange unavailable")
+            raise ccxt.InvalidOrder("explicit exchange rejection")
         base, quote = symbol.split("/")
         price = self.mark * (1 + self.slip if side == "buy" else 1 - self.slip)
         if side == "buy":
@@ -47,10 +48,18 @@ class FakeBinance:
             self.balances[quote] += amount * price - fee["cost"]
         oid = str(len(self.orders) + 1)
         self.orders[oid] = {"id": oid, "status": "closed", "filled": amount,
-                            "average": price, "fee": fee}
+                            "average": price, "fee": fee,
+                            "clientOrderId": (params or {}).get("newClientOrderId")}
         return dict(self.orders[oid])
 
-    def fetch_order(self, oid, symbol):
+    def fetch_order(self, oid, symbol, params=None):
+        if oid is None:
+            import ccxt
+            client_id = (params or {}).get("origClientOrderId")
+            for order in self.orders.values():
+                if order.get("clientOrderId") == client_id:
+                    return dict(order)
+            raise ccxt.OrderNotFound("unknown client order id")
         return dict(self.orders[oid])
 
     def fetch_balance(self):
@@ -173,10 +182,11 @@ def test_caps_refuse_large_or_too_many_orders(env, monkeypatch):
 
 
 def test_repeated_order_failures_trip_the_kill(env):
+    import ccxt
     ex, _, engine = env
     ex.fail = tn.MAX_CONSECUTIVE_FAILURES
     for _ in range(tn.MAX_CONSECUTIVE_FAILURES):
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ccxt.InvalidOrder):
             engine.broker.open_position(SPEC, _long(), 1.0, 100.0, trade_id=1)
     assert tn.kill_state()["level"] == "entries"
     assert "consecutive order failures" in tn.kill_state()["reason"]

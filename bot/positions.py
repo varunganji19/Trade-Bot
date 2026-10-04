@@ -87,7 +87,7 @@ class PositionManager:
         deterministically (setdefault below) instead of last-write-wins on
         dict order."""
         marks: dict[str, float] = {}
-        for pos in sorted(self.broker.positions_snapshot(),
+        for pos in sorted(self._risk_inventory(),
                           key=lambda p: (p.symbol, p.timeframe)):
             px = self._last_price_from_history(pos.symbol, pos.timeframe, histories)
             if px is not None:
@@ -147,14 +147,19 @@ class PositionManager:
         return self.risk.paused
 
     def _approval_equity(self) -> float:
-        """Marked equity basis for entry sizing: the pass-1 mark-to-market
-        equity (unrealized included), NOT bare broker cash. broker.equity({})
-        prices every position at its entry (unrealized 0), i.e. cash — sizing
-        off it ignores open P&L and mis-feeds the gross gate. Falls back to
-        the cash basis only when no mark exists (or before the first cycle)."""
-        if self._cycle_equity is not None and self._cycle_equity > 0:
-            return self._cycle_equity
-        return self.broker.equity({})
+        """Refresh marked equity after preceding fills and exits in this cycle."""
+        marks = {}
+        for pos in self._risk_inventory():
+            marks.setdefault(pos.symbol, self._last_good_price.get(
+                (pos.symbol, pos.timeframe), pos.entry_price))
+        equity = self.broker.equity(marks)
+        self._cycle_equity = equity
+        self.risk.note_equity(equity)
+        return equity
+
+    def _risk_inventory(self):
+        """Include explicit exchange dust in marked exposure, without a slot."""
+        return self.broker.positions_snapshot() + list(getattr(self.broker, "dust_positions", []))
 
     def _cross_book_gross_notional(self, summary: dict | None = None) -> float:
         """The OTHER book's open notional, for the cross-mode gross gate. The
@@ -183,7 +188,10 @@ class PositionManager:
         total = 0.0
         for row in rows:
             try:
-                total += abs(float(row.get("qty") or 0.0)) * abs(float(row.get("entry_price") or 0.0))
+                qty = row.get("remaining_qty")
+                if qty is None:
+                    qty = row.get("qty") or 0.0
+                total += abs(float(qty)) * abs(float(row.get("entry_price") or 0.0))
             except (TypeError, ValueError):
                 continue
         return total
@@ -195,12 +203,20 @@ class PositionManager:
         from bot.risk import correlation_cluster
         want = correlation_cluster(spec.symbol, spec.kind)
         gross = 0.0
-        for pos in self.broker.positions_snapshot():
+        for pos in self._risk_inventory():
             kind = infer_kind(pos.symbol)
             if correlation_cluster(pos.symbol, kind) != want:
                 continue
             mark = self._last_good_price.get((pos.symbol, pos.timeframe), pos.entry_price)
             gross += pos.qty * mark
+        other = {"paper": "hft", "hft": "paper"}.get(self.mode)
+        if other:
+            for row in self.journal.open_trades(mode=other):
+                if correlation_cluster(row["symbol"], infer_kind(row["symbol"])) == want:
+                    qty = row.get("remaining_qty")
+                    if qty is None:
+                        qty = row["qty"]
+                    gross += abs(float(qty)) * abs(float(row["entry_price"]))
         return gross
 
     def _open_gross_notional(self) -> float:
@@ -212,7 +228,7 @@ class PositionManager:
         gate under-count exposure) and a sibling timeframe's price (which
         prices a 15m position with the 1h book's close)."""
         gross = 0.0
-        for pos in self.broker.positions_snapshot():
+        for pos in self._risk_inventory():
             mark = self._last_good_price.get((pos.symbol, pos.timeframe), pos.entry_price)
             gross += pos.qty * mark
         return gross
@@ -240,29 +256,46 @@ class PositionManager:
     def _process_market(self, spec: MarketSpec, summary: dict, df: pd.DataFrame | None = None):
         if df is None:
             df = self.market_data.latest(spec)
-        if df is None or len(df) < 60:
+        if df is None or not len(df):
             return
-        df = add_all_indicators(df, self.cfg.params)
         i = len(df) - 1  # last closed candle
         bar_epoch = float(df.index[i].timestamp())
 
         pos = self.broker.positions.get(self.broker.position_key(spec.symbol, spec.timeframe))
         if pos is not None:
             key = (spec.symbol, spec.timeframe)
-            if key in self._unguarded_pending:
+            if key in self._unguarded_pending or pos.stop is None:
                 # restored legacy row with no stop: it cannot be managed, so
                 # cut it at the first mark instead of trading unguarded
                 self._close(spec, float(df["close"].iloc[-1]), "restored without stop",
                             summary, bar_epoch=bar_epoch, write_equity=False)
-                self._unguarded_pending.discard(key)
+                if key not in self.broker.positions:
+                    self._unguarded_pending.discard(key)
                 return
-            if key in self._replay_pending:
-                replay_closed = self._replay_missed_bars(spec, pos, df, summary)
-                self._replay_pending.discard(key)
-                if replay_closed:
-                    return
+            # Replay on every cycle, including uninterrupted processes that
+            # missed bars during a feed outage. A failed exit never advances
+            # the durable cursor and remains eligible on the next poll.
+            if self._replay_missed_bars(spec, pos, df, summary):
+                return
+            if key in self._recovery_gaps:
+                return
+            if len(df) < 60:
+                self._checkpoint_brackets(pos, bar_epoch)
+                return
+            df = add_all_indicators(df, self.cfg.params)
             self._manage_position(spec, pos, df, i, summary, bar_epoch=bar_epoch)
+            self._checkpoint_brackets(pos, bar_epoch)
+            self._replay_pending.discard(key)
             return
+        if not any((watched.symbol, watched.timeframe) == (spec.symbol, spec.timeframe)
+                   for watched in self.cfg.watchlist):
+            # Off-watchlist inventory is fetched for protection and marks;
+            # it does not add that market back to the entry universe.
+            self._pending.pop(self.broker.position_key(spec.symbol, spec.timeframe), None)
+            return
+        if len(df) < 60:
+            return
+        df = add_all_indicators(df, self.cfg.params)
         if self.broker.has_position(spec.symbol):
             # one position per symbol across timeframes (risk rule): the 15m
             # and 4h specs stand down while e.g. the 1h book holds the symbol.
@@ -281,7 +314,7 @@ class PositionManager:
                                           self.cfg.hft.maker_penetration_bps)
             if fill_price is not None:
                 del self._pending[pkey]
-                if self.risk.halted or self.risk.persistence_error or self._paused_now():
+                if self._recovery_gaps or self._external_symbol_blocked(spec) or self._paused_now():
                     # kill switch / operator pause engaged while resting (the
                     # pause flag is re-read here — the cycle-start read may be
                     # stale; is_paused() returns a tuple, so index [0] via the
@@ -293,20 +326,38 @@ class PositionManager:
                               f"{pend['side']} cancelled (halted/paused at fill)")
                     return
                 pend["decision"].price = fill_price
-                self._fill_entry(spec, pend["decision"], pend["qty"], fill_price,
+                approval = self.risk.approve(
+                    pend["decision"], spec, self._approval_equity(), len(self.broker.positions),
+                    has_position_on_symbol=self.broker.has_position(spec.symbol),
+                    bar_epoch=bar_epoch, qty_ceiling=pend["qty"],
+                    open_gross_notional=self._open_gross_notional() + self._cross_book_gross_notional(summary),
+                    cluster_gross_notional=self._cluster_gross_notional(spec))
+                if not approval.approved:
+                    cat = approval.category or "other"
+                    self.veto_counts[cat] = self.veto_counts.get(cat, 0) + 1
+                    summary.setdefault("vetoes", {})[cat] = summary.get("vetoes", {}).get(cat, 0) + 1
+                    return
+                self._fill_entry(spec, pend["decision"], approval.qty, fill_price,
                                  maker_entry=True,
-                                 bar_epoch=float(pend["decision_bar_ts"]), summary=summary)
+                                 bar_epoch=float(pend["decision_bar_ts"]), summary=summary,
+                                 fill_bar_ts=bar_epoch)
                 # Match the backtest's fill-candle bracket check. A cancelled
                 # entry leaves no position and therefore no exit to process.
                 reason, exit_price = self.broker.scan_bar_exits(spec, df.iloc[i])
                 if reason:
                     self._close(spec, float(exit_price), reason, summary,
                                 bar_epoch=bar_epoch, write_equity=False)
+                else:
+                    filled = self.broker.positions.get(pkey)
+                    if filled is not None:
+                        self._checkpoint_brackets(filled, bar_epoch)
                 return
             if not self._age_pending(spec, summary):
                 return   # still resting — no new decisions while it waits
             # expired — fall through to a fresh decision below
 
+        if self._recovery_gaps or self._external_symbol_blocked(spec):
+            return
         decision = self.orchestrator.decide(df, i, spec)
         self.journal.add_decision(spec.symbol, spec.timeframe, decision, mode=self.mode)
         if decision.action == "HOLD":
@@ -359,7 +410,8 @@ class PositionManager:
                          maker_entry=False, bar_epoch=bar_epoch, summary=summary)
 
     def _fill_entry(self, spec: MarketSpec, decision, qty: float, fill_price: float,
-                    maker_entry: bool, bar_epoch: float, summary: dict):
+                    maker_entry: bool, bar_epoch: float, summary: dict,
+                    fill_bar_ts: float | None = None):
         """Journal-first entry fill, shared by the market path (fills next
         cycle at the live price + slippage) and the resting-limit path (fills
         at the quoted level, maker fee). Self-healing: if the broker fill
@@ -376,6 +428,24 @@ class PositionManager:
         key = self.broker.position_key(spec.symbol, spec.timeframe)
         if key in self.broker.positions:
             raise RuntimeError(f"position already exists for {key}")
+        if fill_bar_ts is None:
+            fill_bar_ts = bar_epoch + TIMEFRAME_SECONDS[spec.timeframe]
+        if callable(getattr(self.broker, "execute_entry", None)):
+            result = self.broker.execute_entry(
+                spec, decision, qty, fill_price, ts=utc_now(),
+                decision_bar_ts=bar_epoch, fill_bar_ts=fill_bar_ts,
+                owner_token=self.book_token)
+            if result.error:
+                summary["errors"].append(result.error)
+            pos = result.position
+            if result.state != "SETTLED" or pos is None:
+                return
+            summary["opened"].append({
+                "symbol": spec.symbol, "side": pos.side, "qty": pos.qty,
+                "remaining_qty": pos.qty, "price": pos.entry_price,
+                "strategy": pos.strategy, "stop": pos.stop,
+            })
+            return
         before = (self.broker.cash, self.broker.fees_paid, self.broker.realized_pnl)
         trade_id = self.journal.open_trade(
             symbol=spec.symbol, side="long" if decision.action == "LONG" else "short",
@@ -388,6 +458,7 @@ class PositionManager:
             self.broker.open_position(spec, decision, qty, fill_price, trade_id, ts=utc_now(),
                                       decision_bar_ts=bar_epoch, maker_entry=maker_entry)
             pos = self.broker.positions[self.broker.position_key(spec.symbol, spec.timeframe)]
+            pos.fill_bar_ts = fill_bar_ts
             # single follow-up write carries the FILL-derived stop/target, the
             # fill itself (the journal's entry_price must record the fill, not
             # the decision price — exits are journaled at fills), the entry
@@ -397,7 +468,8 @@ class PositionManager:
                                      stop=pos.stop, target=pos.target,
                                      entry_fee=pos.entry_fee,
                                      initial_stop=pos.initial_stop,
-                                     decision_bar_ts=bar_epoch, qty=pos.qty)
+                                     decision_bar_ts=bar_epoch, qty=pos.qty,
+                                     fill_bar_ts=fill_bar_ts)
         except Exception:
             # The broker fill may have succeeded before record_fill failed.
             # Undo the simulated fill as well as aborting its journal row.
@@ -413,28 +485,79 @@ class PositionManager:
             print(f"[engine] OPEN {pos.side.upper()} {spec.symbol} qty {pos.qty:.6g} @ "
                   f"{pos.entry_price:.6g} via {pos.strategy} (stop {pos.stop:.6g})")
 
-    def _replay_missed_bars(self, spec: MarketSpec, pos, df, summary: dict) -> bool:
-        """After a restart, scan every closed bar since the position's decision
-        bar or latest recorded stop activation, whichever is later. A breach during
-        downtime must still exit even if the latest bar's range is back inside
-        the levels. Hard stop/target only: strategy check_exit needs the
-        current bar's state and cannot be replayed honestly. Returns True when
-        the replay closed the position. Legacy rows without an activation
-        timestamp retain entry-based replay; their past trail timing is unknown.
+    def _external_symbol_blocked(self, spec: MarketSpec) -> bool:
+        return spec.symbol in getattr(self.broker, "pending_symbols", set())
 
-        Clock note: pos.entry_bar_ts is the DECISION bar's epoch when the
-        journal row carries decision_bar_ts (set at fill time from bar_epoch),
-        else the wall-clock opened_ts stamped at decision time (see
-        _restore_positions) — at most one cycle interval after the decision
-        bar, so the `bar_ts <= entry_bar_ts` skip errs toward replaying one
-        extra bar, never toward skipping a breach bar."""
-        if not pos.entry_bar_ts:
-            return False
-        # The trail's signal bar was already checked under the previous stop.
-        checked_through = max(pos.entry_bar_ts, pos.stop_effective_bar_ts or 0.0)
+    def _replay_cursor(self, spec, pos):
+        if pos.bracket_checked_through_ts is not None:
+            return pos.bracket_checked_through_ts
+        if pos.fill_bar_ts is not None:
+            return pos.fill_bar_ts - TIMEFRAME_SECONDS[spec.timeframe]
+        return max(pos.entry_bar_ts, pos.stop_effective_bar_ts or 0.0)
+
+    def _prepare_replay_history(self, spec, pos, df, summary):
+        """Try a larger history window before admitting entries elsewhere."""
+        key = (spec.symbol, spec.timeframe)
+        cursor = self._replay_cursor(spec, pos)
+        step = TIMEFRAME_SECONDS[spec.timeframe]
+        if not cursor or not len(df):
+            return df
+        last = float(df.index[-1].timestamp())
+        required = cursor + step
+        first = float(df.index[0].timestamp())
+        if first > required and last > cursor:
+            try:
+                limit = min(10_000, max(len(df) + 1, int((last - cursor) / step) + 2))
+                recovered = self.market_data.latest(spec, limit=limit)
+                if recovered is not None and len(recovered):
+                    df = pd.concat([recovered, df]).sort_index()
+                    df = df.loc[~df.index.duplicated(keep="last")]
+                    first = float(df.index[0].timestamp())
+            except Exception:
+                pass  # coverage below reports the unresolved gap
+        missing = first > required and last > cursor
+        if not missing and spec.kind == "crypto":
+            unchecked = [float(ts.timestamp()) for ts in df.index if ts.timestamp() > cursor]
+            if unchecked and unchecked[0] > required:
+                missing = True
+            if any(b - a > step + 0.001 for a, b in zip(unchecked, unchecked[1:])):
+                missing = True
+        if missing:
+            msg = f"{spec.symbol} {spec.timeframe}: candle recovery cannot cover cursor {cursor:g}; new entries blocked"
+            self._recovery_gaps[key] = msg
+            if msg not in summary["errors"]:
+                summary["errors"].append(msg)
+            self._replay_pending.add(key)
+        else:
+            self._recovery_gaps.pop(key, None)
+        return df
+
+    def _checkpoint_brackets(self, pos, bar_epoch):
+        key = self.broker.position_key(pos.symbol, pos.timeframe)
+        if key not in self.broker.positions or key in self._recovery_gaps:
+            return
+        if pos.fill_bar_ts is not None and bar_epoch < pos.fill_bar_ts:
+            return
+        if pos.bracket_checked_through_ts is not None and bar_epoch <= pos.bracket_checked_through_ts:
+            return
+        self.journal.update_trade_stops(pos.trade_id, bracket_checked_through_ts=bar_epoch)
+        pos.bracket_checked_through_ts = bar_epoch
+
+    def _replay_missed_bars(self, spec: MarketSpec, pos, df, summary: dict) -> bool:
+        """Check unseen candles in time order under the brackets active during
+        the gap. Returns True after attempting a breach exit, even for a
+        partial external fill; that candle must remain eligible for retry."""
+        df = self._prepare_replay_history(spec, pos, df, summary)
+        cursor = self._replay_cursor(spec, pos)
         for j in range(len(df)):
             bar_ts = float(df.index[j].timestamp())
-            if bar_ts <= checked_through:
+            if bar_ts <= cursor:
+                continue
+            if pos.fill_bar_ts is not None and bar_ts < pos.fill_bar_ts:
+                continue
+            if pos.fill_bar_ts is None and pos.entry_bar_ts and bar_ts <= pos.entry_bar_ts:
+                continue
+            if pos.stop_effective_bar_ts is not None and bar_ts <= pos.stop_effective_bar_ts:
                 continue
             reason, exit_price = self.broker.scan_bar_exits(spec, df.iloc[j])
             if reason:
@@ -467,7 +590,9 @@ class PositionManager:
                           and bar_epoch <= pos.entry_bar_ts)
         trail_signal_bar = (pos.stop_effective_bar_ts is not None
                             and bar_epoch <= pos.stop_effective_bar_ts)
-        if not entry_bar_scan and not trail_signal_bar:
+        already_checked = (pos.bracket_checked_through_ts is not None
+                           and bar_epoch <= pos.bracket_checked_through_ts)
+        if not entry_bar_scan and not trail_signal_bar and not already_checked:
             reason, exit_price = self.broker.scan_bar_exits(spec, bar)
             if reason:
                 self._close(spec, float(exit_price), reason, summary, bar_epoch=bar_epoch,
@@ -481,9 +606,11 @@ class PositionManager:
             # The journal stores both the level and its activation checkpoint
             # atomically. Keep the broker unchanged if persistence fails.
             self.journal.update_trade_stops(
-                pos.trade_id, stop=new_stop, stop_effective_bar_ts=bar_epoch)
+                pos.trade_id, stop=new_stop, stop_effective_bar_ts=bar_epoch,
+                bracket_checked_through_ts=bar_epoch)
             pos.stop = new_stop
             pos.stop_effective_bar_ts = bar_epoch
+            pos.bracket_checked_through_ts = bar_epoch
             if not self.quiet:
                 print(f"[engine] {spec.symbol}: stop trailed to {new_stop:.6g}")
         if exit_reason:
@@ -509,6 +636,30 @@ class PositionManager:
         # one position per (symbol, timeframe) book: any resting limit for it
         # is superseded the moment the position closes
         key = self.broker.position_key(spec.symbol, spec.timeframe)
+        if callable(getattr(self.broker, "execute_exit", None)):
+            previous = self.broker.positions[key]
+            result = self.broker.execute_exit(spec, exit_price, reason, owner_token=self.book_token)
+            if result.error:
+                summary["errors"].append(result.error)
+            if result.state != "SETTLED":
+                return
+            if not result.closed:
+                summary.setdefault("partial_exits", []).append({
+                    "symbol": spec.symbol, "filled_qty": result.filled_qty,
+                    "remaining_qty": result.position.qty if result.position else 0.0,
+                    "reason": reason,
+                })
+                return
+            self._pending.pop(key, None)
+            self._recovery_gaps.pop(key, None)
+            self._replay_pending.discard(key)
+            self.risk.apply_exit_cooldown(spec, previous, reason, bar_epoch)
+            summary["closed"].append({
+                "symbol": spec.symbol, "pnl": round(result.pnl, 2),
+                "pnl_pct": round(result.pnl_pct, 3), "reason": reason,
+                "strategy": previous.strategy,
+            })
+            return
         before = (self.broker.cash, self.broker.fees_paid, self.broker.realized_pnl)
         closed_pos, pnl, pnl_pct, fees, exit_fill = self.broker.close_position(
             spec, exit_price, reason)
@@ -539,6 +690,8 @@ class PositionManager:
             self.broker.cash, self.broker.fees_paid, self.broker.realized_pnl = before
             raise
         self._pending.pop(key, None)
+        self._recovery_gaps.pop(key, None)
+        self._replay_pending.discard(key)
         # cooldown after any exit so the next cycle can't instantly re-enter;
         # stored in epoch seconds so every timeframe of the symbol reads the
         # same clock (bar-index scales are not comparable across timeframes)
@@ -579,4 +732,7 @@ class PositionManager:
             summary: dict = {"cycle": self.cycles, "opened": [], "closed": [], "holds": 0, "errors": []}
             self._close(spec, exit_price, "manual close", summary,
                         bar_epoch=exit_bar_ts)
-        return {"symbol": symbol, "timeframe": timeframe, "exit_price": exit_price}
+        remaining = self.broker.positions.get(self.broker.position_key(symbol, timeframe))
+        return {"symbol": symbol, "timeframe": timeframe, "exit_price": exit_price,
+                "remaining_qty": remaining.qty if remaining else 0.0,
+                "closed": remaining is None, "errors": summary["errors"]}

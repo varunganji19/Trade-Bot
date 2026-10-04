@@ -69,6 +69,8 @@ class TradingEngine(PositionManager):
         # by default every fill is simulated
         self.broker = broker or PaperBroker(starting_capital=self.cfg.paper_capital,
                                             costs=self.cfg.costs)
+        if getattr(self.broker, "external_execution", False) and self.broker.journal is None:
+            self.broker.bind(self.journal)
         # guards broker-state mutations (fills, marks, account patches) across
         # the engine thread and dashboard API threads — the dashboard's
         # deposit/withdraw and stats endpoints take it via lock_for_cycle
@@ -104,6 +106,7 @@ class TradingEngine(PositionManager):
         # restart recovery work, keyed by (symbol, timeframe)
         self._replay_pending: set[tuple[str, str]] = set()     # bars missed while offline
         self._unguarded_pending: set[tuple[str, str]] = set()  # restored rows with no stop
+        self._recovery_gaps: dict[tuple[str, str], str] = {}
         # resting maker-limit orders (HFT book), keyed by (symbol, timeframe):
         # {decision, qty, limit, side, waited, decision_bar_ts}. Un-journaled
         # by design — a pending order that dies with the process just expires.
@@ -143,6 +146,9 @@ class TradingEngine(PositionManager):
         """
         self.book_token = self.journal.claim_book(self.mode)
         try:
+            if callable(getattr(self.broker, "recover", None)):
+                with self.cycle_lock:
+                    self.broker.recover(owner_token=self.book_token)
             yield self.book_token
         finally:
             token, self.book_token = self.book_token, None
@@ -200,6 +206,8 @@ class TradingEngine(PositionManager):
         histories: dict[tuple[str, str], pd.DataFrame] = {}
 
         try:
+            if callable(getattr(self.broker, "recover", None)):
+                summary["errors"].extend(self.broker.recover(owner_token=self.book_token))
             # manual pause flag: read at cycle start and mirror it into the
             # risk manager, where the entry veto lives. Position management
             # below is untouched by it: stops, targets, strategy exits and
@@ -233,7 +241,7 @@ class TradingEngine(PositionManager):
             # no exits and no time stop — unmanaged, not just unwatched.
             cycle_specs = list(self.cfg.watchlist)
             watched = {(sp.symbol, sp.timeframe) for sp in cycle_specs}
-            for pos in self.broker.positions_snapshot():
+            for pos in self._risk_inventory():
                 if (pos.symbol, pos.timeframe) in watched:
                     continue
                 orphan = self._spec_for(pos.symbol)
@@ -259,8 +267,17 @@ class TradingEngine(PositionManager):
                 if df is None or not len(df):
                     # one dead market never aborts the cycle — but a held
                     # position behind a dead feed must not stay silent
+                    if self.broker.positions.get(self.broker.position_key(spec.symbol, spec.timeframe)):
+                        msg = (f"{spec.symbol} {spec.timeframe}: candle recovery history unavailable; "
+                               "new entries blocked")
+                        self._recovery_gaps[key] = msg
+                        self._replay_pending.add(key)
+                        summary["errors"].append(msg)
                     self._note_fetch_fail(spec, summary)
                     continue
+                held = self.broker.positions.get(self.broker.position_key(spec.symbol, spec.timeframe))
+                if held is not None:
+                    df = self._prepare_replay_history(spec, held, df, summary)
                 self._fetch_fails[key] = 0
                 self._last_good_price[key] = float(df["close"].iloc[-1])
                 histories[key] = df
@@ -282,7 +299,7 @@ class TradingEngine(PositionManager):
             # cycle-end equity point (topped up below for cycle-opened
             # positions) — a single marks pipeline, no ad-hoc re-marking.
             price_map = self._mark_held_positions(histories)
-            if price_map or not self.broker.positions:
+            if price_map or not self._risk_inventory():
                 self._cycle_equity = self.broker.equity(price_map)
                 # Restore happened in __init__; roll the UTC day and enforce
                 # marked losses BEFORE approving this cycle's new entries.
@@ -293,6 +310,10 @@ class TradingEngine(PositionManager):
                 self._cycle_equity = None
 
             # PASS 2 — manage + decide in watchlist order.
+            # Existing inventory resolves missed protection before entry
+            # sizing sees the resulting cash and position state.
+            due.sort(key=lambda item: self.broker.position_key(
+                item[0].symbol, item[0].timeframe) not in self.broker.positions)
             for spec, df in due:
                 try:
                     self._process_market(spec, summary, df)
@@ -306,6 +327,7 @@ class TradingEngine(PositionManager):
                         raise
                     summary["errors"].append(f"{spec.symbol} {spec.timeframe}: "
                                              f"{type(exc).__name__}: {exc}")
+                    continue
                 if self.mode == "hft":
                     # A failed journal write must leave this bar eligible for
                     # the next poll, including stop updates and exits.
@@ -348,18 +370,18 @@ class TradingEngine(PositionManager):
             # unmarked so the no-marks skip below still fires (an entry-price
             # top-up here would silently re-mark dead books and journal a
             # flat-but-false equity point).
-            for pos in self.broker.positions_snapshot():
+            for pos in self._risk_inventory():
                 if pos.symbol not in price_map and (pos.symbol, pos.timeframe) in histories:
                     price_map[pos.symbol] = self._last_good_price.get(
                         (pos.symbol, pos.timeframe), pos.entry_price)
-            if price_map or not self.broker.positions:
+            if price_map or not self._risk_inventory():
                 equity = self.broker.equity(price_map)
                 # the kill-switch/day rollover runs on the WALL clock: the
                 # journal write may be skipped on HFT idle cycles below, but
                 # the risk clock must never stall (a stall would pin yesterday's
                 # halted state across UTC midnight).
                 self.risk.note_equity(equity)
-                if progressed:
+                if progressed and not getattr(self.broker, "execution_blocked", False):
                     self.journal.add_equity(equity, self.broker.cash, mode=self.mode,
                                             owner_token=self.book_token)
                 # else: HFT idle cycle — the curve point would be a near-exact
@@ -450,6 +472,7 @@ class TradingEngine(PositionManager):
         last_error (the dashboard tears the engine down on last_error, so
         degraded-but-alive conditions must NOT land there)."""
         notes = []
+        notes.extend(getattr(self, "_recovery_gaps", {}).values())
         if self.risk.persistence_error:
             notes.append(self.risk.persistence_error + " — new entries blocked; exits remain enabled")
         for key, n in self._fetch_fails.items():

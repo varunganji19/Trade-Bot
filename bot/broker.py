@@ -109,6 +109,9 @@ class Position:
     entry_bar_ts: float = 0.0   # epoch of the DECISION bar (bar-time clock for bars_held)
     initial_stop: float | None = None  # fill-time stop level, never trailed (R ground truth)
     stop_effective_bar_ts: float | None = None  # trail active only after this closed bar
+    fill_bar_ts: float | None = None  # first candle eligible for hard brackets
+    bracket_checked_through_ts: float | None = None  # durable successful scan cursor
+    entry_qty: float | None = None  # original inventory before partial exits
 
 
 class PaperBroker:
@@ -214,7 +217,7 @@ class PaperBroker:
             strategy=decision.strategy_name or "orchestrator",
             timeframe=spec.timeframe, rationale=decision.rationale, opened_ts=ts,
             risk_per_unit=decision.stop_distance, entry_fee=fee,
-            entry_bar_ts=decision_bar_ts or 0.0, initial_stop=stop,
+            entry_bar_ts=decision_bar_ts or 0.0, initial_stop=stop, entry_qty=qty,
         )
         self.positions[self.position_key(spec.symbol, spec.timeframe)] = pos
         return pos
@@ -276,6 +279,8 @@ class PaperBroker:
         dt = parse_utc(opened)
         if dt is not None:
             entry_bar_ts = dt.timestamp()
+        if row.get("decision_bar_ts") is not None:
+            entry_bar_ts = float(row["decision_bar_ts"])
         stop = row["stop_price"]
         # initial-risk ground truth: prefer the latched initial stop; fall back
         # to the final (possibly BE-trailed) stop for legacy rows — their true
@@ -285,7 +290,8 @@ class PaperBroker:
         risk_src = initial if initial is not None else stop
         risk = abs(row["entry_price"] - risk_src) if risk_src else 0.0
         pos = Position(
-            trade_id=row["id"], symbol=row["symbol"], side=row["side"], qty=row["qty"],
+            trade_id=row["id"], symbol=row["symbol"], side=row["side"],
+            qty=(row["remaining_qty"] if row.get("remaining_qty") is not None else row["qty"]),
             entry_price=row["entry_price"], stop=stop, target=row["target_price"],
             strategy=row["strategy"], timeframe=row.get("timeframe") or timeframe,
             rationale=row["rationale_open"] or "", opened_ts=opened or "",
@@ -296,6 +302,9 @@ class PaperBroker:
             initial_stop=initial,
             stop_effective_bar_ts=(row["stop_effective_bar_ts"]
                                    if "stop_effective_bar_ts" in row.keys() else None),
+            fill_bar_ts=row.get("fill_bar_ts"),
+            bracket_checked_through_ts=row.get("bracket_checked_through_ts"),
+            entry_qty=row.get("entry_qty", row["qty"]),
         )
         self.positions[self.position_key(pos.symbol, pos.timeframe)] = pos
         return pos

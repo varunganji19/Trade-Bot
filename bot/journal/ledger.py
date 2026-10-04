@@ -99,6 +99,11 @@ class LedgerMixin:
         with self._lock, self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")
             self._require_owner(conn, mode, base.NO_OWNER)
+            if mode == "testnet" and (
+                    conn.execute("SELECT 1 FROM trades WHERE mode='testnet' AND status IN ('OPEN','PENDING') LIMIT 1").fetchone()
+                    or conn.execute("SELECT 1 FROM testnet_dust WHERE qty>0 LIMIT 1").fetchone()
+                    or conn.execute("SELECT 1 FROM testnet_execution_orders WHERE state NOT IN ('SETTLED','REJECTED') LIMIT 1").fetchone()):
+                raise ValueError("cannot reset testnet holdings or unresolved exchange executions")
             with self._conn() as source:
                 dest = sqlite3.connect(backup_path)
                 try:
@@ -109,6 +114,12 @@ class LedgerMixin:
                     dest.close()
             for table in ("trades", "equity", "decisions", "transactions", "cash_events"):
                 conn.execute(f"DELETE FROM {table} WHERE mode=?", (mode,))
+            if mode == "testnet":
+                conn.execute("DELETE FROM testnet_execution_orders")
+                conn.execute("DELETE FROM testnet_dust")
+                # A reset intentionally discards old history; never re-import
+                # its compatibility export into the fresh journal book.
+                conn.execute("INSERT OR REPLACE INTO testnet_metadata(key,value) VALUES ('legacy_imported','1')")
             if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='risk_state'").fetchone():
                 conn.execute("DELETE FROM risk_state WHERE mode=?", (mode,))
             ts = base._now()
@@ -313,7 +324,22 @@ class LedgerMixin:
             has_anchor = conn.execute("SELECT 1 FROM equity WHERE mode=? LIMIT 1",
                                       (mode,)).fetchone() is not None
             cash = self._recover_cash(conn, start, mode)
-        expected = start + flows + realized - open_fees
+            execution_delta = None
+            if mode == "testnet":
+                # Recalculate settlement effects from immutable order snapshots,
+                # independently of cash events; partial exits count while OPEN.
+                execution_delta = 0.0
+                for o in conn.execute("SELECT o.snapshot,o.leg,t.entry_price FROM testnet_execution_orders o"
+                                      " JOIN trades t ON t.id=o.trade_id WHERE o.state='SETTLED'"):
+                    s = json.loads(o["snapshot"])
+                    execution_delta += (-s["fee_quote"] if o["leg"] == "entry" else
+                                        (s["average"]-o["entry_price"])*(s["filled"]+s["base_fee"])-s["fee_quote"])
+                legacy_delta = conn.execute(
+                    "SELECT COALESCE(SUM(CASE WHEN t.status='CLOSED' THEN COALESCE(t.pnl,0)"
+                    " WHEN t.status='OPEN' THEN -COALESCE(t.entry_fee,0) ELSE 0 END),0)"
+                    " FROM trades t WHERE t.mode='testnet' AND NOT EXISTS"
+                    " (SELECT 1 FROM testnet_execution_orders o WHERE o.trade_id=t.id AND o.state='SETTLED')").fetchone()[0]
+        expected = start + flows + (execution_delta+legacy_delta if execution_delta is not None else realized-open_fees)
         gap = cash - expected
         # per-trade P&L is stored to the cent, so rounding alone can drift by
         # half a cent a trade; a dollar of slack covers float noise

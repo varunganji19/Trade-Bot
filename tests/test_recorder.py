@@ -48,7 +48,8 @@ def test_messages_land_in_hourly_gzip_files_per_symbol(tmp_path):
     r.handle(_depth())
     r.handle("not json")
     r.flush()
-    btc = sorted(os.listdir(tmp_path / "BTCUSDT" / "2026-01-01"))
+    btc = sorted(f for f in os.listdir(tmp_path / "BTCUSDT" / "2026-01-01")
+                 if f.endswith(".jsonl.gz"))
     assert btc == ["00.jsonl.gz", "01.jsonl.gz"]
     rows = list(rec.iter_records(str(tmp_path / "BTCUSDT" / "2026-01-01" / "00.jsonl.gz")))
     assert [x["k"] for x in rows] == ["depth", "trade"]
@@ -116,3 +117,159 @@ def test_run_reconnects_after_a_dropped_socket(tmp_path, monkeypatch):
     assert r.counts["depth"] == 2 and r.counts["trade"] == 1
     assert len(list(rec.iter_records(
         str(tmp_path / "BTCUSDT" / "2026-01-01" / "00.jsonl.gz")))) == 3
+
+
+def _member(*rows):
+    return gzip.compress(b"".join((json.dumps(row) + "\n").encode() for row in rows))
+
+
+@pytest.mark.parametrize("chunk_size", [23, 64 * 1024])
+@pytest.mark.parametrize("damage", ["torn", "crc", "junk"])
+def test_reader_recovers_records_before_damage_and_from_later_members(tmp_path, monkeypatch,
+                                                                     chunk_size, damage):
+    monkeypatch.setattr(rec, "_CHUNK_BYTES", chunk_size)
+    first, middle, last = ({"n": 1}, {"n": 2}, {"n": 3})
+    member = _member(middle)
+    if damage == "torn":
+        member = member[:-8]  # payload complete, trailer lost
+    elif damage == "crc":
+        member = member[:-8] + bytes([member[-8] ^ 1]) + member[-7:]
+    else:
+        member += b"not a gzip member"
+    path = tmp_path / "damaged.jsonl.gz"
+    path.write_bytes(_member(first) + member + _member(last))
+    assert list(rec.iter_records(str(path))) == [first, middle, last]
+
+
+def test_reader_discards_incomplete_line_without_hiding_next_member(tmp_path):
+    path = tmp_path / "partial.jsonl.gz"
+    path.write_bytes(gzip.compress(b'{"n":1}\n{"n":')[:-8] + _member({"n": 2}))
+    assert list(rec.iter_records(str(path))) == [{"n": 1}, {"n": 2}]
+
+
+def test_reader_does_not_read_the_entire_hour_at_once(tmp_path, monkeypatch):
+    import builtins
+    path = tmp_path / "many.jsonl.gz"
+    path.write_bytes(_member(*({"n": i} for i in range(2000))))
+    original = builtins.open
+    class BoundedReader:
+        def __init__(self, fh):
+            self.fh = fh
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            self.fh.close()
+        def read(self, size):
+            assert 0 < size <= rec._CHUNK_BYTES
+            return self.fh.read(size)
+        def tell(self):
+            return self.fh.tell()
+        def seek(self, offset):
+            return self.fh.seek(offset)
+    monkeypatch.setattr(rec, "open", lambda *args, **kw: BoundedReader(original(*args, **kw)),
+                        raising=False)
+    assert [r["n"] for r in rec.iter_records(str(path))] == list(range(2000))
+
+
+def test_resumed_flush_quarantines_damage_and_preserves_later_members(tmp_path):
+    recorder = rec.Recorder(root=str(tmp_path), clock=Clock())
+    path = tmp_path / "BTCUSDT" / "2026-01-01" / "00.jsonl.gz"
+    path.parent.mkdir(parents=True)
+    original = _member({"n": 1}) + _member({"n": 2})[:-8] + _member({"n": 3})
+    path.write_bytes(original)
+    recorder.handle(_depth())
+    recorder.flush()
+    rows = [json.loads(line) for line in gzip.decompress(path.read_bytes()).splitlines()]
+    assert rows[:3] == [{"n": 1}, {"n": 2}, {"n": 3}]
+    assert rows[3]["k"] == "depth"
+    quarantined = list(path.parent.glob("00.jsonl.gz.damaged.*"))
+    assert len(quarantined) == 1 and quarantined[0].read_bytes() == original
+    assert not recorder.buffers
+
+
+def test_failed_atomic_repair_preserves_file_and_buffer_until_retry(tmp_path, monkeypatch):
+    recorder = rec.Recorder(root=str(tmp_path), clock=Clock())
+    path = tmp_path / "BTCUSDT" / "2026-01-01" / "00.jsonl.gz"
+    path.parent.mkdir(parents=True)
+    original = _member({"n": 1})[:-8]
+    path.write_bytes(original)
+    recorder.handle(_depth())
+    replace = rec.os.replace
+    def fail_replace(*args):
+        raise OSError("repair failed")
+    monkeypatch.setattr(rec.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="repair failed"):
+        recorder.flush()
+    assert path.read_bytes() == original and len(recorder.buffers[str(path)]) == 1
+    monkeypatch.setattr(rec.os, "replace", replace)
+    recorder.flush()
+    assert [r.get("n", r.get("k")) for r in rec.iter_records(str(path))] == [1, "depth"]
+
+
+def test_failed_batch_keeps_only_unwritten_buffers_and_retry_does_not_duplicate(tmp_path,
+                                                                             monkeypatch):
+    recorder = rec.Recorder(root=str(tmp_path), clock=Clock())
+    recorder.handle(_depth())
+    recorder.handle(_depth("ethusdt"))
+    write = rec.gzip.GzipFile.write
+    def fail_second(self, data):
+        result = write(self, data)
+        if "ETHUSDT" in str(self.fileobj.name):
+            raise OSError("write failed")
+        return result
+    monkeypatch.setattr(rec.gzip.GzipFile, "write", fail_second)
+    with pytest.raises(OSError, match="write failed"):
+        recorder.flush()
+    assert len(recorder.buffers) == 1
+    monkeypatch.setattr(rec.gzip.GzipFile, "write", write)
+    recorder.flush()
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        path = tmp_path / symbol / "2026-01-01" / "00.jsonl.gz"
+        assert len(list(rec.iter_records(str(path)))) == 1
+
+
+def test_two_recorders_serialize_repair_and_append(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    recorders = [rec.Recorder(root=str(tmp_path), clock=Clock()) for _ in range(2)]
+    path = tmp_path / "BTCUSDT" / "2026-01-01" / "00.jsonl.gz"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(_member({"n": 0})[:-8])
+    for recorder in recorders:
+        recorder.handle(_depth())
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda r: r.flush(), recorders))
+    assert len(list(rec.iter_records(str(path)))) == 3
+    assert len(list(path.parent.glob("00.jsonl.gz.damaged.*"))) == 1
+
+
+def test_append_fsync_failure_rolls_back_and_retains_the_batch(tmp_path, monkeypatch):
+    recorder = rec.Recorder(root=str(tmp_path), clock=Clock())
+    recorder.handle(_depth())
+    recorder.flush()
+    path = tmp_path / "BTCUSDT" / "2026-01-01" / "00.jsonl.gz"
+    original = path.read_bytes()
+    recorder.handle(_trade())
+    sync = rec.os.fsync
+    def fail_sync(*args):
+        raise OSError("fsync failed")
+    monkeypatch.setattr(rec.os, "fsync", fail_sync)
+    with pytest.raises(OSError, match="fsync failed"):
+        recorder.flush()
+    assert path.read_bytes() == original and len(recorder.buffers[str(path)]) == 1
+    monkeypatch.setattr(rec.os, "fsync", sync)
+    recorder.flush()
+    assert [r["k"] for r in rec.iter_records(str(path))] == ["depth", "trade"]
+
+
+@pytest.mark.parametrize("chunk_size", [7, 23, 64 * 1024])
+def test_later_members_survive_every_truncation_point(tmp_path, monkeypatch, chunk_size):
+    monkeypatch.setattr(rec, "_CHUNK_BYTES", chunk_size)
+    member = _member(*({"n": i} for i in range(30)))
+    later = {"later": True}
+    path = tmp_path / "cut.jsonl.gz"
+    for cut in range(1, len(member)):
+        path.write_bytes(member[:cut] + _member(later))
+        rows = list(rec.iter_records(str(path)))
+        assert rows[-1:] == [later], f"later member lost after byte {cut}"
+        recovered = [row["n"] for row in rows if "n" in row]
+        assert recovered == list(range(len(recovered))), f"fabricated records after byte {cut}"

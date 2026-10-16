@@ -215,6 +215,7 @@ def run_unit(job: dict) -> dict:
     plus the holdout run when declared. Top-level so worker processes can
     import it."""
     from bot.backtest import Backtester
+    from bot.portfolio_evidence import daily_pnl
     cfg = _config_for(job["book"], job["tier"], job["params"])
     bt = Backtester(cfg, book=job["book"])
     spec, df, warm = job["spec"], job["frame"], WARMUP[job["book"]]
@@ -228,6 +229,10 @@ def run_unit(job: dict) -> dict:
         out["error"] = str(exc)
         return out
     agg = wf.get("aggregate") or {}
+    capital = getattr(bt, "starting_capital", None)
+    # the marked daily P&L feeds the portfolio view (bot/portfolio_evidence.py);
+    # it stays out of the results file, which is per-market summaries only
+    out["daily"] = daily_pnl(wf.get("equity_curve"), capital)
     out["oos"] = {"trades": len(_trade_rows(wf.get("trades", []))),
                   "fold_pf": [f.get("profit_factor") for f in wf["folds"]],
                   "sharpe": agg.get("sharpe"), "total_pnl": agg.get("total_pnl"),
@@ -242,6 +247,8 @@ def run_unit(job: dict) -> dict:
                           "sharpe": s["sharpe"], "net_pnl": s["total_pnl"],
                           "fees": s["fees"], "gross_pnl": gross}
         out["holdout_trades"] = _trade_rows(res.trades)
+        out["holdout_daily"] = daily_pnl(getattr(res, "equity_curve", None),
+                                         getattr(res, "start_equity", None) or capital)
     return out
 
 
@@ -349,13 +356,19 @@ def run_declaration(path: str, *, workers: int | None = None, quiet: bool = Fals
         raise RuntimeError("gate evidence incomplete; nothing written:\n  "
                            + "\n  ".join(unit_errors))
 
-    summary = []
+    from bot.portfolio_evidence import book_returns, family_deflated_sharpe, portfolio_evidence
+    summary, books = [], {}
     for v in decl.variants:
         for strat in decl.strategies:
             mine = [u for u in units if u["variant"] == v["name"]
                     and u["strategy"] == strat and "error" not in u]
             entry = {"variant": v["name"], "params": v["params"], "strategy": strat,
-                     "markets": len(mine), "oos": _pooled(mine, regimes)}
+                     "markets": len(mine), "oos": _pooled(mine, regimes),
+                     # reported beside the gate's trade-pooled interval; the
+                     # verdicts below read `oos` only
+                     "portfolio": portfolio_evidence(mine)}
+            books[strat if len(decl.variants) == 1 else f"{v['name']} {strat}"] = \
+                book_returns(mine)
             if decl.kind == "study":
                 # what the gate's rule would say — reported, never written
                 from bot.promotion import verdicts_from_evidence
@@ -366,6 +379,7 @@ def run_declaration(path: str, *, workers: int | None = None, quiet: bool = Fals
                 entry["holdout"]["fees"] = round(sum(u["holdout"]["fees"] or 0 for u in mine), 2)
                 entry["holdout"]["gross_pnl"] = round(
                     sum(u["holdout"]["gross_pnl"] for u in mine), 2)
+                entry["holdout"]["portfolio"] = portfolio_evidence(mine, key="holdout_daily")
             summary.append(entry)
 
     run_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -378,6 +392,7 @@ def run_declaration(path: str, *, workers: int | None = None, quiet: bool = Fals
         "run_at": run_at, "runtime_s": round(time.time() - started, 1),
         "days": decl.days, "folds": decl.folds, "holdout_days": decl.holdout_days,
         "windows": windows, "skipped": errors + unit_errors, "summary": summary,
+        "portfolio_family": family_deflated_sharpe(books),
         "markets": [{k: u[k] for k in ("variant", "strategy", "symbol", "timeframe",
                                        "oos", "holdout") if k in u}
                     for u in units if "error" not in u],
@@ -405,6 +420,16 @@ def _fmt_ci(ev: dict) -> str:
     return f"PF {ev['pf']:.2f}{band}, {ev['trades']} trades"
 
 
+def _fmt_portfolio(book: dict | None) -> str:
+    """'portfolio Sharpe 0.41 [-0.32–1.10], 13 markets ≈ 4.2 independent bets'."""
+    if not book or not book.get("available") or book.get("sharpe") is None:
+        return ""
+    lo, hi = book.get("sharpe_lo"), book.get("sharpe_hi")
+    band = f" [{lo:.2f}–{hi:.2f}]" if lo is not None else ""
+    return (f"portfolio Sharpe {book['sharpe']:.2f}{band}, {book['markets']} markets "
+            f"≈ {book['effective_bets']:g} independent bets")
+
+
 def _print_summary(result: dict) -> None:
     print(f"\n[experiment] {result['id']}: {len(result['markets'])} market runs in "
           f"{result['runtime_s']}s")
@@ -415,6 +440,13 @@ def _print_summary(result: dict) -> None:
         if "rule_v2" in e:
             line += f" | rule v2: {e['rule_v2']['status']}"
         print(line)
+        book = _fmt_portfolio(e.get("portfolio"))
+        if book:
+            print(f"  {'':16s} {'':22s} {book}")
+    fam = result.get("portfolio_family") or {}
+    if fam.get("deflated_sharpe") is not None:
+        print(f"  portfolio Deflated Sharpe of the best book ({fam['best']}): "
+              f"{fam['deflated_sharpe']:.2f} — {fam['counted']}")
     for name, v in sorted((result.get("verdicts") or {}).items()):
         print(f"  verdict {v['status']:9s} {name:22s} {v['why']}")
     for s in result["skipped"]:
@@ -437,6 +469,8 @@ def _records_from_result(res: dict) -> list:
     for e in res["summary"]:
         rec = dict(base, level="pooled", variant=e["variant"], params=e["params"],
                    strategy=e["strategy"], oos=e["oos"])
+        if e.get("portfolio"):
+            rec["portfolio"] = e["portfolio"]
         if "holdout" in e:
             rec["holdout"] = e["holdout"]
         if (res.get("verdicts") or {}).get(e["strategy"]):
@@ -501,6 +535,9 @@ def experiment_log(records: list | None = None) -> list:
                 pfs = [r["oos"]["pf"] for r in rs if r["oos"].get("pf") is not None]
                 result = (f"{len(rs)} variants, OOS PF {min(pfs):.2f}–{max(pfs):.2f}; "
                           f"best ({best['variant']}): " + result)
+        book = _fmt_portfolio(best.get("portfolio"))
+        if book:
+            result += f"; {book}"
         if best.get("holdout"):
             result += f"; holdout net ${best['holdout']['net_pnl']:+,.0f}"
         from bot.strategies import CANDIDATE_NOTES

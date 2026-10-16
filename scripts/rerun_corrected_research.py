@@ -278,6 +278,8 @@ def unit_pair(job, baseline_commit, prior_v1=None):
     for result in (v1, current):
         result.pop("trades", None)
         result.pop("holdout_trades", None)
+        result.pop("daily", None)
+        result.pop("holdout_daily", None)
     return v1, current
 
 

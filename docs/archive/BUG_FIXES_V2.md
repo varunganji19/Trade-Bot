@@ -46,7 +46,7 @@ experiment cases**. Source hashes and 108 referenced artifact hashes were
 verified, and historical reports remain unchanged. Every detailed pinned
 export reconciles net trade P&L with equity; independent calculations agree
 with its reported fees, returns, win rate, drawdown and Sharpe. See the
-[comparison guide](research/verified_metrics_v2/README.md) for the corrected
+[comparison guide](verified_metrics_v2.md) for the corrected
 metrics and the recorded missing input.
 
 Additional boundary regressions cover base-asset sell commissions, CCXT's

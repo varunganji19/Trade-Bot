@@ -53,7 +53,7 @@ Independent export verification is recorded in
 [`export_checks.json`](export_checks.json); commit snapshot verification is
 recorded in [`commit_checks.json`](commit_checks.json). The follow-up
 implementation and limits are documented in
-[`BUG_FIX_FOLLOWUP.md`](../../BUG_FIX_FOLLOWUP.md).
+[`BUG_FIX_FOLLOWUP.md`](../../archive/BUG_FIX_FOLLOWUP.md).
 
 All seven pinned exports reconcile net P&L with end-minus-start equity
 within 1e-8 USDT. Every scored equity point was independently reconstructed

@@ -27,7 +27,7 @@ An independent review also passed 20 focused regressions and that smoke.
 
 ## Uncertain exchange requests
 
-The new [`testnet resolve` command](TESTNET.md#resolving-an-uncertain-execution)
+The new [`testnet resolve` command](../TESTNET.md#resolving-an-uncertain-execution)
 takes the book lease, validates order identity and settles confirmed terminal
 evidence once. It preserves existing entry/full halts and never sends a
 replacement order. Audit records are separate from immutable intent inputs
@@ -79,7 +79,7 @@ it did not open, reset, restore or delete the real SQLite journal.
 
 ## Corrected research
 
-[Metrics v3 evidence](research/verified_metrics_v3/README.md) contains seven
+[Metrics v3 evidence](../research/verified_metrics_v3/README.md) contains seven
 available pinned windows and all 225 experiment cases. The exact pinned
 EURUSD cache is unavailable and explicitly skipped. Historical and v2
 reports were preserved; the v2 documents describe that earlier checkpoint.

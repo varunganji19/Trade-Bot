@@ -1,7 +1,7 @@
 # Corrected research evidence — metrics version 2
 
 > **Artifacts removed.** The v2 JSON evidence was superseded by
-> [metrics v3](../verified_metrics_v3/README.md) and removed from the tree.
+> [metrics v3](../research/verified_metrics_v3/README.md) and removed from the tree.
 > It remains in git history at commit `9224627`
 > (`git show 9224627:docs/research/verified_metrics_v2/comparison.json`).
 
@@ -49,11 +49,11 @@ full-precision trade accounting.
 
 | Experiment | Completed cases | Detailed comparison |
 | --- | ---: | --- |
-| Standard gate | 36 | [`standard_gate.comparison.json`](standard_gate.comparison.json) |
-| Fast gate | 105 | [`fast_gate.comparison.json`](fast_gate.comparison.json) |
-| Maker fill model | 84 | [`market_maker_fill_model.comparison.json`](market_maker_fill_model.comparison.json) |
+| Standard gate | 36 | `standard_gate.comparison.json` |
+| Fast gate | 105 | `fast_gate.comparison.json` |
+| Maker fill model | 84 | `market_maker_fill_model.comparison.json` |
 
-[`export_checks.json`](export_checks.json) records independent checks of
+`export_checks.json` records independent checks of
 the seven detailed pinned exports: summed net trade P&L reconciles with
 equity within 1e-8 USDT; reported balances, fees, returns, win rates, drawdown
 and Sharpe agree with the full-precision trades and equity curves at their
@@ -66,4 +66,4 @@ ALGO_SKIP_DOTENV=1 PYTHONDONTWRITEBYTECODE=1 python3 scripts/rerun_corrected_res
 ```
 
 Implementation and regression coverage are documented in
-[`BUG_FIXES_V2.md`](../../BUG_FIXES_V2.md).
+[`BUG_FIXES_V2.md`](BUG_FIXES_V2.md).

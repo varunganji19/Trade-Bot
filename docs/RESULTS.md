@@ -50,6 +50,36 @@ the VWAP scalper were the two strategies allowed to trade, at PF 1.56 and
 a clear loser and Connors is unproven. All three regimes were covered for
 every strategy, so the verdicts are not an artefact of one market phase.
 
+**The same strategies held as portfolios** (reported, not used by the gate;
+method in [METHODOLOGY §4](METHODOLOGY.md)). Each strategy's market accounts
+are held together as one book and marked daily. Figures are from an offline
+replay of the gate's committed windows
+([portfolio_v1](research/portfolio_v1/README.md)).
+
+| Strategy | Book Sharpe (90% interval) | Markets ≈ independent bets | Max drawdown | Same answer as the gate? |
+|---|---|---|---|---|
+| `ts_momentum` | 0.11 (−0.98 to 1.10) | 12 ≈ 2.9 | −4.3% | yes: unproven |
+| `turtle_trend` | −0.45 (−1.74 to 0.63) | 7 ≈ 3.2 | −9.6% | yes: unproven |
+| `connors_meanrev` | −0.79 (−1.81 to 0.27) | 5 ≈ 3.1 | −2.1% | yes: unproven |
+| `fx_regime_meanrev` | −3.96 (−4.76 to −3.16) | 7 ≈ 3.9 | −26.6% | yes: a loser |
+| `vwap_scalper` | −5.18 (−7.10 to −3.59) | 5 ≈ 3.0 | −27.7% | yes: a loser |
+
+- **The verdicts hold.** No book's Sharpe interval clears zero, and the two
+  demoted strategies are clear losers as books too.
+- **The markets are about three bets, not five to twelve.** Mean pairwise
+  correlation of daily P&L is 0.13–0.27. `ts_momentum`'s 742 trades, for
+  example, come from 12 accounts that behave like about 3 independent ones,
+  so the trade count overstates how much independent evidence there is.
+- **Deflated Sharpe of the best book (`ts_momentum`) is 0.00** against the
+  five books. Treat it as a weak signal: the losers' very negative Sharpes
+  widen the spread that sets the bar. It counts only this declaration's five
+  books, not earlier trials.
+- The replay runs the current code. Four strategies' trade counts differ
+  slightly from the table above (`fx_regime_meanrev` 2,858 vs 3,001) because
+  later fixes changed some trades. The replay matches the verified v3 replay
+  ([verified_metrics_v3](research/verified_metrics_v3/README.md)) trade for
+  trade, and every verdict status is unchanged.
+
 ### Fast book (experimental) — 90 days, 15 USDT pairs + 6 crosses, 5m, perp tier
 
 | Strategy | Hypothesis (lineage) | Out-of-sample PF (90% interval) | Trades | Verdict |

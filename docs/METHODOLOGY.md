@@ -114,6 +114,16 @@ strategy walks forward through 4 folds after full costs, and only the
   trades, probation voting) keeps its old meaning but shows as "STALE — OLD
   RULE" until regenerated. A missing file shows as "promotion gate:
   UNMEASURED", never as a silent pass.
+- **Portfolio view (reported, not used by the gate).** Each market is an
+  independently funded account, and concurrent BTC, ETH and SOL positions
+  are largely one bet, so every experiment also holds a strategy's market
+  accounts together as one book and marks it daily. The book's return on a
+  day is the summed P&L over the capital of the accounts trading that day.
+  The results report its annualised Sharpe with the same 90% block
+  bootstrap (over days), its maximum drawdown, the effective number of
+  independent bets (n / (1 + (n − 1) × mean pairwise correlation of daily
+  P&L)), and the Deflated Sharpe of the best book in the declaration —
+  `bot/portfolio_evidence.py`.
 - Candidates (`CANDIDATE_STRATEGIES`) are measured but never vote, whatever
   their verdict; graduating one is a code change.
 - `run_battery.py` and `make hft-battery` are descriptive batteries only;

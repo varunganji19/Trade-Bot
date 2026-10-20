@@ -219,15 +219,18 @@ class Recorder:
         try:
             msg = json.loads(message)
             stream, data = msg["stream"], msg["data"]
-        except (ValueError, KeyError, TypeError):
-            self.counts["skipped"] += 1
-            return
-        sym_raw, kind = stream.split("@", 1)
-        if kind.startswith("depth"):
-            kind, event = "depth", recv          # partial-book snapshots carry no event time
-        elif kind == "aggTrade":
-            kind, event = "trade", int(data.get("E") or data.get("T") or recv)
-        else:
+            if not isinstance(stream, str) or not isinstance(data, dict):
+                raise ValueError("invalid combined stream message")
+            sym_raw, kind = stream.split("@", 1)
+            if not sym_raw.isascii() or not sym_raw.isalnum():
+                raise ValueError("invalid stream symbol")
+            if kind.startswith("depth"):
+                kind, event = "depth", recv
+            elif kind == "aggTrade":
+                kind, event = "trade", int(data.get("E") or data.get("T") or recv)
+            else:
+                raise ValueError("unknown stream")
+        except (ValueError, KeyError, TypeError, OverflowError):
             self.counts["skipped"] += 1
             return
         symbol = sym_raw.upper()
@@ -282,14 +285,25 @@ class Recorder:
                     if not quiet:
                         print(f"[recorder] connected: {len(symbols)} symbols, depth every {speed}")
                     while not stop():
-                        self.handle(ws.recv())
+                        try:
+                            message = ws.recv(timeout=1.0)
+                        except TimeoutError:
+                            if self.clock() - self.last_flush >= FLUSH_SECONDS:
+                                self.flush()
+                            continue
+                        self.handle(message)
             except KeyboardInterrupt:
                 break
             except Exception as exc:
                 if not quiet:
                     print(f"[recorder] {type(exc).__name__}: {exc}; reconnecting in {backoff:.0f}s")
                 self.flush()
-                time.sleep(backoff)
+                # Stop/deadline checks must also work during an outage.
+                remaining = backoff
+                while remaining > 0 and not stop():
+                    step = min(0.25, remaining)
+                    time.sleep(step)
+                    remaining -= step
                 backoff = min(max_backoff, backoff * 2)
         self.flush()
 

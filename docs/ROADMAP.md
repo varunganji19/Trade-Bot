@@ -33,7 +33,7 @@ readiness only. The archive move (M2) was approved.
 | V8 Compliance | checklist done. **Waiting on you:** review by a SEBI lawyer and a CA; it is not legal advice | [COMPLIANCE.md](COMPLIANCE.md) |
 | V10 Market | done: sourced figures, assumptions A1–A6 labelled; on those guesses a hobby-sized first segment | [MARKET.md](MARKET.md) |
 | V6 Testnet | readiness rechecked 2026-10-20: public ping/time pass, exact-host guard fixed, 88 execution regressions pass. **Blocked:** both testnet credentials absent; authenticated run and 4 weeks remain | [TESTNET.md](TESTNET.md), [readiness evidence](research/testnet_readiness/README.md) |
-| V7 Data asset | built: order-book recorder (live-smoked for 20 s) and opt-in local verdict store. **Waiting on you:** COMPLIANCE Q8 (Binance data terms) before recording for months; Q10 before verdicts are shared | README "Layout" |
+| V7 Data asset | live acceptance rechecked 2026-10-20: 60 depth snapshots + 306 trades, strict/recovery readback matches; 3 public sample verdicts verified in an isolated local store. Idle-stop and Git-ignore defects fixed. **Still pending:** Q8/Q10 review, sustained collection, and real consenting external users | [operation evidence](research/data_operations/README.md) |
 | V4 Traction, V9 Team | not started: mostly outreach and people (yours) | below |
 
 **Not met as written:** M5's "trace one trade in ≤ 5 files" holds only if

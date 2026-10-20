@@ -1,0 +1,72 @@
+{
+  "checked_at_utc": "2026-10-20T12:22:48.988648+00:00",
+  "passed": true,
+  "capture_seconds_requested": 30.0,
+  "capture_seconds_actual": 39.329,
+  "counts": {
+    "depth": 60,
+    "trade": 306
+  },
+  "per_symbol": {
+    "BTCUSDT": {
+      "depth": 30,
+      "trade": 158
+    },
+    "ETHUSDT": {
+      "depth": 30,
+      "trade": 148
+    }
+  },
+  "files": [
+    {
+      "path": "data/operation_checks/2026-10-20/orderbook/BTCUSDT/2026-10-20/12.jsonl.gz",
+      "sha256": "5826f0418b374d8073c1629665e2d61f42e63bb2a5825e4c23a68ac5e6ff99bb",
+      "bytes": 8585,
+      "records": 188
+    },
+    {
+      "path": "data/operation_checks/2026-10-20/orderbook/ETHUSDT/2026-10-20/12.jsonl.gz",
+      "sha256": "c411a54ca723f01d5d8cd14e2084d931f5156cc613c04d956865a61d08f53e6e",
+      "bytes": 9056,
+      "records": 178
+    }
+  ],
+  "strict_and_recovery_readers_agree": true,
+  "verdict_store": {
+    "source": "public_upstream_samples_not_customers",
+    "records": 3,
+    "fixed_field_privacy_check": true,
+    "path": "data/operation_checks/2026-10-20/upstream_sample_verdicts.jsonl",
+    "sha256": "359eee6cd2a50eca203e678a8804e7f6c36ec60d0b0514ef03c5f8fc9597fddd",
+    "summary": {
+      "records": 3,
+      "verdicts": {
+        "fragile": 1,
+        "likely overfit": 2
+      },
+      "most_common_failures": [
+        [
+          "regimes_unchecked",
+          3
+        ],
+        [
+          "trials_unknown",
+          3
+        ],
+        [
+          "pbo_high",
+          2
+        ]
+      ],
+      "verdicts_by_trials": {
+        "unknown": {
+          "fragile": 1,
+          "likely overfit": 2
+        }
+      }
+    }
+  },
+  "raw_data_published": false,
+  "external_user_submissions": 0,
+  "sustained_collection_started": false
+}

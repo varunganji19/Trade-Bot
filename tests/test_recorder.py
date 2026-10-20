@@ -100,7 +100,7 @@ def test_run_reconnects_after_a_dropped_socket(tmp_path, monkeypatch):
         def __exit__(self, *exc):
             return False
 
-        def recv(self):
+        def recv(self, timeout=None):
             item = self.msgs.pop(0)
             if isinstance(item, Exception):
                 raise item
@@ -273,3 +273,51 @@ def test_later_members_survive_every_truncation_point(tmp_path, monkeypatch, chu
         assert rows[-1:] == [later], f"later member lost after byte {cut}"
         recovered = [row["n"] for row in rows if "n" in row]
         assert recovered == list(range(len(recovered))), f"fabricated records after byte {cut}"
+
+
+def test_idle_websocket_flushes_and_observes_stop_without_reconnecting(tmp_path):
+    clock = Clock()
+    recorder = rec.Recorder(root=str(tmp_path), clock=clock)
+    recorder.handle(_depth())
+    connections = []
+    class SilentWS:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def recv(self, timeout):
+            assert timeout == 1.0
+            clock.t += 1
+            raise TimeoutError("idle stream")
+    def connect(url):
+        connections.append(url)
+        return SilentWS()
+    recorder.run(["BTC/USDT"], connect=connect, stop=lambda: clock.t >= T0+6, quiet=True)
+    assert len(connections) == 1
+    assert not recorder.buffers
+    path = recorder.path_for("BTCUSDT", int(T0*1000))
+    assert len(list(rec.iter_records(path))) == 1
+
+
+def test_stop_during_reconnect_backoff_is_observed_promptly(tmp_path, monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(rec.time, "sleep", lambda seconds: sleeps.append(seconds))
+    def failed_connect(url):
+        raise ConnectionError("outage")
+    recorder = rec.Recorder(root=str(tmp_path))
+    recorder.run(["BTC/USDT"], connect=failed_connect, stop=lambda: bool(sleeps), quiet=True)
+    assert sleeps == [0.25]
+
+
+@pytest.mark.parametrize("message", [
+    {"stream": "missing-separator", "data": {}},
+    {"stream": "btcusdt@aggTrade", "data": None},
+    {"stream": "btcusdt@aggTrade", "data": {"E": "invalid"}},
+    {"stream": "../bad@depth20@1000ms", "data": {}},
+    {"stream": None, "data": {}},
+])
+def test_malformed_stream_messages_are_skipped_without_losing_the_session(tmp_path, message):
+    recorder = rec.Recorder(root=str(tmp_path))
+    recorder.handle(json.dumps(message))
+    assert recorder.counts == {"depth": 0, "trade": 0, "skipped": 1}
+    assert not recorder.buffers

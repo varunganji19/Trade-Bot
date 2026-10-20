@@ -14,6 +14,8 @@ data/trading.backup.*.db-wal
 data/bot.db
 data/cache/
 data/results/
+data/orderbook/
+data/operation_checks/
 data/kronos_ic.json
 
 # safety-net snapshots and OS clutter

@@ -39,15 +39,31 @@ link after it.
 
 ## Daily routine
 
+Declare a prospective start once, after checking the journal reconciles:
+
+```bash
+python3 main.py track-record start
+git add track_record/paper.start.json docs/TRACK_RECORD.md
+git commit -m "track record: declare the prospective start"
+```
+
+The default is the next full UTC day. The declaration is saved immediately,
+so restarting before the first day finishes does not lose the chosen date.
+Backdated declarations and replacements are refused. The first chain line
+links to the declaration hash; deleting or altering the declaration breaks
+verification once the chain exists. Each append also refuses a ledger gap.
+
 ```bash
 python3 main.py track-record append
 git add track_record/paper.jsonl docs/TRACK_RECORD.md
 git commit -m "track record: seal through <date>"
 ```
 
-Then push. The first `append` takes `--start YYYY-MM-DD`, the day the
-clock starts. A chain has one start, and `append` refuses to extend a
-chain that no longer verifies.
+Then push. Once declared, `append` needs no `--start`. It waits until the
+first full day has ended plus the one-hour settlement buffer, then seals
+that day. A chain has one start and a broken chain is never extended.
+The older `append --start` interface remains available for legacy records;
+it does not create a prospective declaration.
 
 ## What this does and does not prove
 
@@ -73,5 +89,7 @@ chain that no longer verifies.
 ## Record
 
 <!-- track-record:begin -->
-*Not started: no day has been sealed yet.*
+**Start declared:** 2026-10-20T12:12:30+00:00; first full UTC day: 2026-10-21. No day has been sealed yet.
+
+Declaration hash: `ff7e0b4a11dda418849975ef56eb215cb3e81a1e0e75dda140854a450fff858e`.
 <!-- track-record:end -->

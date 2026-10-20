@@ -67,7 +67,61 @@ def _connect_ro(db_path: str | Path) -> sqlite3.Connection:
     uri = Path(db_path).resolve().as_uri() + "?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA query_only=ON")
+    conn.execute("BEGIN")  # all tables/days come from one consistent read snapshot
     return conn
+
+
+def ledger_readiness(db_path: str | Path, mode: str = "paper") -> dict:
+    """Use the normal reconciliation rules without constructing/migrating Journal."""
+    from bot.journal.ledger import LedgerMixin
+
+    class Reader(LedgerMixin):
+        def _conn(self):
+            return contextlib.closing(_connect_ro(db_path))
+
+    return Reader().ledger_check(mode)
+
+
+def start_path(chain_path: str | Path) -> Path:
+    return Path(chain_path).with_suffix(".start.json")
+
+
+def read_start(chain_path: str | Path, mode: str = "paper") -> dict | None:
+    path = start_path(chain_path)
+    if not path.exists():
+        return None
+    doc = json.loads(path.read_text())
+    body = {k: v for k, v in doc.items() if k != "hash"}
+    if (doc.get("hash") != _sha256(_canonical(body)) or doc.get("mode") != mode
+            or doc.get("schema") != SCHEMA):
+        raise ChainError("the start declaration was edited or belongs to another book")
+    dt.date.fromisoformat(doc["start"])
+    return doc
+
+
+def declare_start(db_path: str | Path, chain_path: str | Path = DEFAULT_CHAIN,
+                  start: dt.date | None = None, now: dt.datetime | None = None,
+                  mode: str = "paper") -> dict:
+    """Commit a prospective start now; seal only full days after the declaration."""
+    now = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
+    earliest = now.date() + dt.timedelta(days=1)
+    start = start or earliest
+    if start < earliest:
+        raise ChainError(f"a prospective record must start on {earliest} or later")
+    if read_chain(chain_path) or start_path(chain_path).exists():
+        raise ChainError("the record already has a chain or a start declaration")
+    readiness = ledger_readiness(db_path, mode)
+    if not readiness["ok"]:
+        raise ChainError(f"journal does not reconcile: cash gap {readiness['gap']}")
+    doc = {"schema": SCHEMA, "mode": mode, "start": start.isoformat(),
+           "declared_at": now.isoformat(timespec="seconds"), "ledger": readiness}
+    doc["hash"] = _sha256(_canonical(doc))
+    path = start_path(chain_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x") as fh:
+        fh.write(_canonical(doc) + "\n")
+    return doc
 
 
 def _rows(conn, table: str, fields: tuple, ts_col: str, day: dt.date, mode: str,
@@ -126,7 +180,10 @@ def verify(db_path: str | Path, chain_path: str | Path = DEFAULT_CHAIN,
     found, each naming its date; an empty list means the record holds."""
     chain = read_chain(chain_path)
     problems = []
-    prev, expected_day = GENESIS, None
+    declaration = read_start(chain_path, mode)
+    if chain and declaration and chain[0]["date"] != declaration["start"]:
+        problems.append("the chain does not begin on its declared start date")
+    prev, expected_day = declaration["hash"] if declaration else GENESIS, None
     with contextlib.closing(_connect_ro(db_path)) as conn:
         for n, line in enumerate(chain, 1):
             date = line.get("date", f"line {n}")
@@ -160,12 +217,18 @@ def append(db_path: str | Path, chain_path: str | Path = DEFAULT_CHAIN,
            mode: str = "paper") -> list[dict]:
     """Seal every finished day not yet in the chain; returns the new lines.
 
-    The first call needs `start` (the day the clock starts). Later calls
+    A first call needs a start declaration or explicit legacy `start`. Later calls
     continue from the last sealed day and refuse a `start`, and refuse to
     extend a chain that no longer verifies: a new link on a broken chain
     would hide the break.
     """
     chain = read_chain(chain_path)
+    declaration = read_start(chain_path, mode)
+    if declaration:
+        if start is not None:
+            raise ChainError("the start is already declared; append without --start")
+        if not ledger_readiness(db_path, mode)["ok"]:
+            raise ChainError("journal does not reconcile; refusing to seal inconsistent balances")
     if chain:
         if start is not None:
             raise ChainError(f"the record already started on {chain[0]['date']}; "
@@ -177,9 +240,11 @@ def append(db_path: str | Path, chain_path: str | Path = DEFAULT_CHAIN,
         day = dt.date.fromisoformat(chain[-1]["date"]) + dt.timedelta(days=1)
         prev = chain[-1]["hash"]
     else:
+        if declaration:
+            start = dt.date.fromisoformat(declaration["start"])
         if start is None:
             raise ChainError("no record yet: pass the start date (--start YYYY-MM-DD)")
-        day, prev = start, GENESIS
+        day, prev = start, declaration["hash"] if declaration else GENESIS
     last = last_sealable_day(now or dt.datetime.now(dt.timezone.utc))
     if not chain and day > last:
         ready = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(),
@@ -187,7 +252,7 @@ def append(db_path: str | Path, chain_path: str | Path = DEFAULT_CHAIN,
         raise NotStartedYet(
             f"the record would start on {day}, which can be sealed from "
             f"{ready:%Y-%m-%d %H:%M} UTC; nothing was written, so run this same "
-            "command (with --start) again then")
+            "command again then")
     new = []
     with contextlib.closing(_connect_ro(db_path)) as conn:
         while day <= last:
@@ -208,7 +273,13 @@ def render(chain_path: str | Path = DEFAULT_CHAIN, doc_path: str | Path = DEFAUL
     """Rewrite the generated block of docs/TRACK_RECORD.md from the chain."""
     chain = read_chain(chain_path)
     if not chain:
-        block = "*Not started: no day has been sealed yet.*"
+        declaration = read_start(chain_path)
+        if declaration:
+            block = (f"**Start declared:** {declaration['declared_at']}; first full UTC day: "
+                     f"{declaration['start']}. No day has been sealed yet.\n\n"
+                     f"Declaration hash: `{declaration['hash']}`.")
+        else:
+            block = "*Not started: no day has been sealed yet.*"
     else:
         equities = [line["end_equity"] for line in chain if line["end_equity"] is not None]
         rows = "\n".join(

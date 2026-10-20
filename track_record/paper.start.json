@@ -1,0 +1,1 @@
+{"declared_at":"2026-10-20T12:12:30+00:00","hash":"ff7e0b4a11dda418849975ef56eb215cb3e81a1e0e75dda140854a450fff858e","ledger":{"cash":10000.0,"closed_trades":0,"expected_cash":10000.0,"gap":0.0,"net_deposits":0,"ok":true,"open_entry_fees":0,"realized_pnl":0,"start_capital":10000.0,"start_source":"reset","tolerance":1.0},"mode":"paper","schema":1,"start":"2026-10-21"}

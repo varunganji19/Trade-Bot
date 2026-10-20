@@ -1,0 +1,29 @@
+{
+  "checked_at_utc": "2026-10-20T12:12:30.115604+00:00",
+  "declaration": {
+    "schema": 1,
+    "mode": "paper",
+    "start": "2026-10-21",
+    "declared_at": "2026-10-20T12:12:30+00:00",
+    "ledger": {
+      "ok": true,
+      "cash": 10000.0,
+      "expected_cash": 10000.0,
+      "gap": 0.0,
+      "tolerance": 1.0,
+      "start_capital": 10000.0,
+      "net_deposits": 0,
+      "realized_pnl": 0,
+      "open_entry_fees": 0,
+      "closed_trades": 0,
+      "start_source": "reset"
+    },
+    "hash": "ff7e0b4a11dda418849975ef56eb215cb3e81a1e0e75dda140854a450fff858e"
+  },
+  "journal_bytes_unchanged": true,
+  "journal_sha256_before": "8b2a7f053521b3adb51cad04ea39cc20ce1b0ff977e0f676639903a0cceb0fbf",
+  "journal_sha256_after": "8b2a7f053521b3adb51cad04ea39cc20ce1b0ff977e0f676639903a0cceb0fbf",
+  "verification_problems": [],
+  "sealed_days": 0,
+  "pending": "the record would start on 2026-10-21, which can be sealed from 2026-10-22 01:00 UTC; nothing was written, so run this same command again then"
+}

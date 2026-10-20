@@ -22,7 +22,7 @@ Usage:
   python3 main.py resume                       # clear the manual pause (new entries allowed)
   python3 main.py dashboard [--port 8000]      # web dashboard + chatbot
   python3 main.py status                       # paper-book summary
-  python3 main.py track-record append|verify|render [--start YYYY-MM-DD]
+  python3 main.py track-record start|append|verify|render [--start YYYY-MM-DD]
   python3 main.py drift [report|clear NAME] [--book standard|fast]  # live-vs-expected monitor
   python3 main.py testnet run|status|reconcile|kill|unkill   # Binance SPOT TESTNET only
   python3 main.py record-book [--symbols BTC/USDT ...] [--minutes N] | --summary
@@ -242,9 +242,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="tamper-evident forward record of the paper book: seal "
                              "finished days, verify them against the journal, render "
                              "docs/TRACK_RECORD.md")
-    tr.add_argument("action", choices=["append", "verify", "render"])
+    tr.add_argument("action", choices=["start", "append", "verify", "render"])
     tr.add_argument("--start", default=None,
-                    help="first day of the record, YYYY-MM-DD (only on the first append)")
+                    help="first UTC day, YYYY-MM-DD (start defaults to tomorrow; legacy first append also accepts it)")
     tr.add_argument("--chain", default=None, help="chain file (default track_record/paper.jsonl)")
     tr.add_argument("--doc", default=None, help="document to render (default docs/TRACK_RECORD.md)")
     tr.set_defaults(fn=cmd_track_record)

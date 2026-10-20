@@ -144,3 +144,77 @@ def test_render_fills_only_the_generated_block(book, tmp_path):
 def test_the_shipped_document_has_the_generated_block():
     text = tr.DEFAULT_DOC.read_text()
     assert tr.BEGIN in text and tr.END in text
+
+
+def test_prospective_declaration_survives_until_first_finished_day(tmp_path):
+    j = Journal(str(tmp_path / "trading.db"))
+    j.add_equity(10_000, 10_000)
+    chain = tmp_path / "paper.jsonl"
+    before = open(j.db_path, "rb").read()
+    declaration = tr.declare_start(j.db_path, chain, now=NOW)
+    assert declaration["start"] == "2026-01-06"
+    assert declaration["ledger"]["gap"] == 0
+    with pytest.raises(tr.NotStartedYet, match="2026-01-07 01:00 UTC"):
+        tr.append(j.db_path, chain, now=NOW)
+    assert not chain.exists()
+    assert tr.read_start(chain) == declaration
+    doc = tmp_path / "record.md"
+    doc.write_text(f"{tr.BEGIN}\n{tr.END}")
+    assert "first full UTC day: 2026-01-06" in tr.render(chain, doc)
+    later = dt.datetime(2026, 1, 7, 2, tzinfo=UTC)
+    lines = tr.append(j.db_path, chain, now=later)
+    assert [line["date"] for line in lines] == ["2026-01-06"]
+    assert lines[0]["prev"] == declaration["hash"]
+    assert tr.verify(j.db_path, chain) == []
+    assert tr.append(j.db_path, chain, now=later) == []
+    assert open(j.db_path, "rb").read() == before
+    tr.start_path(chain).unlink()
+    assert any("does not link" in p for p in tr.verify(j.db_path, chain))
+
+
+def test_declaration_refuses_backdating_replacement_and_inconsistent_cash(book):
+    j, chain = book
+    with pytest.raises(tr.ChainError, match="prospective"):
+        tr.declare_start(j.db_path, chain, start=NOW.date(), now=NOW)
+    _sql(j, "UPDATE equity SET cash=cash+2000 WHERE mode='paper'")
+    with pytest.raises(tr.ChainError, match="reconcile"):
+        tr.declare_start(j.db_path, chain, now=NOW)
+    assert not tr.start_path(chain).exists()
+
+
+def test_declared_start_is_single_use_and_tampering_is_refused(tmp_path):
+    j = Journal(str(tmp_path / "trading.db"))
+    chain = tmp_path / "paper.jsonl"
+    tr.declare_start(j.db_path, chain, now=NOW)
+    with pytest.raises(tr.ChainError, match="already"):
+        tr.declare_start(j.db_path, chain, now=NOW)
+    with pytest.raises(tr.ChainError, match="already declared"):
+        tr.append(j.db_path, chain, start=NOW.date(), now=NOW)
+    declaration = json.loads(tr.start_path(chain).read_text())
+    declaration["start"] = "2025-01-01"
+    tr.start_path(chain).write_text(json.dumps(declaration))
+    with pytest.raises(tr.ChainError, match="edited"):
+        tr.append(j.db_path, chain, now=NOW)
+
+
+def test_declared_record_refuses_a_later_ledger_mismatch(tmp_path):
+    j = Journal(str(tmp_path / "trading.db"))
+    chain = tmp_path / "paper.jsonl"
+    tr.declare_start(j.db_path, chain, now=NOW)
+    j.add_equity(12_000, 12_000)
+    with pytest.raises(tr.ChainError, match="reconcile"):
+        tr.append(j.db_path, chain, now=NOW+dt.timedelta(days=2))
+    assert not chain.exists()
+
+
+def test_a_reset_after_the_first_seal_cannot_silently_restart_the_record(tmp_path):
+    j = Journal(str(tmp_path / "trading.db"))
+    chain = tmp_path / "paper.jsonl"
+    tr.declare_start(j.db_path, chain, now=NOW)
+    j.add_equity(10_000, 10_000, ts="2026-01-06T12:00:00+00:00")
+    later = dt.datetime(2026, 1, 7, 2, tzinfo=UTC)
+    tr.append(j.db_path, chain, now=later)
+    j.reset_account(10_000, str(tmp_path/"backup.db"))
+    assert tr.verify(j.db_path, chain)
+    with pytest.raises(tr.ChainError, match="does not verify"):
+        tr.append(j.db_path, chain, now=later+dt.timedelta(days=1))

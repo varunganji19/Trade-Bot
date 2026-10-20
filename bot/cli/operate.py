@@ -255,6 +255,15 @@ def cmd_track_record(args):
     import datetime as dt
     from bot import track_record as tr
     chain = args.chain or tr.DEFAULT_CHAIN
+    if args.action == "start":
+        try:
+            declaration = tr.declare_start(CONFIG.db_path, chain,
+                                          start=dt.date.fromisoformat(args.start) if args.start else None)
+        except tr.ChainError as exc:
+            print(f"[track-record] refusing: {exc}")
+            sys.exit(1)
+        print(f"[track-record] start declared for {declaration['start']} UTC; "
+              "commit the declaration before that day starts")
     if args.action == "verify":
         n = len(tr.read_chain(chain))
         problems = tr.verify(CONFIG.db_path, chain)
@@ -270,6 +279,7 @@ def cmd_track_record(args):
             new = tr.append(CONFIG.db_path, chain, start=start)
         except tr.NotStartedYet as exc:
             print(f"[track-record] not yet: {exc}")
+            tr.render(chain, args.doc or tr.DEFAULT_DOC)
             return
         except tr.ChainError as exc:
             print(f"[track-record] refusing: {exc}")

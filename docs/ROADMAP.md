@@ -14,7 +14,7 @@ readiness only. The archive move (M2) was approved.
 
 | Item | Status | Where |
 |---|---|---|
-| 0.1 Clean journal | **waiting on you** (reset under Paper account → Reset); the new ledger banner shows the $883.35 legacy gap until then | dashboard |
+| 0.1 Clean journal | verified read-only 2026-10-20: October 3 reset is present, no paper trades, cash 10,000 and ledger gap zero; no further reset needed | [initialization evidence](research/forward_record/README.md) |
 | 0.2 Fast book labelled honestly | done | UI, README |
 | 0.3 Demo storyline | done (rebuilt after M3) | [DEMO.md](DEMO.md) |
 | 0.4 README top | done | [README](../README.md) |
@@ -24,7 +24,7 @@ readiness only. The archive move (M2) was approved.
 | M5 Readable code | done: no code file over 600 lines; comment pass; source pins replaced by behaviour tests | README "Layout" |
 | M7 Learnings as a feature | done: RESULTS.md + Evidence → Experiment log | dashboard |
 | M8 Fast-book questions | done: hold length recorded (re-run reproduces it); real taker flow built (bot/flow.py, `hft_taker_flow`) and rejected by a pre-registered study (PF 0.42 vs the proxy's 0.44) | [RESULTS.md](RESULTS.md) §3 |
-| V1 Forward track record | built: daily hash chain, `track-record append/verify/render`; **clock not started**: it waits for the 0.1 reset, which would otherwise break every sealed day | [TRACK_RECORD.md](TRACK_RECORD.md) |
+| V1 Forward track record | prospective start declared on 2026-10-20 for the first full UTC day 2026-10-21; daily 07:00 IST local sealing/verification/commit scheduled. First seal due October 22; no days sealed or independently published yet | [TRACK_RECORD.md](TRACK_RECORD.md), [initialization evidence](research/forward_record/README.md) |
 | V5 Drift monitor | done: 3 weeks below the expected range demotes automatically; banner; `drift clear` | METHODOLOGY §11 |
 | V3 Validator | done: CLI, dashboard, and native upstream Freqtrade exports accepted through JSON/ZIP/CLI/HTTP on 2026-10-20; BTC precision and currency reporting corrected | [external acceptance evidence](research/external_validation/README.md), [VALIDATION_SAMPLE.md](VALIDATION_SAMPLE.md) |
 | M6 Show you own it | done: ARCHITECTURE.md, SELF_CHECK.md, README "How this was built". **Waiting on you:** the paragraph on what you designed yourself (left out on purpose) | [ARCHITECTURE.md](ARCHITECTURE.md), [SELF_CHECK.md](SELF_CHECK.md) |

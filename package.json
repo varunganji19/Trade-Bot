@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint:js": "eslint bot/static/app.js"
+    "lint:js": "eslint bot/static/app.js bot/static/website/*.js"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

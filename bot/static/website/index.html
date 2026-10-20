@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Algo — a second opinion on your backtest</title>
+  <meta name="description" content="Check a strategy's trade history against fees, stability, uncertainty and selection bias. Open-source, evidence-first validation.">
+  <link rel="stylesheet" href="/site.css"><script src="/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav"><a class="brand" href="/" aria-label="Algo home">algo<span aria-hidden="true">/</span></a><nav aria-label="Main"><a href="#checks">The checks</a><a href="/sample">Sample report</a><a class="nav-cta" href="#waitlist">Join the waitlist <span aria-hidden="true">↗</span></a></nav></header>
+<main id="main">
+  <section class="hero wrap">
+    <div class="hero-copy"><p class="eyebrow">Evidence before confidence</p><h1>A second opinion<br>on your <em>backtest.</em></h1><p class="intro">A convincing equity curve is a beginning. Check what survives fees, time, market regimes and the variants you tried.</p><div class="actions"><a class="button primary" href="/sample">Read a real report <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/varunganji19/Trade-Bot#quick-start">Run it locally →</a></div><p class="small">Open source · Reads Freqtrade JSON / ZIP and trade CSV · No strategy code needed</p></div>
+    <aside class="report" aria-label="Example from a real upstream export">
+      <div class="report-top"><span>VALIDATION / 001</span><span class="dot" aria-hidden="true"></span></div>
+      <p class="report-label">Public upstream Freqtrade sample</p><h2>179 closed trades.<br>Still questions to answer.</h2>
+      <dl><div><dt>Per-trade fees</dt><dd>Checked</dd></div><div><dt>Variants tried</dt><dd class="missing">Not supplied</dd></div><div><dt>Regime prices</dt><dd class="missing">Not supplied</dd></div></dl>
+      <div class="verdict"><span>VERDICT</span><strong>FRAGILE</strong></div><p>Missing evidence cannot earn a robust verdict.</p>
+    </aside>
+  </section>
+  <div class="principle"><div class="wrap"><span class="eyebrow">The project's own result</span><p>No proven edge. No strategy currently earns permission to trade.</p><a href="https://github.com/varunganji19/Trade-Bot/blob/main/docs/RESULTS.md">Explore the evidence ↗</a></div></div>
+  <section class="wrap checks" id="checks"><div class="section-title"><p class="eyebrow">What gets checked</p><h2>Make the result<br>answer harder questions.</h2></div>
+    <ol class="check-list"><li><span class="number">01</span><div><h3>Does it survive uncertainty?</h3><p>Bootstrap intervals show the range around the result, including the pessimistic end.</p></div></li><li><span class="number">02</span><div><h3>Does the edge survive its costs?</h3><p>Compare the same trades at half, normal and double fees. Missing fee data stays visible.</p></div></li><li><span class="number">03</span><div><h3>Was it consistent across time?</h3><p>Look at chronological quarters and market regimes. A trade-list check cannot refit a strategy.</p></div></li><li><span class="number">04</span><div><h3>How many chances did you give it?</h3><p>Trial-adjusted Sharpe and, where measurable, overfitting probability account for selection.</p></div></li></ol>
+  </section>
+  <section class="wrap how"><p class="eyebrow">The workflow</p><div class="steps"><div><span>1 / Bring the trades</span><p>A Freqtrade export or a CSV of closed trades. Supply fees, trials and regime prices when available.</p></div><div><span>2 / Read the checks</span><p>Get a report through the local command line or dashboard. Every missing check is named.</p></div><div><span>3 / Decide what to test next</span><p>Robust, fragile or likely overfit describes the evidence. It is never a promise of future returns.</p></div></div></section>
+  <section class="waitlist wrap" id="waitlist"><div><p class="eyebrow">Help shape the next version</p><h2>Want an easier way<br>to validate?</h2><p>The validator already runs locally. Register your interest in future access and user research.</p><p class="small">This is an early project. No hosted launch date or profitable strategy is promised.</p></div>
+    <div class="signup-panel"><form id="signup-form"><label for="email">Your email</label><input id="email" name="email" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" required><label class="consent"><input id="consent" name="consent" type="checkbox" required><span>I agree to store this signup for access updates. It expires after 30 days. <a href="/privacy">Privacy and deletion</a></span></label><button class="button primary" type="submit">Register my interest <span aria-hidden="true">↗</span></button></form><p id="signup-status" role="status" aria-live="polite"></p><div id="signup-success" hidden><h3>Interest registered.</h3><p>Save your private link to delete this signup. No email is sent automatically.</p><label for="removal-link">Your deletion link</label><input id="removal-link" type="url" readonly><p class="small">Treat this link like a password. Each submission has its own link.</p></div></div>
+  </section>
+</main>
+<footer class="wrap"><a class="brand" href="/">algo<span aria-hidden="true">/</span></a><p>A statistical check of a backtest, not investment advice.<br>Paper trading only. No strategy here is presented as profitable.</p><div><a href="/privacy">Privacy</a><a href="https://github.com/varunganji19/Trade-Bot">Source code ↗</a></div></footer>
+</body></html>

@@ -3,7 +3,7 @@ import globals from 'globals';
 
 export default [
   {
-    files: ['bot/static/app.js'],
+    files: ['bot/static/app.js', 'bot/static/website/*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'script',

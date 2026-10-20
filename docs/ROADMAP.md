@@ -41,6 +41,12 @@ the risk manager and broker count as called-through (see README "Layout");
 tests/test_bot.py (6,000+ lines) was not split — the 600-line target was
 applied to code, not tests.
 
+**EUR/USD follow-up (2026-10-20):** the missing eighth pinned date window
+has been reconstructed from three identical saved OHLCV slices, replayed
+offline and independently reconciled. The original exact-file artifact
+remains unavailable; the historical seven-of-eight report is preserved.
+See [the reconstructed-window evidence](research/eurusd_reconstruction/README.md).
+
 ## The one decision that shapes everything
 
 Both reviews point the same way: the project's strongest asset is its

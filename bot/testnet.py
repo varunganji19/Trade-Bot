@@ -41,6 +41,7 @@ import math
 import os
 from dataclasses import dataclass
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 from bot.broker import PaperBroker, Position
 from config import CONFIG, MarketSpec
@@ -152,11 +153,27 @@ def make_exchange(api_key: str | None = None, secret: str | None = None):
 def assert_testnet(exchange) -> None:
     """Refuse any client whose spot API URLs leave the testnet host."""
     api = exchange.urls.get("api") if isinstance(getattr(exchange, "urls", None), dict) else None
-    urls = [v for v in (api.values() if isinstance(api, dict) else [api]) if isinstance(v, str)]
-    spot = [u for u in urls if "/api/" in u]
-    if not spot or any(TESTNET_HOST not in u for u in spot):
+    if isinstance(api, dict):
+        # Order submission and account reads use these keys even when a
+        # misconfigured base URL has no /api/ path. Neither may be omitted.
+        spot = [api.get("public"), api.get("private")]
+        spot += [value for key, value in api.items() if key not in ("public", "private")
+                 and isinstance(value, str) and "/api/" in value]
+    else:
+        spot = [api]
+    def allowed(url):
+        if not isinstance(url, str):
+            return False
+        try:
+            parsed = urlsplit(url)
+            return (parsed.scheme == "https" and parsed.hostname == TESTNET_HOST
+                    and parsed.port in (None, 443) and parsed.username is None
+                    and parsed.password is None)
+        except ValueError:
+            return False
+    if not spot or not all(allowed(url) for url in spot):
         raise NotTestnetError(f"refusing: the client's API URLs are not all on {TESTNET_HOST}: "
-                              f"{spot or urls}")
+                              f"{spot}")
 
 
 # ----------------------------------------------------------------- broker

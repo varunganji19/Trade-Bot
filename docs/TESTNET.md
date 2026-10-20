@@ -172,3 +172,7 @@ P&L without adding that P&L to cash a second time.
 
 Built and tested against a fake exchange (`tests/test_testnet.py`). **Not
 yet run against the real testnet**: that needs the owner's testnet keys.
+
+On 2026-10-20, public ping/time checks passed; both testnet credentials were
+absent. Readiness verification fixed an exact-host validation bypass and
+passed 88 execution regressions. [Evidence and remaining prerequisite](research/testnet_readiness/README.md).

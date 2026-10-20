@@ -1,0 +1,19 @@
+{
+  "checked_at_utc": "2026-10-20T12:06:43.601435+00:00",
+  "public_endpoints": {
+    "ping": {
+      "status": 200,
+      "valid_response": true,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "time": {
+      "status": 200,
+      "valid_response": true,
+      "sha256": "224268d149cea2ae7e3ab65c86136a208149a31e0232e63abd90a09079d16bcb"
+    }
+  },
+  "credentials_present": false,
+  "authenticated_account_checked": false,
+  "orders_submitted": 0,
+  "four_week_run_complete": false
+}

@@ -32,7 +32,7 @@ readiness only. The archive move (M2) was approved.
 | V2 Competition | done: sourced matrix, where others are better; the differentiation is narrower than "the only overfitting check" | [COMPETITION.md](COMPETITION.md) |
 | V8 Compliance | checklist done. **Waiting on you:** review by a SEBI lawyer and a CA; it is not legal advice | [COMPLIANCE.md](COMPLIANCE.md) |
 | V10 Market | done: sourced figures, assumptions A1–A6 labelled; on those guesses a hobby-sized first segment | [MARKET.md](MARKET.md) |
-| V6 Testnet | built: spot-testnet broker, kill switches, reconciliation, tested against a fake exchange. **Waiting on you:** testnet keys in `.env`, then 4 weeks of running | [TESTNET.md](TESTNET.md) |
+| V6 Testnet | readiness rechecked 2026-10-20: public ping/time pass, exact-host guard fixed, 88 execution regressions pass. **Blocked:** both testnet credentials absent; authenticated run and 4 weeks remain | [TESTNET.md](TESTNET.md), [readiness evidence](research/testnet_readiness/README.md) |
 | V7 Data asset | built: order-book recorder (live-smoked for 20 s) and opt-in local verdict store. **Waiting on you:** COMPLIANCE Q8 (Binance data terms) before recording for months; Q10 before verdicts are shared | README "Layout" |
 | V4 Traction, V9 Team | not started: mostly outreach and people (yours) | below |
 

@@ -116,6 +116,41 @@ def test_a_production_client_is_refused():
         tn.TestnetBroker(fake)
 
 
+@pytest.mark.parametrize("url", [
+    "https://testnet.binance.vision.example.org/api/v3",
+    "https://testnet.binance.vision@api.binance.com/api/v3",
+    "https://api.binance.com/api/v3?host=testnet.binance.vision",
+    "http://testnet.binance.vision/api/v3",
+    "https://testnet.binance.vision:8443/api/v3",
+    "https://user:password@testnet.binance.vision/api/v3",
+    "https://testnet.binance.vision:invalid/api/v3",
+])
+def test_lookalike_and_insecure_testnet_endpoints_are_refused(url):
+    fake = FakeBinance()
+    fake.urls["api"]["private"] = url
+    with pytest.raises(tn.NotTestnetError):
+        tn.TestnetBroker(fake)
+
+
+def test_exact_testnet_host_with_https_default_port_is_allowed():
+    fake = FakeBinance()
+    fake.urls["api"]["private"] = "https://testnet.binance.vision:443/api/v3"
+    tn.assert_testnet(fake)
+
+
+@pytest.mark.parametrize("key", ["public", "private"])
+@pytest.mark.parametrize("url", [None, "https://api.binance.com", "https://api.binance.com/api",
+                                 "https://api.binance.com/custom"])
+def test_every_required_spot_endpoint_is_checked_even_without_an_api_path(key, url):
+    fake = FakeBinance()
+    if url is None:
+        del fake.urls["api"][key]
+    else:
+        fake.urls["api"][key] = url
+    with pytest.raises(tn.NotTestnetError):
+        tn.TestnetBroker(fake)
+
+
 # ------------------------------------------------------------- real fills
 def test_the_book_records_what_the_exchange_did(env):
     ex, journal, engine = env

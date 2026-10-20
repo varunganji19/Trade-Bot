@@ -9,8 +9,13 @@ In the dashboard's Validate tab, check **Count completed validations and
 repeat use locally** for runs you want counted. A random browser UUID is
 saved only after opt-in; reloading the page leaves the checkbox unchecked.
 **Delete my usage counters** removes that browser's server-side count and
-its browser ID. Unchecking stops future counting. If browser storage is
-unavailable, validation still runs without usage measurement.
+its browser ID. A deletion also blocks late results from validations already
+running, including other server workers, before or after the first count.
+The server retains only a keyed ID hash and the deletion's UTC day for 90 UTC
+days to enforce that block; it retains no run count for a deleted ID. Expired
+deletion markers are purged on the next counter-store operation. A later
+explicit opt-in uses a fresh browser/CLI ID. Unchecking stops future counting.
+If browser storage is unavailable, validation still runs without usage measurement.
 
 For the command line, opt in per invocation:
 

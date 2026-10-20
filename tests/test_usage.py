@@ -3,6 +3,7 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 import json
 import sqlite3
+import threading
 from types import SimpleNamespace
 import uuid
 
@@ -98,6 +99,58 @@ def test_forgetting_one_client_preserves_the_other_and_can_be_retried(env):
     for _ in range(2):
         assert client.post("/api/usage/forget", json={"client_id": first}).json() == {"ok": True}
     assert usage.stats() == {"validations": 1, "consenting_clients": 1, "repeat_clients": 0}
+
+
+@pytest.mark.parametrize("previous_runs", [0, 1])
+def test_deletion_blocks_an_inflight_validation_even_before_its_first_count(env, monkeypatch, previous_runs):
+    from bot import validator
+    client, _ = env
+    identity = str(uuid.uuid4())
+    if previous_runs:
+        usage.record(identity)
+    entered, resume = threading.Event(), threading.Event()
+    original = validator.validate
+
+    def delayed(*args, **kwargs):
+        entered.set()
+        assert resume.wait(5), "validation was not released"
+        return original(*args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(validator, "validate", delayed)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(client.post, "/api/validate",
+                                  json=payload(usage_opt_in=True, usage_client_id=identity))
+            try:
+                assert entered.wait(5), "validation did not start"
+                assert client.post("/api/usage/forget", json={"client_id": identity}).status_code == 200
+                assert usage.stats()["validations"] == 0
+            finally:
+                resume.set()
+            response = pending.result(timeout=5)
+    assert response.status_code == 200 and response.json()["report"]["strategies"]
+    assert response.json()["usage_recorded"] is False
+    assert usage.stats() == {"validations": 0, "consenting_clients": 0, "repeat_clients": 0}
+    # A separate request/process using the old ID must also stay forgotten.
+    assert usage.record(identity) is False
+    assert usage.stats()["validations"] == 0
+    assert identity.encode() not in usage.store_path().read_bytes()
+    # Explicitly opting in with a fresh ID still works after deletion.
+    fresh = str(uuid.uuid4())
+    assert client.post("/api/validate", json=payload(usage_opt_in=True, usage_client_id=fresh)).json()["usage_recorded"] is True
+    assert usage.stats()["validations"] == 1
+
+
+def test_deletion_marker_expires_after_ninety_utc_days(env, monkeypatch):
+    identity = str(uuid.uuid4())
+    monkeypatch.setattr(usage.time, "time", lambda: 1000*86400)
+    usage.forget(identity)
+    monkeypatch.setattr(usage.time, "time", lambda: (1000+usage.RETENTION_DAYS-1)*86400)
+    assert usage.record(identity) is False
+    assert usage.stats()["validations"] == 0
+    monkeypatch.setattr(usage.time, "time", lambda: (1000+usage.RETENTION_DAYS)*86400)
+    assert usage.stats()["validations"] == 0
+    assert usage.record(identity) is True
 
 
 def test_inactive_clients_expire_at_ninety_days(env, monkeypatch):

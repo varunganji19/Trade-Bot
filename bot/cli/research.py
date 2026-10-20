@@ -492,8 +492,10 @@ def cmd_validate_trades(args):
         import sqlite3
         from bot import usage
         try:
-            usage.record(usage.cli_client_id())
-            print("[validate-trades] counted one completed validation locally (opt-in)")
+            if usage.record(usage.cli_client_id()):
+                print("[validate-trades] counted one completed validation locally (opt-in)")
+            else:
+                print("[validate-trades] report ready; usage was not counted because this ID was deleted")
         except (OSError, sqlite3.Error, ValueError, KeyError):
             print("[validate-trades] report ready; optional local usage could not be saved", file=sys.stderr)
     n = len(report["strategies"])

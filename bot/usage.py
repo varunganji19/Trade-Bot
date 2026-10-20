@@ -50,8 +50,12 @@ def _connect():
         conn.execute("CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value BLOB NOT NULL)")
         conn.execute("CREATE TABLE IF NOT EXISTS clients (client_hash TEXT PRIMARY KEY, "
                      "first_day INTEGER NOT NULL, last_day INTEGER NOT NULL, runs INTEGER NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS deleted_clients (client_hash TEXT PRIMARY KEY, "
+                     "deleted_day INTEGER NOT NULL)")
         with conn:
             conn.execute("INSERT OR IGNORE INTO settings VALUES ('hmac_key', ?)", (secrets.token_bytes(32),))
+            conn.execute("DELETE FROM deleted_clients WHERE deleted_day<=?",
+                         (int(time.time() // 86400)-RETENTION_DAYS,))
             yield conn
 
 
@@ -76,14 +80,19 @@ def cli_client_id() -> str:
         return client
 
 
-def record(client: str) -> None:
+def record(client: str) -> bool:
+    """Count a completed run unless this ID was deleted during retention."""
     client = validate_client(client)
     day = int(time.time() // 86400)
     with _connect() as conn:
         conn.execute("DELETE FROM clients WHERE last_day<=?", (day-RETENTION_DAYS,))
+        key = _key(conn, client)
+        if conn.execute("SELECT 1 FROM deleted_clients WHERE client_hash=?", (key,)).fetchone():
+            return False
         conn.execute("INSERT INTO clients VALUES (?,?,?,1) ON CONFLICT(client_hash) "
                      "DO UPDATE SET last_day=excluded.last_day, runs=clients.runs+1",
-                     (_key(conn, client), day, day))
+                     (key, day, day))
+    return True
 
 
 def stats() -> dict:
@@ -99,9 +108,13 @@ def stats() -> dict:
 
 def forget(client: str) -> None:
     client = validate_client(client)
-    if store_path().exists():
-        with _connect() as conn:
-            conn.execute("DELETE FROM clients WHERE client_hash=?", (_key(conn, client),))
+    # Persist the deletion even before a first count, so an in-flight request
+    # in any worker cannot restore it. Both changes share one write transaction.
+    with _connect() as conn:
+        key = _key(conn, client)
+        conn.execute("DELETE FROM clients WHERE client_hash=?", (key,))
+        conn.execute("INSERT INTO deleted_clients VALUES (?,?) ON CONFLICT(client_hash) "
+                     "DO UPDATE SET deleted_day=excluded.deleted_day", (key, int(time.time() // 86400)))
 
 
 def main():

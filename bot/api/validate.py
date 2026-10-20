@@ -92,8 +92,9 @@ def api_validate(body: ValidateIn):
     usage_recorded, usage_warning = False, None
     if client_id:
         try:
-            usage.record(client_id)
-            usage_recorded = True
+            usage_recorded = usage.record(client_id)
+            if not usage_recorded:
+                usage_warning = "The report is ready; usage was not counted because this ID was deleted."
         except (OSError, sqlite3.Error, ValueError):
             # Optional measurement must never withhold a completed verdict.
             usage_warning = "The report is ready, but local usage counters could not be saved."

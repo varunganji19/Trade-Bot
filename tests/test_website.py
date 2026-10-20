@@ -1,10 +1,13 @@
 """Public waitlist acceptance; storage stays in temporary databases."""
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import sqlite3
+import threading
 
 from fastapi.testclient import TestClient
+import httpx
 import pytest
 
 from bot import waitlist
@@ -109,6 +112,62 @@ def test_concurrent_signups_do_not_lose_rows_or_invalidate_removal_tokens(tmp_pa
     for token in tokens:
         waitlist.remove(token, path=path)
     assert waitlist.export(path=path) == []
+
+
+@pytest.mark.parametrize("action", ["subscribe", "remove"])
+def test_page_remains_responsive_while_a_waitlist_write_waits_for_sqlite(web, monkeypatch, action):
+    _, path = web
+    token = waitlist.subscribe("existing@example.com", True)
+    writer = sqlite3.connect(path, check_same_thread=False)
+    writer.execute("BEGIN IMMEDIATE")
+    released = threading.Event()
+    release_guard = threading.Lock()
+
+    def release():
+        with release_guard:
+            if not released.is_set():
+                writer.rollback()
+                released.set()
+
+    # A blocked event loop cannot run its own timeout. Release from another
+    # thread so the old implementation fails rather than hanging the suite.
+    failsafe = threading.Timer(3, release)
+
+    async def check():
+        loop = asyncio.get_running_loop()
+        entered = asyncio.Event()
+        original = getattr(waitlist, action)
+
+        def observed(*args, **kwargs):
+            loop.call_soon_threadsafe(entered.set)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(waitlist, action, observed)
+        route = "/api/waitlist" if action == "subscribe" else "/api/waitlist/remove"
+        body = {"email": "new@example.com", "consent": True} if action == "subscribe" else {"token": token}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app()),
+                                     base_url="http://127.0.0.1") as client:
+            pending = asyncio.create_task(client.post(route, json=body))
+            try:
+                await asyncio.wait_for(entered.wait(), timeout=4)
+                page = await client.get("/")
+                assert page.status_code == 200
+                assert not released.is_set(), "the page waited for the database lock to be released"
+                assert not pending.done(), "the write should still be waiting for the database lock"
+            finally:
+                release()
+                response = await asyncio.wait_for(pending, timeout=3)
+            assert response.status_code == (201 if action == "subscribe" else 200)
+
+    failsafe.start()
+    try:
+        asyncio.run(check())
+    finally:
+        release()
+        failsafe.cancel()
+        failsafe.join()
+        writer.close()
+    assert len(waitlist.export()) == (2 if action == "subscribe" else 0)
 
 
 def test_json_export_is_operator_local_and_contains_no_removal_tokens(web, capsys, monkeypatch):

@@ -13,6 +13,7 @@ import time
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from bot import waitlist
@@ -116,7 +117,7 @@ def create_app() -> FastAPI:
             raise HTTPException(429, "please wait a minute before trying again", headers={"Retry-After": "60"})
         body = await read_json(request, Signup)
         try:
-            token = waitlist.subscribe(body.email, body.consent)
+            token = await run_in_threadpool(waitlist.subscribe, body.email, body.consent)
         except ValueError as exc:
             raise HTTPException(422, str(exc))
         return {"removal_token": token, "expires_in_days": 30}
@@ -124,7 +125,7 @@ def create_app() -> FastAPI:
     @app.post("/api/waitlist/remove")
     async def delete_signup(request: Request):
         body = await read_json(request, Removal)
-        waitlist.remove(body.token)
+        await run_in_threadpool(waitlist.remove, body.token)
         return {"ok": True}
 
     return app

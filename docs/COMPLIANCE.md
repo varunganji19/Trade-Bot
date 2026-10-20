@@ -6,15 +6,39 @@
 > checked on 2026-10-02 against the sources listed; laws change, and only a
 > professional can say how they apply to you. (Roadmap V8.)
 
+Implementation facts below were refreshed on 2026-10-20. This refresh does
+not revalidate the dated legal sources or provide a professional review.
+
 ## What the project does not do today
 
 | It does not | Why it matters |
 |---|---|
 | Trade real money | Paper trading only; the roadmap stops at an exchange **testnet** (V6). Any real-money step is the owner's separate decision. |
-| Manage anyone else's money | No pooled accounts, no custody, no third-party funds: portfolio-management and fund rules are not triggered by the code as it stands. |
+| Manage anyone else's money | No pooled accounts, no custody, no third-party funds. Ask the adviser about the actual proposed service and jurisdiction. |
 | Sell or publish trade signals | The bot's decisions stay in its own journal; nothing is broadcast to other people. |
 | Give investment advice | The validator grades a backtest's statistics. Its report says "This is a statistical check of a backtest, not investment advice", and no strategy is presented as profitable. |
-| Hold user data | No accounts, no sign-ups, no analytics. A waitlist (V4) or a shared verdict store (V7) would change this. |
+
+## What data the implemented service can store
+
+- The separate landing app stores consented, unverified email submissions,
+  consent-notice version, creation/expiry times and deletion-token hashes.
+  Submissions expire after 30 days and have private deletion links. No mail
+  is sent automatically. [WEBSITE.md](WEBSITE.md) describes export, purge and
+  deployment details.
+- Validator usage measurement is off by default. Explicit opt-in stores a
+  keyed client-ID hash, activity days and completed-run count in a separate
+  local database. Clients inactive for 90 UTC days are removed on the next
+  count or stats request. These are pseudonymous counters, not verified
+  people. [USAGE.md](USAGE.md) describes consent, deletion and limitations.
+- The separate opt-in verdict store keeps allowlisted summary fields, not
+  uploaded trade files. No claim is made that summaries cannot be linked
+  to a person in a particular deployment. The counter store and verdict
+  store have separate opt-ins.
+- No customer accounts, payments or third-party analytics are implemented.
+  The public landing service has not been launched. Before launch, the
+  operator needs actual identity/contact details and a notice covering the
+  hosting providers, logs, backups and any later email workflow. The code's
+  consent/expiry/deletion mechanisms do not establish legal compliance.
 
 ## Disclaimers in the product
 
@@ -23,9 +47,13 @@
 - Fast book labelled "Experimental — no proven edge" in the dashboard and
   README (roadmap 0.2).
 - Validator report footer: not investment advice.
+- Landing page footer: paper-only statement and statistical-check disclaimer;
+  a privacy/deletion page describes the implemented local service.
 - **To add before any public launch** (ask the adviser for wording): the
-  paper-only statement on the dashboard itself, a terms-of-use page, a privacy notice, and a risk warning on any page that
-  shows strategy performance.
+  paper-only statement on the dashboard itself, a terms-of-use page, a
+  deployment-specific privacy notice, and a risk warning on any page that
+  shows strategy performance. The local landing notice needs the operator's
+  identity/contact and actual deployment details before public use.
 
 ## Questions for the adviser
 
@@ -72,10 +100,13 @@
 
 ### Users and personal data
 
-10. A waitlist (V4) collects email addresses; a verdict store (V7) collects
-    strategy metadata. What does the **Digital Personal Data Protection Act,
-    2023** require (notice, consent, retention, deletion), and is the
-    planned anonymisation enough to keep verdicts out of scope?
+10. The waitlist (V4) collects email addresses; the opt-in verdict store
+    (V7) collects summary metadata; usage counters hold pseudonymous client
+    hashes and activity counts. What does the **Digital Personal Data
+    Protection Act, 2023** require for the actual deployment (notice,
+    consent, retention, deletion and backups)? Can summary metadata or
+    client hashes be personal data in that context? Review the implemented
+    notices and mechanics rather than assuming anonymisation removes scope.
 
 ### Licence and liability
 
@@ -92,7 +123,7 @@
 | Testnet adapter (V6) | Q9 |
 | Order-book recorder (V7) | Q8 |
 | Publishing the sample report (V4) | Q1, Q4 |
-| Waitlist or verdict store (V4, V7) | Q10 |
+| Public waitlist, usage counters or shared verdict store (V4, V7) | Q10 |
 | Charging for validation | Q1, Q6, Q7, Q11, Q12 |
 | Any real-money trading | Q2, Q3, Q5 |
 

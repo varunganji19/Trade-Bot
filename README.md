@@ -60,7 +60,7 @@ in [experiments/](experiments/).
   `test_shadow_behavior_profile_math`).
 - **Causality and determinism are tested**: truncating history at bar *i*
   cannot change the bar-*i* signal; identical inputs give identical trades.
-  390+ tests ([tests/](tests/)), a parity smoke and
+  732 tests passed on 2026-10-20 ([tests/](tests/)), a parity smoke and
   [CI](.github/workflows/ci.yml) on every push.
 
 Paper trading only. No strategy here is presented as profitable.
@@ -90,6 +90,13 @@ ALGO_NO_AUTO_RESUME=1 python3 main.py dashboard   # → http://127.0.0.1:8000
 
 A talk track for this path, with likely questions, is in
 [docs/DEMO.md](docs/DEMO.md).
+
+The separate [landing page and waitlist](docs/WEBSITE.md) introduce the
+validator without exposing the operator dashboard. Run locally with
+`python3 -m uvicorn bot.website:app --host 127.0.0.1 --port 8001`.
+The waitlist has explicit consent, 30-day expiry and private deletion links;
+it has not been publicly launched. [Opt-in usage counters](docs/USAGE.md)
+measure completed validations and repeat consenting clients locally.
 
 `ALGO_NO_AUTO_RESUME=1` keeps the engine stopped until you click Start. A
 fresh, consistent record is one click away under **Paper account → Reset**
@@ -142,6 +149,9 @@ python3 main.py validate-trades backtest-result.json --trials 20 \
 #   (the same check in the dashboard: the Validate tab, upload the file)
 python3 main.py verdicts                   # what the anonymised verdict store says
                                            # (records added with validate-trades --record)
+python3 main.py validate-trades backtest-result.json --usage  # opt in for this run
+python3 -m bot.usage stats                  # consenting-client counts, not verified people
+python3 -m bot.usage forget                 # delete this CLI installation's count and ID
 
 # 3. dashboard
 python3 main.py dashboard           # → http://127.0.0.1:8000
@@ -179,7 +189,7 @@ make verify                         # tests + lint + live-vs-backtest parity smo
 make evidence                       # rerun both gate declarations: every verdict + the registry
 make soak                           # drive the RUNNING dashboard and flag breakdowns
 make test / make lint / make battery / make config
-python3 -m pytest tests/ -q         # 340+ tests
+python3 -m pytest tests/ -q         # 732 passed on 2026-10-20; run for current count
 ```
 
 ## How the evidence is produced
@@ -254,8 +264,8 @@ config.py            environment, costs, risk, markets (strategy params: bot/par
 main.py              CLI parser; the commands live in bot/cli/
 experiments/         pre-registered experiment declarations (TOML), their
                      results, and history.jsonl (experiments run earlier)
-track_record/        paper.jsonl: the hash chain of sealed paper-book days
-                     (created by the first `track-record append`)
+track_record/        paper.start.json: prospective start declaration;
+                     paper.jsonl: sealed-day hash chain (created by first append)
 docs/
   ARCHITECTURE.md    decision path, risk gates, promotion gate, fill model
   SELF_CHECK.md      ten likely reviewer questions, each answered from the code
@@ -267,6 +277,9 @@ docs/
   RESULTS.md         every strategy and experiment with its verdict
   DEMO.md            the 7-minute demo and talk track
   TRACK_RECORD.md    the tamper-evident forward record and its limits
+  WEBSITE.md         separate landing service, consent, expiry and deletion
+  USAGE.md           opt-in local counters and their measurement limits
+  templates/         editable one-page team/advisors slide + editing guide
   VALIDATION_SAMPLE.md  the validator run on this repo's own strategies
   ROADMAP.md         the plan from the mentor and VC reviews
   archive/           the round-by-round lab notebook, kept unchanged
@@ -298,6 +311,9 @@ bot/
   testnet.py         Binance SPOT TESTNET broker: real orders, kill switches, reconcile
   recorder.py        Binance public order-book + trade recorder (gzip, hourly files)
   verdict_store.py   opt-in, local, anonymised record of validation verdicts
+  usage.py           opt-in, local, pseudonymous completed-validation counters
+  website.py         separate landing/waitlist app, without trading routes
+  waitlist.py        consented email submissions, expiry, deletion and local export
   kronos_signal.py   Kronos forecaster and its IC ledger (offline only)
   hft/               the fast (5m, experimental) book: config, fee tiers,
                      cost floors, descriptive harness
@@ -317,13 +333,14 @@ scripts/
   soak.py            drive the RUNNING dashboard in a loop, flag breakdowns
   pinned_runs.py     pinned windows (byte-identical reruns)
 models/kronos/       vendored Kronos model source (MIT; weights via HF Hub)
-tests/               340+ tests: causality, determinism, fills, risk, the gate,
+tests/               tests: causality, determinism, fills, risk, the gate,
                      experiments, ledger, journal, engines, dashboard
 run_battery.py       descriptive standard-book battery (no verdicts)
 LICENSE              MIT
 pyproject.toml       ruff + pytest config (the lint floor CI enforces)
 Makefile             setup / test / lint / verify / evidence / battery / ...
 CHANGELOG.md         dated changes
+CONTRIBUTING.md      isolated setup, graph-first navigation and verification workflow
 ```
 
 ## Environment

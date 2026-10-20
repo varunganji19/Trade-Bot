@@ -5,7 +5,11 @@ deliverable, an acceptance check, an effort estimate and an owner: **Claude**
 (code and docs I can build in this repo) or **You** (decisions, outreach,
 money, people — things code cannot do).*
 
-## Status (2026-10-02, after Phase 2–3 build)
+## Status (2026-10-20, after implementation and operation checks)
+
+The status table is current. The phased plan below preserves the original
+deliverables and effort estimates; these are not new deadlines or evidence
+that outreach, elapsed-time studies or external reviews have happened.
 
 **Decisions taken:** positioning as a validation platform — yes; a stricter
 promotion bar even if nothing may trade — yes; licence — MIT for now,
@@ -21,7 +25,7 @@ readiness only. The archive move (M2) was approved.
 | M2 Cut scope, keep depth | done: Extras (chatbot, Kronos), four docs + archive | [RESULTS.md](RESULTS.md), [METHODOLOGY.md](METHODOLOGY.md) |
 | M3 Statistical bar | done: rule v2, 2-year/90-day gates, intervals, regimes, registry, pre-registration, `make evidence` | [experiments/](../experiments/) |
 | M4 Data hygiene | done: ledger check on every poll, banner, test | METHODOLOGY §10 |
-| M5 Readable code | done: no code file over 600 lines; comment pass; source pins replaced by behaviour tests | README "Layout" |
+| M5 Readable code | core router/journal/cycle splits and comment pass done; source pins replaced by behaviour tests. The original 600-line ceiling is no longer met (for example, positions.py 738 and testnet.py 802 lines on 2026-10-20) | README "Layout", [ARCHITECTURE.md](ARCHITECTURE.md) |
 | M7 Learnings as a feature | done: RESULTS.md + Evidence → Experiment log | dashboard |
 | M8 Fast-book questions | done: hold length recorded (re-run reproduces it); real taker flow built (bot/flow.py, `hft_taker_flow`) and rejected by a pre-registered study (PF 0.42 vs the proxy's 0.44) | [RESULTS.md](RESULTS.md) §3 |
 | V1 Forward track record | prospective start declared on 2026-10-20 for the first full UTC day 2026-10-21; daily 07:00 IST local sealing/verification/commit scheduled. First seal due October 22; no days sealed or independently published yet | [TRACK_RECORD.md](TRACK_RECORD.md), [initialization evidence](research/forward_record/README.md) |
@@ -34,9 +38,11 @@ readiness only. The archive move (M2) was approved.
 | V10 Market | done: sourced figures, assumptions A1–A6 labelled; on those guesses a hobby-sized first segment | [MARKET.md](MARKET.md) |
 | V6 Testnet | readiness rechecked 2026-10-20: public ping/time pass, exact-host guard fixed, 88 execution regressions pass. **Blocked:** both testnet credentials absent; authenticated run and 4 weeks remain | [TESTNET.md](TESTNET.md), [readiness evidence](research/testnet_readiness/README.md) |
 | V7 Data asset | live acceptance rechecked 2026-10-20: 60 depth snapshots + 306 trades, strict/recovery readback matches; 3 public sample verdicts verified in an isolated local store. Idle-stop and Git-ignore defects fixed. **Still pending:** Q8/Q10 review, sustained collection, and real consenting external users | [operation evidence](research/data_operations/README.md) |
-| V4 Traction, V9 Team | not started: mostly outreach and people (yours) | below |
+| V4 Traction tooling | implemented: separate landing service, consented 30-day waitlist with private deletion, and opt-in completed-validation/repeat-client counters. Desktop/mobile signup, deletion and real validation flows checked; 732 tests pass. **Still pending:** public deployment/contact details, outreach, interviews and real demand evidence | [WEBSITE.md](WEBSITE.md), [USAGE.md](USAGE.md), [landing preview](screenshots/landing-desktop.jpg) |
+| V9 Team tooling | implemented: contributor guide and editable one-slide team/advisor template, with package/layout and rendered-page checks. **Still pending:** owner's contribution details, introductions and actual advisor commitments | [CONTRIBUTING.md](../CONTRIBUTING.md), [slide and editing guide](templates/team-advisors.md) |
 
-**Not met as written:** M5's "trace one trade in ≤ 5 files" holds only if
+**Not met as written:** M5's code-file size ceiling is not maintained, and
+"trace one trade in ≤ 5 files" holds only if
 the risk manager and broker count as called-through (see README "Layout");
 tests/test_bot.py (6,000+ lines) was not split — the 600-line target was
 applied to code, not tests.
@@ -62,7 +68,7 @@ something a VC can evaluate (VC track). If you prefer to stay a "trading bot"
 project, the mentor track still applies; the VC track's product items (V3)
 would be dropped.
 
-**Decisions needed from you before Phase 1** (marked ◆ below):
+**Original decisions before Phase 1** (marked ◆ below; dispositions above):
 1. ◆ Positioning as above (yes / no).
 2. ◆ Raising the promotion bar (M3) will very likely demote today's voters,
    possibly leaving both books with nothing allowed to trade. Accept that?
@@ -123,7 +129,7 @@ would be dropped.
      9 + 9 + 9 fade settings) is recorded in `data/experiments.jsonl` with its
      parameters, date and result. The Deflated Sharpe calculation reads the
      trial count from it automatically, so selection bias is always priced in.
-  5. **Pre-registration.** Experiments are declared in a small YAML file
+  5. **Pre-registration.** Experiments are declared in a small TOML file
      *before* they run (variants, markets, split); the runner refuses
      anything undeclared and writes results back next to the declaration.
 - **Done when:** `make evidence` regenerates every verdict, interval and the
@@ -195,17 +201,18 @@ Each question gets an *answer artifact*. Where the honest answer is "not yet",
 the artifact is the system that will produce the answer.
 
 ### V1. "Do you have an edge?"
-- **Answer today:** No proven edge. Two standard-book strategies pass the
-  current gate on small samples; M3 will say whether they survive a stricter
-  one.
+- **Answer today:** No proven edge. The two former small-sample voters did
+  not survive rule v2 on the longer window; no strategy currently earns a
+  vote ([RESULTS.md](RESULTS.md)).
 - **Build:**
   - The M3 evidence package (multi-year, regimes, intervals, trial-counted
     Deflated Sharpe).
   - A **tamper-evident forward track record.** Every day the paper journal's
     trades and equity are hashed and the hash is committed to the repo (or
-    published), so performance from that date on cannot be backfilled or
-    edited. A VC cannot trust a backtest; they can trust a timestamped forward
-    record.
+    published). Recomputing detects changes relative to those seals;
+    independent publication is needed to establish when they existed.
+    Local hashes alone do not prevent a rewritten history. The declared
+    first full day is 2026-10-21; no seal or public timestamp exists yet.
 - **Done when:** `docs/TRACK_RECORD.md` shows forward performance since a
   start date with daily verifiable hashes.
 - **Owner/Effort:** Claude, 2 days (plus M3). The clock then needs months to run.
@@ -240,14 +247,18 @@ the artifact is the system that will produce the answer.
 - **Owner/Effort:** Claude, 6–8 days.
 
 ### V4. "Is there demand?" (traction)
-- **Build (Claude):** a one-page landing page with a waitlist (email capture),
-  and anonymous usage counters in the validator (opt-in).
+- **Built:** a one-page landing page with a waitlist (email capture), and
+  opt-in **pseudonymous** usage counters in the validator. See
+  [WEBSITE.md](WEBSITE.md) and [USAGE.md](USAGE.md). Neither test signups nor
+  synthetic validation runs count as demand evidence.
 - **Do (You):**
   - Publish the sample "my own strategies, honestly validated" report on
     r/algotrading and the freqtrade Discord.
   - Offer free validations to the first 20 users, and run 10 user interviews
     (script provided).
-  - Track waitlist size, validations run and repeat users.
+  - Track unique unverified active emails, completed opted-in validations
+    and repeat consenting clients. These metrics do not establish unique
+    people, customers or willingness to pay.
 - **Done when:** you can state a traction number (e.g. "40 sign-ups, 25
   strategies validated, 8 repeat users") instead of "zero".
 - **Owner/Effort:** Claude 1.5 days; You 2–4 weeks of outreach.
@@ -298,8 +309,11 @@ the artifact is the system that will produce the answer.
 ### V9. "Who is on the team?"
 - **Do (You):** name the gaps (a markets/trading practitioner, someone for
   distribution/community); ask your mentors for one advisor intro each.
-- **Build (Claude):** a one-page team and advisors slide template; a
-  contributor guide (`CONTRIBUTING.md`) so others can join the repo.
+- **Built:** an editable [one-page team/advisors slide](templates/team-advisors.pptx)
+  with [editing guidance](templates/team-advisors.md), and
+  [CONTRIBUTING.md](../CONTRIBUTING.md) for setup, graph-first navigation,
+  isolated previews and verification. Open roles are placeholders, not
+  confirmed appointments.
 
 ### V10. "How big is the market, and how do you make money?"
 - **Build:** `docs/MARKET.md` with sourced estimates (active open-source

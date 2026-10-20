@@ -4,8 +4,9 @@ The page reads the user's file in the browser and posts it here base64
 encoded inside a JSON body (every mutating route takes JSON: the content type
 forces the CORS preflight that defeats form-encoded CSRF, and no multipart
 dependency is needed). The file is written to a temporary directory, judged
-by bot/validator.py exactly as the CLI would judge it, and deleted. Nothing
-is stored and no journal is touched.
+by bot/validator.py exactly as the CLI would judge it, and deleted. Optional
+verdict summaries and usage counts require separate opt-ins; the trade file
+is never retained and no journal is touched.
 """
 from __future__ import annotations
 
@@ -14,10 +15,11 @@ import binascii
 import json
 import os
 import re
+import sqlite3
 import tempfile
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 router = APIRouter()
 
@@ -35,11 +37,24 @@ class ValidateIn(BaseModel):
     regime_market: str | None = Field(default=None, max_length=24)
     # opt-in: add an anonymised summary to the local verdict store
     record: bool = False
+    usage_opt_in: StrictBool = False
+    usage_client_id: str | None = Field(default=None, max_length=36)
+
+
+class UsageClient(BaseModel):
+    client_id: str = Field(min_length=36, max_length=36)
 
 
 @router.post("/api/validate")
 def api_validate(body: ValidateIn):
     from bot import validator as v
+    from bot import usage
+    client_id = None
+    if body.usage_opt_in:
+        try:
+            client_id = usage.validate_client(body.usage_client_id)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
     m = _SUFFIX.search(body.filename)
     if not m:
         raise HTTPException(422, "the file must be .json, .zip or .csv")
@@ -74,4 +89,29 @@ def api_validate(body: ValidateIn):
     if body.record:
         from bot import verdict_store
         recorded = verdict_store.record(report)
-    return {"report": report, "markdown": v.render_markdown(report), "recorded": recorded}
+    usage_recorded, usage_warning = False, None
+    if client_id:
+        try:
+            usage.record(client_id)
+            usage_recorded = True
+        except (OSError, sqlite3.Error, ValueError):
+            # Optional measurement must never withhold a completed verdict.
+            usage_warning = "The report is ready, but local usage counters could not be saved."
+    return {"report": report, "markdown": v.render_markdown(report), "recorded": recorded,
+            "usage_recorded": usage_recorded, "usage_warning": usage_warning}
+
+
+@router.get("/api/usage")
+def api_usage():
+    from bot import usage
+    return usage.stats()
+
+
+@router.post("/api/usage/forget")
+def forget_usage(body: UsageClient):
+    from bot import usage
+    try:
+        usage.forget(body.client_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"ok": True}

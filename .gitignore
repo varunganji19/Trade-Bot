@@ -17,6 +17,8 @@ data/results/
 data/orderbook/
 data/operation_checks/
 data/waitlist.db*
+data/usage.db*
+data/usage-client.json*
 data/kronos_ic.json
 
 # safety-net snapshots and OS clutter

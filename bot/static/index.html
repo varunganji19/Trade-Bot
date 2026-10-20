@@ -394,7 +394,7 @@ document.documentElement.setAttribute('data-theme',t);})();
 <!-- ============================================================ VALIDATE -->
 <section class="view" id="view-validate" aria-labelledby="pageTitle">
   <div class="card">
-    <div class="card-head"><div><h2>Validate a strategy</h2><p class="hint">Upload the trades a backtest produced: a freqtrade backtest export (<code>.json</code> or <code>.zip</code>), a CSV with open time, close time and net P&amp;L per trade, or this repo's <code>backtest --json</code>. The file is read once and discarded; nothing is stored.</p></div></div>
+    <div class="card-head"><div><h2>Validate a strategy</h2><p class="hint">Upload the trades a backtest produced: a freqtrade backtest export (<code>.json</code> or <code>.zip</code>), a CSV with open time, close time and net P&amp;L per trade, or this repo's <code>backtest --json</code>. The file is discarded after validation. The options below can save local summaries or usage counts.</p></div></div>
     <div class="form-row" id="valForm">
       <label class="field grow"><span>Trades file</span>
         <input class="input" id="valFile" type="file" accept=".json,.zip,.csv"></label>
@@ -405,6 +405,8 @@ document.documentElement.setAttribute('data-theme',t);})();
       <button class="btn btn-primary" id="valRunBtn">Validate</button>
     </div>
     <label class="check-row"><input type="checkbox" id="valRecord"> Add an anonymous summary of the verdict to this machine's verdict store (no names, markets or dates; never uploaded)</label>
+    <label class="check-row"><input type="checkbox" id="valUsage"> Count completed validations and repeat use locally using a random browser ID. No files, trade data or email; never sent to another service.</label>
+    <p class="hint">Usage counting is off unless checked. <button class="btn" id="valUsageClear" type="button">Delete my usage counters</button></p>
     <p class="hint">Variants tried: every parameter set or strategy you tested before this one. Leaving it empty assumes 1, the most generous case, and the verdict cannot be <b>robust</b>. Regimes need daily prices, fetched once.</p>
     <div class="status-line" id="valStatus" hidden></div>
   </div>

@@ -551,10 +551,38 @@ function renderDrift(alerts) {
 
 /* ===================================================== validate a strategy
    (bot/api/validate.py -> bot/validator.py): the file is read here and
-   posted as base64 JSON; the server judges it and keeps nothing */
+   posted as base64 JSON; the server discards it after judgment. Local
+   verdict summaries and usage counts have separate opt-ins. */
 const VAL_MAX_BYTES = 20 * 1024 * 1024;
 const VAL_CHIP = {'robust': 'on', 'fragile': 'warn', 'likely overfit': 'neg'};
 let valMarkdown = '', valName = '';
+const VAL_USAGE_KEY = 'algo_validation_usage_client';
+
+function valUsageClient() {
+  if (!$('#valUsage').checked) return null;
+  try {
+    let id = localStorage.getItem(VAL_USAGE_KEY);
+    if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      id = crypto.randomUUID(); localStorage.setItem(VAL_USAGE_KEY, id);
+    }
+    return id;
+  } catch {
+    toast('Usage not counted', 'Browser storage is unavailable; validation will still run.', false);
+    return null;
+  }
+}
+
+$('#valUsageClear').addEventListener('click', async () => {
+  try {
+    const id = localStorage.getItem(VAL_USAGE_KEY);
+    if (id) await jpost('/api/usage/forget', {client_id: id});
+    localStorage.removeItem(VAL_USAGE_KEY);
+    $('#valUsage').checked = false;
+    toast('Usage removed', 'This browser’s local counters and saved ID were deleted.');
+  } catch {
+    toast('Could not delete usage', 'Try again; the saved ID has been kept for retry.', false);
+  }
+});
 
 function readAsBase64(file) {
   return new Promise((resolve, reject) => {
@@ -575,12 +603,15 @@ async function valRun() {
   status.textContent = 'Validating ' + file.name + ($('#valRegime').value ? ' (fetching daily prices for the regimes)…' : '…');
   $('#valRunBtn').disabled = true;
   try {
+    const usageId = valUsageClient();
     const res = await jpost('/api/validate', {
       filename: file.name, content_b64: await readAsBase64(file),
       trials: trials > 0 ? trials : null, regime_market: $('#valRegime').value || null,
       record: $('#valRecord').checked,
+      usage_opt_in: !!usageId, usage_client_id: usageId,
     });
     if (res.recorded) toast('Verdict stored', res.recorded + ' anonymous record(s) added on this machine.');
+    if (res.usage_warning) toast('Usage not saved', res.usage_warning, false);
     status.hidden = true;
     valMarkdown = res.markdown; valName = file.name.replace(/\.[^.]+$/, '');
     valRender(res.report);

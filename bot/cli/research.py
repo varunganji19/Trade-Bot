@@ -488,6 +488,14 @@ def cmd_validate_trades(args):
         from bot import verdict_store
         n = verdict_store.record(report)
         print(f"[validate-trades] added {n} anonymised record(s) to {verdict_store.store_path()}")
+    if getattr(args, "usage", False):
+        import sqlite3
+        from bot import usage
+        try:
+            usage.record(usage.cli_client_id())
+            print("[validate-trades] counted one completed validation locally (opt-in)")
+        except (OSError, sqlite3.Error, ValueError, KeyError):
+            print("[validate-trades] report ready; optional local usage could not be saved", file=sys.stderr)
     n = len(report["strategies"])
     print(f"[validate-trades] {source}, {n} strateg{'y' if n == 1 else 'ies'} in "
           f"{_t.time() - t0:.1f}s")

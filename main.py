@@ -226,6 +226,8 @@ def build_parser() -> argparse.ArgumentParser:
     vt.add_argument("--record", action="store_true",
                     help="add an anonymised summary of each verdict to the local store "
                          "(results/verdicts.jsonl; never uploaded)")
+    vt.add_argument("--usage", action="store_true",
+                    help="opt in to local run/returning-installation counters; no trade metadata or upload")
     vt.set_defaults(fn=cmd_validate_trades)
 
     vd = sub.add_parser("verdicts", help="summarise the local anonymised verdict store")

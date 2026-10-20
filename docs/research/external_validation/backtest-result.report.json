@@ -1,0 +1,107 @@
+{
+  "input": "backtest-result.json",
+  "source": "freqtrade",
+  "trials": null,
+  "strategies": {
+    "StrategyTestV3": {
+      "trades": 179,
+      "trials_given": null,
+      "period": [
+        "2018-01-10",
+        "2018-01-30"
+      ],
+      "net_pnl": 0.0010419029856968845,
+      "currency": "BTC",
+      "win_rate": 95.0,
+      "intervals": {
+        "trades": 179,
+        "pf": 2.422,
+        "pf_lo": 1.437,
+        "pf_hi": 5.95,
+        "sharpe": 0.2466,
+        "sharpe_lo": 0.104,
+        "sharpe_hi": 0.495
+      },
+      "stability": {
+        "segments": [
+          {
+            "from": "2018-01-10",
+            "to": "2018-01-15",
+            "trades": 46,
+            "pf": 5.764,
+            "measured": true
+          },
+          {
+            "from": "2018-01-15",
+            "to": "2018-01-20",
+            "trades": 57,
+            "pf": 1.717,
+            "measured": true
+          },
+          {
+            "from": "2018-01-20",
+            "to": "2018-01-25",
+            "trades": 40,
+            "pf": 3.058,
+            "measured": true
+          },
+          {
+            "from": "2018-01-25",
+            "to": "2018-01-30",
+            "trades": 36,
+            "pf": 1.551,
+            "measured": true
+          }
+        ],
+        "measured": 4,
+        "profitable": 4
+      },
+      "costs": {
+        "available": true,
+        "rows": [
+          {
+            "fee_mult": 0.5,
+            "pf": 3.097,
+            "net": 0.0014907053644290056
+          },
+          {
+            "fee_mult": 1.0,
+            "pf": 2.422,
+            "net": 0.0010419029856968845
+          },
+          {
+            "fee_mult": 2.0,
+            "pf": 1.186,
+            "net": 0.00014429822823264224
+          }
+        ],
+        "fees_total": 0.0008976047574642422
+      },
+      "deflated_sharpe": {
+        "dsr": 0.991,
+        "sharpe_per_trade": 0.2466,
+        "trials": 1,
+        "sr0": 0.0
+      },
+      "pbo": {
+        "pbo": null,
+        "why": "needs two or more strategies run on the same period (a freqtrade file with several strategies)"
+      },
+      "regimes": {
+        "available": false,
+        "why": "no daily prices (pass --regime-market or --prices)"
+      },
+      "verdict": "fragile",
+      "reasons": [
+        "number of variants tried not given (--trials): 1 was assumed, the most generous case",
+        "regime coverage not checked: no daily prices (pass --regime-market or --prices)"
+      ],
+      "passed": [
+        "profit-factor interval 1.44\u20135.95 stays above 1.0",
+        "profitable in 4 of 4 quarters",
+        "survives doubled fees (PF 1.19)",
+        "Deflated Sharpe 0.99 for 1 variant(s) tried"
+      ]
+    }
+  }
+}

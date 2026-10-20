@@ -158,7 +158,8 @@ def _normalise(row: dict) -> dict:
         notional = abs(_float(lower["qty"]) * _float(lower["entry_price"]))
     return {"open": _ts(opened), "close": _ts(closed), "pnl": pnl,
             "fee": None if fee is None else abs(fee), "notional": notional,
-            "pair": _pick(lower, _PAIR)}
+            "pair": _pick(lower, _PAIR),
+            "currency": _pick(lower, ("stake_currency", "currency"))}
 
 
 def _from_rows(rows: list[dict]) -> list[dict]:
@@ -174,7 +175,8 @@ def _from_rows(rows: list[dict]) -> list[dict]:
 def _freqtrade(doc: dict) -> dict:
     out = {}
     for name, res in (doc.get("strategy") or {}).items():
-        out[name] = _from_rows(res.get("trades") or [])
+        out[name] = _from_rows([{**row, "stake_currency": res.get("stake_currency")}
+                                for row in res.get("trades") or []])
     return out
 
 
@@ -197,7 +199,7 @@ def load_trades(path: str | Path) -> tuple[str, dict]:
             for member in zf.namelist():
                 if member.endswith(".json") and not member.endswith(("_config.json",)):
                     doc = json.loads(zf.read(member))
-                    if isinstance(doc, dict) and "strategy" in doc:
+                    if isinstance(doc, dict) and isinstance(doc.get("strategy"), dict):
                         return "freqtrade", _freqtrade(doc)
         raise ValidatorError(f"{path.name}: no freqtrade backtest result inside the zip")
     text = path.read_text()
@@ -264,9 +266,9 @@ def cost_sensitivity(trades: list[dict]) -> dict:
     rows = []
     for m in FEE_MULTS:
         pnls = [t["pnl"] + (1.0 - m) * t["fee"] for t in trades]
-        rows.append({"fee_mult": m, "pf": _pf(pnls), "net": round(sum(pnls), 2)})
+        rows.append({"fee_mult": m, "pf": _pf(pnls), "net": math.fsum(pnls)})
     return {"available": True, "rows": rows,
-            "fees_total": round(sum(t["fee"] for t in trades), 2)}
+            "fees_total": math.fsum(t["fee"] for t in trades)}
 
 
 def deflated_sharpe(pnls, trials: int) -> dict:
@@ -417,12 +419,15 @@ def analyse(trades: list[dict], *, trials: int | None = None,
     not say how many variants they tried: 1 is assumed, and the verdict
     cannot be robust."""
     pnls = [t["pnl"] for t in trades]
+    currencies = {t.get("currency") for t in trades}
     r = {
         "trades": len(trades),
         "trials_given": trials,
         "period": ([trades[0]["open"].date().isoformat(), trades[-1]["close"].date().isoformat()]
                    if trades else None),
-        "net_pnl": round(sum(pnls), 2),
+        # Exports may be BTC-denominated; cent rounding would erase their P&L.
+        "net_pnl": math.fsum(pnls),
+        "currency": next(iter(currencies)) if len(currencies) == 1 else None,
         "win_rate": round(100.0 * sum(p > 0 for p in pnls) / len(pnls), 1) if pnls else None,
         "intervals": trade_evidence(pnls),
         "stability": stability(trades),
@@ -457,6 +462,11 @@ def _f(v, spec=".2f", none="—"):
     return none if v is None else format(v, spec)
 
 
+def _money(value: float, currency: str | None) -> str:
+    # Significant digits preserve small quote units without inventing a USD unit.
+    return f"{value:+.10g} {currency or 'input units'}"
+
+
 def render_markdown(report: dict) -> str:
     out = [f"# Strategy validation: {report['input']}", "",
            f"Source: {report['source']}. Variants tried (--trials): "
@@ -472,7 +482,8 @@ def render_markdown(report: dict) -> str:
         out += [f"## {name}: **{r['verdict'].upper()}**", "",
                 f"{r['trades']} closed trades"
                 + (f", {r['period'][0]} to {r['period'][1]}" if r["period"] else "")
-                + f"; net P&L {r['net_pnl']:+,.2f}; win rate {_f(r['win_rate'], '.1f')}%.", ""]
+                + f"; net P&L {_money(r['net_pnl'], r.get('currency'))}; "
+                + f"win rate {_f(r['win_rate'], '.1f')}%.", ""]
         if r["reasons"]:
             out += ["Why it is not robust:", ""] + [f"- {x}" for x in r["reasons"]] + [""]
         if r["passed"]:
@@ -494,7 +505,8 @@ def render_markdown(report: dict) -> str:
         out += ["", "Cost sensitivity:", ""]
         if c["available"]:
             out += ["| Fees | PF | Net P&L |", "|---|---:|---:|"]
-            out += [f"| ×{row['fee_mult']:g} | {_f(row['pf'])} | {row['net']:+,.2f} |"
+            out += [f"| ×{row['fee_mult']:g} | {_f(row['pf'])} | "
+                    f"{_money(row['net'], r.get('currency'))} |"
                     for row in c["rows"]]
         else:
             out.append(f"Not checked: {c['why']}.")

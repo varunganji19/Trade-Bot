@@ -593,6 +593,8 @@ async function valRun() {
 }
 
 const valNum = (v, d = 2) => v == null ? '—' : Number(v).toFixed(d);
+const valMoney = (v, currency) => v == null ? '—' :
+  (v >= 0 ? '+' : '') + Number(v).toPrecision(10).replace(/(\.\d*?[1-9])0+(?=e|$)|\.0+(?=e|$)/, '$1') + ' ' + (currency || 'input units');
 function valTable(head, rows) {
   return '<div class="tbl-wrap"><table><thead><tr>' + head.map((h, i) =>
     '<th' + (i ? ' class="num"' : '') + '>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
@@ -618,7 +620,7 @@ function valRender(rep) {
     const r = rep.strategies[name], ev = r.intervals;
     html += '<div class="card val-card"><div class="card-head val-head"><div><h2>' + esc(name) + '</h2><p class="hint">' +
       esc(r.trades) + ' closed trades' + (r.period ? ', ' + esc(r.period[0]) + ' to ' + esc(r.period[1]) : '') +
-      ' · net P&L ' + esc(fmtPnl(r.net_pnl)) + ' · win rate ' + esc(valNum(r.win_rate, 1)) + '%</p></div>' +
+      ' · net P&L ' + esc(valMoney(r.net_pnl, r.currency)) + ' · win rate ' + esc(valNum(r.win_rate, 1)) + '%</p></div>' +
       '<span class="status-chip ' + (VAL_CHIP[r.verdict] || '') + '">' + esc(String(r.verdict).toUpperCase()) + '</span></div>';
     html += valList('Why it is not robust', r.reasons, 'fail') + valList('What held up', r.passed, 'pass');
     html += '<div class="grid grid-split val-tables"><div>' + '<h3 class="val-sub">Checks</h3>' + valTable(['Check', 'Result'], [
@@ -628,7 +630,7 @@ function valRender(rep) {
     ]) + '<h3 class="val-sub">Profit factor per quarter</h3>' + valTable(['Period', 'Trades', 'PF'],
       r.stability.segments.map(sg => [sg.from + ' → ' + sg.to, sg.trades, sg.measured ? valNum(sg.pf) : 'too few'])) +
       '</div><div><h3 class="val-sub">Cost sensitivity</h3>' + (r.costs.available
-        ? valTable(['Fees', 'PF', 'Net P&L'], r.costs.rows.map(c => ['×' + c.fee_mult, valNum(c.pf), fmtPnl(c.net)]))
+        ? valTable(['Fees', 'PF', 'Net P&L'], r.costs.rows.map(c => ['×' + c.fee_mult, valNum(c.pf), valMoney(c.net, r.currency)]))
         : '<p class="hint">Not checked: ' + esc(r.costs.why) + '.</p>') +
       '<h3 class="val-sub">Market regimes</h3>' + (r.regimes.available
         ? valTable(['Regime', 'Trades', 'PF'], r.regimes.rows.map(g => [g.regime.replace('_', ' '), g.trades, valNum(g.pf)]))

@@ -1,0 +1,46 @@
+{
+  "upstream_revision": "7ff17f5f5ac2f7bbc55a2937fd493a68c9951647",
+  "inputs": [
+    {
+      "input": "backtest-result.json",
+      "sha256": "2d067ed77338c9c44fe46a70c7976e20aa09cd033be0504dab7ee67e936ef34d",
+      "seconds": 0.0357,
+      "checks": [
+        {
+          "strategy": "StrategyTestV3",
+          "trades": 179,
+          "net_pnl": 0.0010419029856968845,
+          "fees": 0.0008976047574642422,
+          "currency": "BTC",
+          "verdict": "fragile"
+        }
+      ],
+      "json_zip_cli_http_parity": true
+    },
+    {
+      "input": "backtest-result_multistrat.json",
+      "sha256": "ae17bf91805d93763860291c27da72596779fdf1b5348440ee04d62481fad937",
+      "seconds": 0.0716,
+      "checks": [
+        {
+          "strategy": "StrategyTestV2",
+          "trades": 179,
+          "net_pnl": 0.026085499493733857,
+          "fees": 0.0008976047574642422,
+          "currency": "BTC",
+          "verdict": "likely overfit"
+        },
+        {
+          "strategy": "TestStrategy",
+          "trades": 179,
+          "net_pnl": 0.026085499493733857,
+          "fees": 0.0008976047574642422,
+          "currency": "BTC",
+          "verdict": "likely overfit"
+        }
+      ],
+      "json_zip_cli_http_parity": true
+    }
+  ],
+  "passed": true
+}

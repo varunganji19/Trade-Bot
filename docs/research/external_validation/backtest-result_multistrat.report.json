@@ -1,0 +1,211 @@
+{
+  "input": "backtest-result_multistrat.json",
+  "source": "freqtrade",
+  "trials": null,
+  "strategies": {
+    "StrategyTestV2": {
+      "trades": 179,
+      "trials_given": null,
+      "period": [
+        "2018-01-10",
+        "2018-01-30"
+      ],
+      "net_pnl": 0.026085499493733857,
+      "currency": "BTC",
+      "win_rate": 95.0,
+      "intervals": {
+        "trades": 179,
+        "pf": 6.068,
+        "pf_lo": 2.648,
+        "pf_hi": 99.0,
+        "sharpe": 0.3738,
+        "sharpe_lo": 0.204,
+        "sharpe_hi": 0.681
+      },
+      "stability": {
+        "segments": [
+          {
+            "from": "2018-01-10",
+            "to": "2018-01-15",
+            "trades": 46,
+            "pf": 99.0,
+            "measured": true
+          },
+          {
+            "from": "2018-01-15",
+            "to": "2018-01-20",
+            "trades": 57,
+            "pf": 43.661,
+            "measured": true
+          },
+          {
+            "from": "2018-01-20",
+            "to": "2018-01-25",
+            "trades": 40,
+            "pf": 1.11,
+            "measured": true
+          },
+          {
+            "from": "2018-01-25",
+            "to": "2018-01-30",
+            "trades": 36,
+            "pf": 3.033,
+            "measured": true
+          }
+        ],
+        "measured": 4,
+        "profitable": 4
+      },
+      "costs": {
+        "available": true,
+        "rows": [
+          {
+            "fee_mult": 0.5,
+            "pf": 6.176,
+            "net": 0.026534301872465978
+          },
+          {
+            "fee_mult": 1.0,
+            "pf": 6.068,
+            "net": 0.026085499493733857
+          },
+          {
+            "fee_mult": 2.0,
+            "pf": 5.582,
+            "net": 0.025187894736269614
+          }
+        ],
+        "fees_total": 0.0008976047574642422
+      },
+      "deflated_sharpe": {
+        "dsr": 0.997,
+        "sharpe_per_trade": 0.3738,
+        "trials": 1,
+        "sr0": 0.0
+      },
+      "pbo": {
+        "pbo": 1.0,
+        "why": "selection process overfit",
+        "configs": 2
+      },
+      "regimes": {
+        "available": false,
+        "why": "no daily prices (pass --regime-market or --prices)"
+      },
+      "verdict": "likely overfit",
+      "reasons": [
+        "PBO 1.00: picking the best of the strategies in this file does worse than a coin flip out of sample",
+        "number of variants tried not given (--trials): 1 was assumed, the most generous case",
+        "regime coverage not checked: no daily prices (pass --regime-market or --prices)"
+      ],
+      "passed": [
+        "profit-factor interval 2.65\u201399.00 stays above 1.0",
+        "profitable in 4 of 4 quarters",
+        "survives doubled fees (PF 5.58)",
+        "Deflated Sharpe 1.00 for 1 variant(s) tried"
+      ]
+    },
+    "TestStrategy": {
+      "trades": 179,
+      "trials_given": null,
+      "period": [
+        "2018-01-10",
+        "2018-01-30"
+      ],
+      "net_pnl": 0.026085499493733857,
+      "currency": "BTC",
+      "win_rate": 95.0,
+      "intervals": {
+        "trades": 179,
+        "pf": 6.068,
+        "pf_lo": 2.648,
+        "pf_hi": 99.0,
+        "sharpe": 0.3738,
+        "sharpe_lo": 0.204,
+        "sharpe_hi": 0.681
+      },
+      "stability": {
+        "segments": [
+          {
+            "from": "2018-01-10",
+            "to": "2018-01-15",
+            "trades": 46,
+            "pf": 99.0,
+            "measured": true
+          },
+          {
+            "from": "2018-01-15",
+            "to": "2018-01-20",
+            "trades": 57,
+            "pf": 43.661,
+            "measured": true
+          },
+          {
+            "from": "2018-01-20",
+            "to": "2018-01-25",
+            "trades": 40,
+            "pf": 1.11,
+            "measured": true
+          },
+          {
+            "from": "2018-01-25",
+            "to": "2018-01-30",
+            "trades": 36,
+            "pf": 3.033,
+            "measured": true
+          }
+        ],
+        "measured": 4,
+        "profitable": 4
+      },
+      "costs": {
+        "available": true,
+        "rows": [
+          {
+            "fee_mult": 0.5,
+            "pf": 6.176,
+            "net": 0.026534301872465978
+          },
+          {
+            "fee_mult": 1.0,
+            "pf": 6.068,
+            "net": 0.026085499493733857
+          },
+          {
+            "fee_mult": 2.0,
+            "pf": 5.582,
+            "net": 0.025187894736269614
+          }
+        ],
+        "fees_total": 0.0008976047574642422
+      },
+      "deflated_sharpe": {
+        "dsr": 0.997,
+        "sharpe_per_trade": 0.3738,
+        "trials": 1,
+        "sr0": 0.0
+      },
+      "pbo": {
+        "pbo": 1.0,
+        "why": "selection process overfit",
+        "configs": 2
+      },
+      "regimes": {
+        "available": false,
+        "why": "no daily prices (pass --regime-market or --prices)"
+      },
+      "verdict": "likely overfit",
+      "reasons": [
+        "PBO 1.00: picking the best of the strategies in this file does worse than a coin flip out of sample",
+        "number of variants tried not given (--trials): 1 was assumed, the most generous case",
+        "regime coverage not checked: no daily prices (pass --regime-market or --prices)"
+      ],
+      "passed": [
+        "profit-factor interval 2.65\u201399.00 stays above 1.0",
+        "profitable in 4 of 4 quarters",
+        "survives doubled fees (PF 5.58)",
+        "Deflated Sharpe 1.00 for 1 variant(s) tried"
+      ]
+    }
+  }
+}

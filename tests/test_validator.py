@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import zipfile
 
 import pandas as pd
@@ -15,6 +16,44 @@ START = dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)
 EDGE = [3.0, 3.0, -2.0, 3.0, -2.0]          # PF 2.25
 LOSER = [1.0, -2.0]                         # PF 0.5
 THIN_EDGE = [2.2, -2.0]                     # PF 1.1, Sharpe per trade ~0.05
+
+
+def test_btc_export_retains_small_pnl_fees_and_currency(tmp_path):
+    # Monetary facts from freqtrade/freqtrade @ 7ff17f5, upstream backtest-result.json.
+    row = {"pair": "TRX/BTC", "stake_amount": 0.001, "amount": 10.37344398340249,
+           "open_date": "2018-01-10 07:15:00+00:00", "close_date": "2018-01-10 07:20:00+00:00",
+           "open_rate": 0.0000964, "close_rate": 0.00010074887218045112,
+           "fee_open": 0.0025, "fee_close": 0.0025, "profit_abs": 0.000045112781954887056}
+    path = _write(tmp_path, {"strategy": {"upstream": {"stake_currency": "BTC",
+                                                        "trades": [row]}}})
+    report = v.validate(path)
+    r = report["strategies"]["upstream"]
+    fee = row["amount"] * (row["open_rate"] + row["close_rate"]) * 0.0025
+    assert r["net_pnl"] == row["profit_abs"]
+    assert r["currency"] == "BTC"
+    assert r["costs"]["fees_total"] == pytest.approx(fee, abs=1e-16)
+    for result in r["costs"]["rows"]:
+        assert result["net"] == pytest.approx(row["profit_abs"] + (1-result["fee_mult"])*fee,
+                                               abs=1e-16)
+    markdown = v.render_markdown(report)
+    assert "+4.511278195e-05 BTC" in markdown
+    assert "+0.00" not in markdown
+
+
+def test_zip_metadata_strategy_name_does_not_hide_the_result(tmp_path):
+    archive = tmp_path / "upstream.zip"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr("result.meta.json", json.dumps({"strategy": "A"}))
+        z.writestr("result.json", json.dumps(_ft_export({"A": EDGE})))
+    assert v.validate(archive)["strategies"]["A"]["trades"] == 200
+
+
+def test_unlabelled_inputs_do_not_claim_a_dollar_currency(tmp_path):
+    path = _write(tmp_path, [{"open_date": "20240101", "close_date": "20240102",
+                              "pnl": 1e-10, "fees": 1e-11}])
+    report = v.validate(path)
+    assert math.isclose(report["strategies"]["strategy"]["net_pnl"], 1e-10)
+    assert "+1e-10 input units" in v.render_markdown(report)
 
 
 def _ft_trade(k: int, pnl: float, hours_apart: float = 80.0) -> dict:
